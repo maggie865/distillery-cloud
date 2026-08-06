@@ -1,75 +1,35 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, FlaskConical, Droplets, Flame, Wine, Cylinder, TrendingUp, BookOpen, Users, Warehouse, Building2, FileText, Settings, ChevronDown, PackagePlus, Truck, ClipboardList, ShieldCheck, Thermometer, Wrench, Bug, AlertTriangle, LogOut, CheckSquare , Leaf, Archive, Zap } from 'lucide-react';
+import { LogOut, ChevronDown } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
-
-const crewPaths = ['/bottling-floor', '/food-recall', '/maintenance', '/pest-control', '/temperature-logs', '/checklists', '/waste-tracker'];
-
-const navGroups = [
-  {
-    name: 'Production',
-    items: [
-      { label: 'Tanks', icon: Cylinder, path: '/tanks' },
-      { label: 'Dilutions', icon: Droplets, path: '/dilutions' },
-      { label: 'Distillations', icon: Flame, path: '/distillation' },
-      { label: 'SNS Distillation', icon: Flame, path: '/sns-distillation' },
-      { label: 'Bottling Floor', icon: Wine, path: '/bottling-floor' },
-    ]
-  },
-  {
-    name: 'Inventory',
-    items: [
-      { label: 'Finished Goods', icon: Warehouse, path: '/inventory' },
-      { label: 'Warehouse (3PL)', icon: Building2, path: '/warehouse' },
-      { label: 'Receiving', icon: PackagePlus, path: '/receiving' },
-      { label: 'Stock Takes', icon: ClipboardList, path: '/stock-takes' },
-      { label: 'Whiskey Barrels', icon: Archive, path: '/whiskey-barrels' },
-    ]
-  },
-  {
-    name: 'Sales',
-    items: [
-      { label: 'Batch Tracker', icon: FlaskConical, path: '/batch-tracker' },
-      { label: 'Dispatch', icon: TrendingUp, path: '/dispatch' },
-      { label: 'Customers', icon: Users, path: '/customers' },
-      { label: 'Suppliers', icon: Truck, path: '/suppliers' },
-    ]
-  },
-  {
-    name: 'Compliance',
-    items: [
-      { label: 'Checklists', icon: CheckSquare, path: '/checklists' },
-      { label: 'Temperature Logs', icon: Thermometer, path: '/temperature-logs' },
-      { label: 'Maintenance', icon: Wrench, path: '/maintenance' },
-      { label: 'Pest Control', icon: Bug, path: '/pest-control' },
-      { label: 'Food Recall', icon: AlertTriangle, path: '/food-recall' },
-      { label: 'Waste Tracker', icon: Leaf, path: '/waste-tracker' },
-      { label: 'Utilities', icon: Zap, path: '/utilities' },
-    ]
-  },
-];
+import { usePagePermissions } from '@/hooks/usePagePermissions';
+import { PAGES, NAV_GROUPS } from '@/lib/pages';
 
 export default function Sidebar() {
   const location = useLocation();
   const { user, logout } = useAuth();
-  const isCrew = user?.role === 'crew';
-  // Auto-expand the group containing the current page
-  const activeGroup = navGroups.find(g => g.items.some(i => location.pathname === i.path || location.pathname.startsWith(i.path + '/')))?.name;
+  const { canAccess } = usePagePermissions();
+  const isSuperAdmin = user?.role === 'super_admin';
+
+  const visible = (p) => !p.superAdminOnly && (isSuperAdmin || canAccess(p.key, user?.role));
+
+  const topPage = PAGES.find((p) => p.navGroup === 'top' && visible(p));
+  const bottomPages = PAGES.filter((p) => p.navGroup === 'bottom' && (visible(p) || (p.superAdminOnly && isSuperAdmin)));
+  const groups = NAV_GROUPS
+    .map((name) => ({ name, items: PAGES.filter((p) => p.navGroup === name && visible(p)) }))
+    .filter((g) => g.items.length > 0);
+
   const [expandedGroups, setExpandedGroups] = useState(() => {
     const init = {};
-    for (const g of navGroups) init[g.name] = true; // start all open
+    for (const name of NAV_GROUPS) init[name] = true; // start all open
     return init;
   });
 
   const toggleGroup = (groupName) => {
     setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
   };
-
-  const visibleGroups = isCrew
-    ? navGroups.map(g => ({ ...g, items: g.items.filter(i => crewPaths.includes(i.path)) })).filter(g => g.items.length > 0)
-    : navGroups;
 
   return (
     <aside className="fixed top-0 left-0 h-full w-[240px] bg-sidebar flex flex-col z-40 border-r border-sidebar-border">
@@ -78,22 +38,22 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
-        {!isCrew && (
+        {topPage && (
           <Link
-            to="/"
+            to={topPage.path}
             className={cn(
               "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-              location.pathname === '/'
+              location.pathname === topPage.path
                 ? "bg-sidebar-primary text-sidebar-primary-foreground"
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             )}
           >
-            <Home className="w-4 h-4" />
-            Dashboard
+            <topPage.icon className="w-4 h-4" />
+            {topPage.label}
           </Link>
         )}
 
-        {visibleGroups.map((group) => (
+        {groups.map((group) => (
           <Collapsible
             key={group.name}
             open={expandedGroups[group.name]}
@@ -128,34 +88,24 @@ export default function Sidebar() {
       </nav>
 
       <div className="px-3 py-3 border-t border-sidebar-border space-y-0.5">
-        {!isCrew && (
-          <>
+        {bottomPages.map((item) => {
+          const isActive = location.pathname === item.path;
+          return (
             <Link
-              to="/reports"
+              key={item.path}
+              to={item.path}
               className={cn(
                 "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
-                location.pathname === '/reports'
+                isActive
                   ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
                   : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
               )}
             >
-              <FileText className="w-4 h-4" />
-              Reports
+              <item.icon className="w-4 h-4" />
+              {item.label}
             </Link>
-            <Link
-              to="/settings"
-              className={cn(
-                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
-                location.pathname === '/settings'
-                  ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              )}
-            >
-              <Settings className="w-4 h-4" />
-              Settings
-            </Link>
-          </>
-        )}
+          );
+        })}
       </div>
 
       {/* User info + logout */}

@@ -1,61 +1,27 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, Home, FlaskConical, Droplets, Flame, Wine, Cylinder, TrendingUp, BookOpen, Users, Warehouse, Building2, FileText, Settings, ChevronDown, PackagePlus, Truck, ClipboardList, ShieldCheck, Thermometer, Wrench, Bug, AlertTriangle, LogOut, CheckSquare, Leaf, Archive, Zap } from 'lucide-react';
+import { Menu, ChevronDown, LogOut } from 'lucide-react';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
-
-const crewPaths = ['/bottling-floor', '/food-recall', '/maintenance', '/pest-control', '/temperature-logs', '/checklists', '/waste-tracker'];
-
-const navGroups = [
-  {
-    name: 'Production',
-    items: [
-      { label: 'Tanks', icon: Cylinder, path: '/tanks' },
-      { label: 'Dilutions', icon: Droplets, path: '/dilutions' },
-      { label: 'Distillations', icon: Flame, path: '/distillation' },
-      { label: 'SNS Distillation', icon: Flame, path: '/sns-distillation' },
-      { label: 'Bottling Floor', icon: Wine, path: '/bottling-floor' },
-    ]
-  },
-  {
-    name: 'Inventory',
-    items: [
-      { label: 'Finished Goods', icon: Warehouse, path: '/inventory' },
-      { label: 'Warehouse (3PL)', icon: Building2, path: '/warehouse' },
-      { label: 'Receiving', icon: PackagePlus, path: '/receiving' },
-      { label: 'Stock Takes', icon: ClipboardList, path: '/stock-takes' },
-      { label: 'Whiskey Barrels', icon: Archive, path: '/whiskey-barrels' },
-    ]
-  },
-  {
-    name: 'Sales',
-    items: [
-      { label: 'Batch Tracker', icon: FlaskConical, path: '/batch-tracker' },
-      { label: 'Dispatch', icon: TrendingUp, path: '/dispatch' },
-      { label: 'Customers', icon: Users, path: '/customers' },
-      { label: 'Suppliers', icon: Truck, path: '/suppliers' },
-    ]
-  },
-  {
-    name: 'Compliance',
-    items: [
-      { label: 'Checklists', icon: CheckSquare, path: '/checklists' },
-      { label: 'Temperature Logs', icon: Thermometer, path: '/temperature-logs' },
-      { label: 'Maintenance', icon: Wrench, path: '/maintenance' },
-      { label: 'Pest Control', icon: Bug, path: '/pest-control' },
-      { label: 'Food Recall', icon: AlertTriangle, path: '/food-recall' },
-      { label: 'Waste Tracker', icon: Leaf, path: '/waste-tracker' },
-      { label: 'Utilities', icon: Zap, path: '/utilities' },
-    ]
-  },
-];
+import { usePagePermissions } from '@/hooks/usePagePermissions';
+import { PAGES, NAV_GROUPS } from '@/lib/pages';
 
 export default function MobileNav() {
   const location = useLocation();
   const { user, logout } = useAuth();
-  const isCrew = user?.role === 'crew';
+  const { canAccess } = usePagePermissions();
+  const isSuperAdmin = user?.role === 'super_admin';
+
+  const visible = (p) => !p.superAdminOnly && (isSuperAdmin || canAccess(p.key, user?.role));
+
+  const topPage = PAGES.find((p) => p.navGroup === 'top' && visible(p));
+  const bottomPages = PAGES.filter((p) => p.navGroup === 'bottom' && (visible(p) || (p.superAdminOnly && isSuperAdmin)));
+  const groups = NAV_GROUPS
+    .map((name) => ({ name, items: PAGES.filter((p) => p.navGroup === name && visible(p)) }))
+    .filter((g) => g.items.length > 0);
+
   const [open, setOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState({});
 
@@ -65,37 +31,20 @@ export default function MobileNav() {
     setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }));
   };
 
-  const visibleGroups = isCrew
-    ? navGroups.map(g => ({ ...g, items: g.items.filter(i => crewPaths.includes(i.path)) })).filter(g => g.items.length > 0)
-    : navGroups;
-
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border pb-[env(safe-area-inset-bottom)]">
       <div className="flex justify-between items-center px-4 py-3">
-        {!isCrew && (
+        {topPage && (
           <Link
-            to="/"
+            to={topPage.path}
             onClick={closeNav}
             className={cn(
               "flex flex-col items-center py-2 px-2 text-[10px] font-medium transition-colors",
-              location.pathname === '/' ? "text-primary" : "text-muted-foreground"
+              location.pathname === topPage.path ? "text-primary" : "text-muted-foreground"
             )}
           >
-            <Home className="w-5 h-5 mb-0.5" />
-            Home
-          </Link>
-        )}
-        {isCrew && (
-          <Link
-            to="/bottling-floor"
-            onClick={closeNav}
-            className={cn(
-              "flex flex-col items-center py-2 px-2 text-[10px] font-medium transition-colors",
-              location.pathname === '/bottling-floor' ? "text-primary" : "text-muted-foreground"
-            )}
-          >
-            <Wine className="w-5 h-5 mb-0.5" />
-            Bottling
+            <topPage.icon className="w-5 h-5 mb-0.5" />
+            {topPage.label === 'Dashboard' ? 'Home' : topPage.label}
           </Link>
         )}
 
@@ -108,7 +57,7 @@ export default function MobileNav() {
           </SheetTrigger>
           <SheetContent side="bottom" className="h-[80vh] overflow-y-auto">
             <div className="space-y-2 mt-4">
-              {visibleGroups.map((group) => (
+              {groups.map((group) => (
                 <Collapsible key={group.name} open={expandedGroups[group.name]} onOpenChange={() => toggleGroup(group.name)}>
                   <CollapsibleTrigger className="flex items-center justify-between w-full px-3 py-2 rounded-lg hover:bg-muted font-medium text-foreground">
                     {group.name}
@@ -136,32 +85,20 @@ export default function MobileNav() {
                 </Collapsible>
               ))}
               <div className="border-t pt-2 mt-4">
-                {!isCrew && (
-                  <>
-                    <Link
-                      to="/reports"
-                      onClick={closeNav}
-                      className={cn(
-                        "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm",
-                        location.pathname === '/reports' ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <FileText className="w-4 h-4" />
-                      Reports
-                    </Link>
-                    <Link
-                      to="/settings"
-                      onClick={closeNav}
-                      className={cn(
-                        "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm",
-                        location.pathname === '/settings' ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground"
-                      )}
-                    >
-                      <Settings className="w-4 h-4" />
-                      Settings
-                    </Link>
-                  </>
-                )}
+                {bottomPages.map((item) => (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    onClick={closeNav}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm",
+                      location.pathname === item.path ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <item.icon className="w-4 h-4" />
+                    {item.label}
+                  </Link>
+                ))}
               </div>
 
               {/* User info + logout */}
