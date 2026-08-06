@@ -4,7 +4,7 @@
  * so no other files need changing.
  */
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { supabase } from '@/api/supabaseClient';
+import { supabase, ALLOWED_GOOGLE_DOMAIN } from '@/api/supabaseClient';
 
 const AuthContext = createContext(null);
 
@@ -12,9 +12,27 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
+  const [authError, setAuthError] = useState(null);
 
   const applySession = useCallback((session) => {
-    setUser(session?.user ? formatUser(session.user) : null);
+    if (session?.user) {
+      const domain = session.user.email?.split('@')[1]?.toLowerCase();
+      if (domain !== ALLOWED_GOOGLE_DOMAIN) {
+        setUser(null);
+        setAuthError({
+          type: 'domain_not_allowed',
+          message: `Only @${ALLOWED_GOOGLE_DOMAIN} Google accounts can sign in.`,
+        });
+        setIsLoadingAuth(false);
+        setAuthChecked(true);
+        supabase.auth.signOut();
+        return;
+      }
+      setUser(formatUser(session.user));
+      setAuthError(null);
+    } else {
+      setUser(null);
+    }
     setIsLoadingAuth(false);
     setAuthChecked(true);
   }, []);
@@ -48,7 +66,7 @@ export function AuthProvider({ children }) {
       isLoadingAuth,
       isLoadingPublicSettings: false,
       authChecked,
-      authError: null,
+      authError,
       isAuthenticated: !!user,
       checkUserAuth,
       logout,
