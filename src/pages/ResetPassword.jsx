@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
+import { auth } from "@/api/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,12 +9,27 @@ import AuthLayout from "@/components/AuthLayout";
 
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();
-  const resetToken = searchParams.get("token");
+  const code = searchParams.get("code");
 
+  const [exchanging, setExchanging] = useState(true);
+  const [linkInvalid, setLinkInvalid] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      if (!code) {
+        setLinkInvalid(true);
+        setExchanging(false);
+        return;
+      }
+      const { error: exchangeError } = await auth.exchangeCodeForSession(code);
+      if (exchangeError) setLinkInvalid(true);
+      setExchanging(false);
+    })();
+  }, [code]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -25,7 +40,8 @@ export default function ResetPassword() {
     }
     setLoading(true);
     try {
-      await base44.auth.resetPassword({ resetToken, newPassword });
+      const { error: updateError } = await auth.updatePassword(newPassword);
+      if (updateError) throw updateError;
       window.location.href = "/login";
     } catch (err) {
       setError(err.message || "Failed to reset password");
@@ -34,12 +50,20 @@ export default function ResetPassword() {
     }
   };
 
-  if (!resetToken) {
+  if (exchanging) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (linkInvalid) {
     return (
       <AuthLayout
         icon={AlertTriangle}
         title="Invalid reset link"
-        subtitle="This password reset link is missing or invalid"
+        subtitle="This password reset link is missing, invalid, or expired"
         footer={
           <Link to="/forgot-password" className="text-primary font-medium hover:underline">
             Request a new link
@@ -47,7 +71,7 @@ export default function ResetPassword() {
         }
       >
         <p className="text-sm text-foreground text-center">
-          The link you used appears to be incomplete. Please request a new password reset email.
+          The link you used appears to be incomplete or has expired. Please request a new password reset email.
         </p>
       </AuthLayout>
     );

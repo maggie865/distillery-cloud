@@ -1,0 +1,7 @@
+{
+  "name": "Distillery Cloud",
+  "short_name": "Distillery Cloud",
+  "start_url": "/",
+  "display": "standalone",
+  "icons": []
+}

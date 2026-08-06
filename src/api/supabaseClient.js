@@ -123,6 +123,20 @@ export const db = {
 export const auth = {
   signIn: (email, password) =>
     supabase.auth.signInWithPassword({ email, password }),
+  signUp: (email, password) =>
+    supabase.auth.signUp({ email, password }),
+  verifySignupOtp: (email, token) =>
+    supabase.auth.verifyOtp({ email, token, type: 'signup' }),
+  resendSignupOtp: (email) =>
+    supabase.auth.resend({ type: 'signup', email }),
+  signInWithGoogle: (redirectTo) =>
+    supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } }),
+  requestPasswordReset: (email, redirectTo) =>
+    supabase.auth.resetPasswordForEmail(email, { redirectTo }),
+  exchangeCodeForSession: (code) =>
+    supabase.auth.exchangeCodeForSession(code),
+  updatePassword: (password) =>
+    supabase.auth.updateUser({ password }),
   signOut: () =>
     supabase.auth.signOut(),
   getUser: () =>
