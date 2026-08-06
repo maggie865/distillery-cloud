@@ -3,34 +3,57 @@
  * Replaces the Base44 auth context. Keeps the same { user, isLoading, logout } interface
  * so no other files need changing.
  */
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/api/supabaseClient';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  const applySession = useCallback((session) => {
+    setUser(session?.user ? formatUser(session.user) : null);
+    setIsLoadingAuth(false);
+    setAuthChecked(true);
+  }, []);
+
+  const checkUserAuth = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    applySession(session);
+  }, [applySession]);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ? formatUser(session.user) : null);
-      setIsLoading(false);
-    });
+    checkUserAuth();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ? formatUser(session.user) : null);
+      applySession(session);
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [checkUserAuth, applySession]);
 
   const logout = () => supabase.auth.signOut();
 
+  const deleteAccount = () => {
+    throw new Error('Account deletion is not available yet. Contact an administrator.');
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, logout }}>
+    <AuthContext.Provider value={{
+      user,
+      isLoading: isLoadingAuth,
+      isLoadingAuth,
+      isLoadingPublicSettings: false,
+      authChecked,
+      authError: null,
+      isAuthenticated: !!user,
+      checkUserAuth,
+      logout,
+      deleteAccount,
+    }}>
       {children}
     </AuthContext.Provider>
   );
