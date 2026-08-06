@@ -109,6 +109,7 @@ export const db = {
   MaintenanceRecord: makeEntity('MaintenanceRecord'),
   MasterBatch:       makeEntity('MasterBatch'),
   MockRecall:        makeEntity('MockRecall'),
+  PagePermission:    makeEntity('PagePermission'),
   PestControlLog:    makeEntity('PestControlLog'),
   PestControlTrap:   makeEntity('PestControlTrap'),
   RawMaterial:       makeEntity('RawMaterial'),
@@ -154,4 +155,14 @@ export const auth = {
     supabase.auth.getUser(),
   onAuthStateChange: (cb) =>
     supabase.auth.onAuthStateChange(cb),
+};
+
+// ── Admin RPCs — super_admin only, enforced server-side ────────────────────
+// See public.list_users_for_admin / public.set_user_role in
+// 20260806030000_roles_and_permissions.sql. Both re-check the caller's role
+// from their JWT inside the function itself, so calling these as a non
+// super_admin fails server-side regardless of what the UI shows.
+export const admin = {
+  listUsers: () => supabase.rpc('list_users_for_admin'),
+  setUserRole: (userId, role) => supabase.rpc('set_user_role', { target_user_id: userId, new_role: role }),
 };

@@ -77,14 +77,19 @@ export function AuthProvider({ children }) {
   );
 }
 
-// Format Supabase user to match Base44 user shape
-// role is stored in user_metadata — set it via Supabase dashboard or SQL
+// Format Supabase user to match Base44 user shape.
+// role lives in app_metadata (not user_metadata) - app_metadata can only be
+// changed by a privileged server-side function (see
+// 20260806030000_roles_and_permissions.sql), unlike user_metadata, which a
+// signed-in user can edit on themselves via supabase.auth.updateUser().
+// Using user_metadata for authorization would let anyone grant themselves
+// admin.
 function formatUser(supabaseUser) {
   return {
     id: supabaseUser.id,
     email: supabaseUser.email,
     full_name: supabaseUser.user_metadata?.full_name || supabaseUser.email,
-    role: supabaseUser.user_metadata?.role || 'user', // 'admin' | 'user' | 'crew'
+    role: supabaseUser.app_metadata?.role || 'user', // 'super_admin' | 'admin' | 'user'
   };
 }
 
