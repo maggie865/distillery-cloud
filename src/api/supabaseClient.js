@@ -15,9 +15,15 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 export const ALLOWED_GOOGLE_DOMAIN = 'bluffdistillery.com';
 
 // ── Entity-name → table-name mapping ─────────────────────────────────────────
+// Acronym-aware: a run of capitals followed by a new word breaks before the
+// last capital (SNSRun -> sns_run), not before every capital
+// (s_n_s_run) - the naive single-pass version got this wrong.
 const toTable = (name) =>
-  name.replace(/(?<!^)(?=[A-Z])/g, '_').toLowerCase();
-// e.g. FinishedGood → finished_good, StorageTank → storage_tank
+  name
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase();
+// e.g. FinishedGood → finished_good, StorageTank → storage_tank, SNSRun → sns_run
 
 // ── Generic CRUD wrapper matching the Base44 entity interface ─────────────────
 function makeEntity(entityName) {
@@ -94,6 +100,7 @@ export const db = {
   AppSettings:       makeEntity('AppSettings'),
   BottlingRun:       makeEntity('BottlingRun'),
   Customer:          makeEntity('Customer'),
+  DashboardLink:     makeEntity('DashboardLink'),
   Dilution:          makeEntity('Dilution'),
   Dispatch:          makeEntity('Dispatch'),
   DistillationRun:   makeEntity('DistillationRun'),
@@ -101,6 +108,7 @@ export const db = {
   FoodRecall:        makeEntity('FoodRecall'),
   MaintenanceRecord: makeEntity('MaintenanceRecord'),
   MasterBatch:       makeEntity('MasterBatch'),
+  MockRecall:        makeEntity('MockRecall'),
   PestControlLog:    makeEntity('PestControlLog'),
   PestControlTrap:   makeEntity('PestControlTrap'),
   RawMaterial:       makeEntity('RawMaterial'),
@@ -109,13 +117,16 @@ export const db = {
   SNSRun:            makeEntity('SNSRun'),
   StockTake:         makeEntity('StockTake'),
   StockTakeLine:     makeEntity('StockTakeLine'),
+  StockThreshold:    makeEntity('StockThreshold'),
   StorageTank:       makeEntity('StorageTank'),
   SubBatch:          makeEntity('SubBatch'),
   Supplier:          makeEntity('Supplier'),
   TankMovement:      makeEntity('TankMovement'),
   TemperatureLog:    makeEntity('TemperatureLog'),
+  UtilityLog:        makeEntity('UtilityLog'),
   WarehouseStock:    makeEntity('WarehouseStock'),
   WastageRecord:     makeEntity('WastageRecord'),
+  WhiskeyBarrel:     makeEntity('WhiskeyBarrel'),
 };
 
 // ── Named exports matching current import style ───────────────────────────────
