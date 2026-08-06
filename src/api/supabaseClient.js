@@ -10,6 +10,10 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// Only Google accounts on this Workspace domain may sign in. This value also
+// gates session acceptance in AuthContext.jsx - keep the two in sync.
+export const ALLOWED_GOOGLE_DOMAIN = 'bluffdistillery.com';
+
 // ── Entity-name → table-name mapping ─────────────────────────────────────────
 const toTable = (name) =>
   name.replace(/(?<!^)(?=[A-Z])/g, '_').toLowerCase();
@@ -121,22 +125,18 @@ export const db = {
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
 export const auth = {
-  signIn: (email, password) =>
-    supabase.auth.signInWithPassword({ email, password }),
-  signUp: (email, password) =>
-    supabase.auth.signUp({ email, password }),
-  verifySignupOtp: (email, token) =>
-    supabase.auth.verifyOtp({ email, token, type: 'signup' }),
-  resendSignupOtp: (email) =>
-    supabase.auth.resend({ type: 'signup', email }),
   signInWithGoogle: (redirectTo) =>
-    supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } }),
-  requestPasswordReset: (email, redirectTo) =>
-    supabase.auth.resetPasswordForEmail(email, { redirectTo }),
-  exchangeCodeForSession: (code) =>
-    supabase.auth.exchangeCodeForSession(code),
-  updatePassword: (password) =>
-    supabase.auth.updateUser({ password }),
+    supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo,
+        // `hd` narrows Google's account chooser to this Workspace domain.
+        // This is a UI hint only, not a security boundary - the real
+        // enforcement is the domain check in AuthContext plus the Supabase
+        // "Before User Created" auth hook (see supabase/migrations/).
+        queryParams: { hd: ALLOWED_GOOGLE_DOMAIN },
+      },
+    }),
   signOut: () =>
     supabase.auth.signOut(),
   getUser: () =>
