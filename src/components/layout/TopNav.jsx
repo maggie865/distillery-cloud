@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ChevronDown, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -6,12 +6,26 @@ import { useAuth } from '@/lib/AuthContext';
 import { usePagePermissions } from '@/hooks/usePagePermissions';
 import { PAGES, NAV_GROUPS } from '@/lib/pages';
 
+// Fades the edges of a horizontally-scrollable row so cut-off content reads
+// as "more to scroll" rather than just ending abruptly - most useful on
+// mobile, where the whole row rarely fits.
+const scrollFadeStyle = {
+  maskImage: 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)',
+  WebkitMaskImage: 'linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent)',
+};
+
 /**
  * Two-tier sticky top nav. Row 1 has the top-level pages plus a button per
  * group; clicking a group opens row 2 underneath it showing that group's
  * pages. Row 2 tracks the current route by default (so navigating within a
  * group keeps it open and always shows where you are), but clicking a
  * different group previews it without navigating - see `activeGroup` below.
+ *
+ * Both rows scroll horizontally on narrow screens, so whichever item is
+ * "active" is auto-scrolled into view on every navigation/group change -
+ * otherwise the current page could end up scrolled off-screen with nothing
+ * indicating it, which defeats the point of a nav meant to show you where
+ * you are.
  */
 export default function TopNav() {
   const location = useLocation();
@@ -38,6 +52,16 @@ export default function TopNav() {
 
   const toggleGroup = (name) => setManualGroup(name === activeGroup ? null : name);
 
+  const row1Ref = useRef(null);
+  const row2Ref = useRef(null);
+
+  useEffect(() => {
+    for (const ref of [row1Ref, row2Ref]) {
+      const active = ref.current?.querySelector('[data-active="true"]');
+      active?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  }, [location.pathname, activeGroup]);
+
   const navLinkClass = (isActive) => cn(
     "px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors",
     isActive
@@ -48,13 +72,18 @@ export default function TopNav() {
   return (
     <div className="sticky top-0 z-40 bg-card border-b border-border">
       {/* Row 1: brand, top-level pages, groups, user menu */}
-      <div className="flex items-center gap-1 px-3 md:px-6 h-14 overflow-x-auto">
+      <div ref={row1Ref} className="flex items-center gap-1 px-3 md:px-6 h-14 overflow-x-auto" style={scrollFadeStyle}>
         <Link to="/" className="font-display font-bold text-primary shrink-0 mr-2 whitespace-nowrap">
           Distillery OS
         </Link>
 
         {topPages.map((p) => (
-          <Link key={p.key} to={p.path} className={navLinkClass(location.pathname === p.path)}>
+          <Link
+            key={p.key}
+            to={p.path}
+            data-active={location.pathname === p.path}
+            className={navLinkClass(location.pathname === p.path)}
+          >
             {p.label}
           </Link>
         ))}
@@ -62,6 +91,7 @@ export default function TopNav() {
         {groups.map((group) => (
           <button
             key={group.name}
+            data-active={activeGroup === group.name}
             onClick={() => toggleGroup(group.name)}
             className={cn(navLinkClass(activeGroup === group.name), "flex items-center gap-1")}
           >
@@ -71,7 +101,12 @@ export default function TopNav() {
         ))}
 
         {bottomPages.map((p) => (
-          <Link key={p.key} to={p.path} className={navLinkClass(location.pathname === p.path)}>
+          <Link
+            key={p.key}
+            to={p.path}
+            data-active={location.pathname === p.path}
+            className={navLinkClass(location.pathname === p.path)}
+          >
             {p.label}
           </Link>
         ))}
@@ -100,13 +135,14 @@ export default function TopNav() {
 
       {/* Row 2: current group's pages - stays visible while inside the group */}
       {activeGroup && (
-        <div className="flex items-center gap-1 px-3 md:px-6 h-11 border-t border-border overflow-x-auto bg-muted/40">
+        <div ref={row2Ref} className="flex items-center gap-1 px-3 md:px-6 h-11 border-t border-border overflow-x-auto bg-muted/40" style={scrollFadeStyle}>
           {activeGroupPages.map((p) => {
             const isActive = location.pathname === p.path;
             return (
               <Link
                 key={p.key}
                 to={p.path}
+                data-active={isActive}
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition-colors",
                   isActive
