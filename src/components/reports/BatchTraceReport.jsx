@@ -4,11 +4,9 @@ import { base44 } from '@/api/base44Client';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Search, ChevronDown, ChevronUp, Flame, Wine, Droplets, Package2, FlaskConical, Leaf, Truck, Users, X } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Flame, Wine, Package2, FlaskConical, Leaf, Truck, Users, X } from 'lucide-react';
 import { format } from 'date-fns';
-import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
-import { cn } from '@/lib/utils';
 import Pagination from '@/components/ui/Pagination';
 
 function StepRow({ icon: Icon, color, label, data, children }) {
@@ -326,7 +324,7 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatch
   );
 }
 
-export default function BatchTracker() {
+export default function BatchTraceReport() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -428,12 +426,7 @@ export default function BatchTracker() {
   const pagedBatches = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   return (
-    <div className="pb-20 md:pb-0">
-      <PageHeader
-        title="Batch Tracker"
-        subtitle="Full history of each batch from distillation through to bottling"
-      />
-
+    <div>
       <div className="relative mb-6">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input

@@ -21,6 +21,7 @@ import ForecastReport from '@/components/reports/ForecastReport';
 import MovementsReport from '@/components/reports/MovementsReport';
 import CarbonReport from '@/components/reports/CarbonReport';
 import IsoLifecycleReport from '@/components/reports/IsoLifecycleReport';
+import BatchTraceReport from '@/components/reports/BatchTraceReport';
 import { useRawMaterialsNetStock } from '@/hooks/useRawMaterialsNetStock';
 
 function StatCard({ label, value, sub, color = 'text-primary', bg = 'bg-accent border-accent-foreground/10', icon: Icon }) {
@@ -439,6 +440,7 @@ export default function Reports() {
            <TabsTrigger value="excise">Excise Return</TabsTrigger>
           <TabsTrigger value="forecast">Forecast</TabsTrigger>
           <TabsTrigger value="iso">ISO Lifecycle</TabsTrigger>
+          <TabsTrigger value="batch-trace">Batch Trace</TabsTrigger>
            </TabsList>
 
         {/* ── INVENTORY SNAPSHOT ── */}
@@ -595,6 +597,11 @@ export default function Reports() {
             startDate={startDate}
             endDate={endDate}
           />
+        </TabsContent>
+
+        {/* ── BATCH TRACE ── */}
+        <TabsContent value="batch-trace" className="space-y-6">
+          <BatchTraceReport />
         </TabsContent>
       </Tabs>
       {/* CSV Copy Modal — fallback if download is blocked */}

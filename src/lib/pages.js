@@ -9,12 +9,12 @@
  * (20260806030000_roles_and_permissions.sql).
  *
  * `navGroup: null` means the page has a route but isn't linked from any nav
- * menu (e.g. legacy pages still reachable by direct URL) - it's still
- * gated by PageGate and still shows up in the Permissions page so
- * super_admin can control access to it too.
+ * menu, while still being gated by PageGate and listed in the Permissions
+ * page - not currently used by any page, but supported if a future one
+ * needs a route without a nav entry.
  */
 import {
-  Home, FlaskConical, Droplets, Flame, Wine, Cylinder, TrendingUp, Users,
+  Home, Droplets, Flame, Wine, Cylinder, TrendingUp, Users,
   Warehouse, Building2, FileText, Settings as SettingsIcon, PackagePlus,
   Truck, ClipboardList, Thermometer, Wrench, Bug, AlertTriangle, CheckSquare,
   Leaf, Archive, Zap, ShieldCheck,
@@ -24,11 +24,8 @@ import Dashboard from '@/pages/Dashboard';
 import Receiving from '@/pages/Receiving';
 import Dilutions from '@/pages/Dilutions';
 import Distillation from '@/pages/Distillation';
-import Bottling from '@/pages/Bottling';
 import Inventory from '@/pages/Inventory';
 import Warehouse_ from '@/pages/Warehouse';
-import RawMaterials from '@/pages/RawMaterials';
-import BatchTracker from '@/pages/BatchTracker';
 import Tanks from '@/pages/Tanks';
 import BottlingFloor from '@/pages/BottlingFloor';
 import DispatchHub from '@/pages/DispatchHub';
@@ -65,7 +62,6 @@ export const PAGES = [
   { key: 'stock-takes',       label: 'Stock Takes',       path: '/stock-takes',       icon: ClipboardList, component: StockTakes,        navGroup: 'Inventory' },
   { key: 'whiskey-barrels',   label: 'Whiskey Barrels',   path: '/whiskey-barrels',   icon: Archive,       component: WhiskeyBarrels,    navGroup: 'Inventory' },
 
-  { key: 'batch-tracker',     label: 'Batch Tracker',     path: '/batch-tracker',     icon: FlaskConical,  component: BatchTracker,      navGroup: 'Sales' },
   { key: 'dispatch',          label: 'Dispatch',          path: '/dispatch',          icon: TrendingUp,    component: DispatchHub,       navGroup: 'Sales' },
   { key: 'customers',         label: 'Customers',         path: '/customers',         icon: Users,         component: Customers,         navGroup: 'Sales' },
   { key: 'suppliers',         label: 'Suppliers',         path: '/suppliers',         icon: Truck,         component: Suppliers,         navGroup: 'Sales' },
@@ -80,11 +76,6 @@ export const PAGES = [
 
   { key: 'reports',           label: 'Reports',           path: '/reports',           icon: FileText,      component: Reports,           navGroup: 'bottom' },
   { key: 'settings',          label: 'Settings',          path: '/settings',          icon: SettingsIcon,  component: Settings,          navGroup: 'bottom' },
-
-  // Legacy routes, not linked from any nav menu but still reachable by
-  // direct URL - still gated, still listed in the Permissions page.
-  { key: 'bottling',          label: 'Bottling (legacy)',      path: '/bottling',       icon: Wine,     component: Bottling,      navGroup: null },
-  { key: 'raw-materials',     label: 'Raw Materials (legacy)', path: '/raw-materials',  icon: PackagePlus, component: RawMaterials, navGroup: null },
 
   // Super-admin only - not part of the toggleable permission matrix at all
   // (see PageGate.jsx), so it has no corresponding page_permission row.
