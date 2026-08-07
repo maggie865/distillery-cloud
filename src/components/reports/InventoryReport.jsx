@@ -2,19 +2,7 @@ import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Package, Wine, Droplets, Boxes, Factory, FlaskConical } from 'lucide-react';
-
-function StatCard({ label, value, sub, color = 'text-primary', bg = 'bg-accent border-accent-foreground/10', icon: Icon }) {
-  return (
-    <div className={`rounded-xl border p-4 flex flex-col gap-1 ${bg}`}>
-      <div className="flex items-center gap-2">
-        {Icon && <Icon className={`w-4 h-4 ${color}`} />}
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      </div>
-      <p className={`text-2xl font-bold font-display ${color}`}>{value}</p>
-      {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-    </div>
-  );
-}
+import StatCard from '@/components/shared/StatCard';
 
 export default function InventoryReport({ rawMaterialsNetStock, finishedGoodsWithStock, warehouseStock, tanks }) {
   const ethanolItems = rawMaterialsNetStock.filter(m => m.type === 'ethanol');

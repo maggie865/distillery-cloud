@@ -5,19 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { TrendingDown, ArrowDownToLine, ArrowUpFromLine, Building2, MapPin, Leaf, Calendar } from 'lucide-react';
 import { format, startOfMonth, startOfYear, parseISO } from 'date-fns';
-
-function StatCard({ label, value, sub, color = 'text-primary', bg = 'bg-accent border-accent-foreground/10', icon: Icon }) {
-  return (
-    <div className={`rounded-xl border p-4 flex flex-col gap-1 ${bg}`}>
-      <div className="flex items-center gap-2">
-        {Icon && <Icon className={`w-4 h-4 ${color}`} />}
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      </div>
-      <p className={`text-2xl font-bold font-display ${color}`}>{value}</p>
-      {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-    </div>
-  );
-}
+import StatCard from '@/components/shared/StatCard';
 
 export default function CarbonReport({ receiving, dispatches, warehouseStock, startDate, endDate }) {
   const { data: appSettings = [] } = useQuery({

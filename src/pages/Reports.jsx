@@ -13,6 +13,7 @@ import { format, startOfMonth, endOfMonth, parseISO, isWithinInterval, startOfQu
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import PageHeader from '@/components/shared/PageHeader';
+import StatCard from '@/components/shared/StatCard';
 import Pagination from '@/components/ui/Pagination';
 import InventoryReport from '@/components/reports/InventoryReport';
 import CostOfGoodsReport from '@/components/reports/CostOfGoodsReport';
@@ -23,19 +24,6 @@ import CarbonReport from '@/components/reports/CarbonReport';
 import IsoLifecycleReport from '@/components/reports/IsoLifecycleReport';
 import BatchTraceReport from '@/components/reports/BatchTraceReport';
 import { useRawMaterialsNetStock } from '@/hooks/useRawMaterialsNetStock';
-
-function StatCard({ label, value, sub, color = 'text-primary', bg = 'bg-accent border-accent-foreground/10', icon: Icon }) {
-  return (
-    <div className={`rounded-xl border p-4 flex flex-col gap-1 ${bg}`}>
-      <div className="flex items-center gap-2">
-        {Icon && <Icon className={`w-4 h-4 ${color}`} />}
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      </div>
-      <p className={`text-2xl font-bold font-display ${color}`}>{value}</p>
-      {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-    </div>
-  );
-}
 
 export default function Reports() {
   const now = new Date();

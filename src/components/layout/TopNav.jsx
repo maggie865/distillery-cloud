@@ -63,16 +63,16 @@ export default function TopNav() {
   }, [location.pathname, activeGroup]);
 
   const navLinkClass = (isActive) => cn(
-    "px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors",
+    "px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-150",
     isActive
-      ? "bg-primary text-primary-foreground"
+      ? "bg-primary text-primary-foreground shadow-sm"
       : "text-foreground hover:bg-muted"
   );
 
   return (
-    <div className="sticky top-0 z-40 bg-card border-b border-border">
+    <div className="sticky top-0 z-40 bg-card/85 backdrop-blur-md border-b border-border shadow-sm">
       {/* Row 1: brand, top-level pages, groups, user menu */}
-      <div ref={row1Ref} className="flex items-center gap-1 px-3 md:px-6 h-14 overflow-x-auto" style={scrollFadeStyle}>
+      <div ref={row1Ref} className="flex items-center gap-1 px-3 md:px-6 h-16 overflow-x-auto" style={scrollFadeStyle}>
         <Link to="/" className="font-display font-bold text-primary shrink-0 mr-2 whitespace-nowrap">
           Distillery OS
         </Link>

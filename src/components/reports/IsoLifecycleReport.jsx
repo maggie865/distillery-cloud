@@ -7,19 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Zap, Droplets, Truck, Building2, Leaf, Factory } from 'lucide-react';
 import { format, parseISO, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
 import { ELECTRICITY_EF, WATER_EF } from '@/pages/UtilityTracker';
-
-function StatCard({ label, value, sub, icon: Icon, color = 'text-primary', bg = 'bg-accent/10 border-accent-foreground/10' }) {
-  return (
-    <div className={`rounded-xl border p-4 flex flex-col gap-1 ${bg}`}>
-      <div className="flex items-center gap-2">
-        {Icon && <Icon className={`w-4 h-4 ${color}`} />}
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      </div>
-      <p className={`text-2xl font-bold font-display ${color}`}>{value}</p>
-      {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-    </div>
-  );
-}
+import StatCard from '@/components/shared/StatCard';
 
 /**
  * ISO 14001 lifecycle-style environmental report.
