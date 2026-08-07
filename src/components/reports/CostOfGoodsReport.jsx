@@ -3,19 +3,7 @@ import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Wine, Droplets, Boxes, DollarSign, FlaskConical } from 'lucide-react';
-
-function StatCard({ label, value, sub, color = 'text-primary', bg = 'bg-accent border-accent-foreground/10', icon }) {
-  return (
-    <div className={`rounded-xl border p-4 flex flex-col gap-1 ${bg}`}>
-      <div className="flex items-center gap-2">
-        {icon && <span className={color}>{icon}</span>}
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      </div>
-      <p className={`text-2xl font-bold font-display ${color}`}>{value}</p>
-      {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-    </div>
-  );
-}
+import StatCard from '@/components/shared/StatCard';
 
 const COGS_COLORS = ['#8B5CF6', '#F97316', '#06B6D4', '#10B981', '#3B82F6', '#F59E0B'];
 
