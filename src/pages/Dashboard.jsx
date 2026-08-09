@@ -4,6 +4,7 @@ import { Droplets, Flame, Wine, Warehouse, TrendingUp, AlertTriangle } from 'luc
 import { Card } from '@/components/ui/card';
 import { format, formatDistanceToNow, startOfMonth } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/lib/AuthContext';
 import PageHeader from '@/components/shared/PageHeader';
 import StatCard from '@/components/shared/StatCard';
 import StatusBadge from '@/components/shared/StatusBadge';
@@ -12,42 +13,58 @@ import QuickLinks from '@/components/dashboard/QuickLinks';
 import StockOverview from '@/components/dashboard/StockOverview';
 import ActiveTanks from '@/components/dashboard/ActiveTanks';
 import ComplianceAlerts from '@/components/dashboard/ComplianceAlerts';
+import UserDashboard from '@/components/dashboard/UserDashboard';
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const isAdminDashboard = user?.role !== 'user';
 
   const { data: allReceivings = [] } = useQuery({
     queryKey: ['receivings'],
     queryFn: () => base44.entities.Receiving.list('-date_received', 2000),
+    enabled: isAdminDashboard,
   });
   const { data: bottlingRuns = [] } = useQuery({
     queryKey: ['bottlingRuns'],
     queryFn: () => base44.entities.BottlingRun.list('-date', 200),
+    enabled: isAdminDashboard,
   });
   const { data: dispatches = [] } = useQuery({
     queryKey: ['dispatches'],
     queryFn: () => base44.entities.Dispatch.list('-dispatch_date', 2000),
+    enabled: isAdminDashboard,
   });
   const { data: distillationRuns = [] } = useQuery({
     queryKey: ['distillationRuns'],
     queryFn: () => base44.entities.DistillationRun.list('-date', 500),
+    enabled: isAdminDashboard,
   });
   const { data: dilutions = [] } = useQuery({
     queryKey: ['dilutions'],
     queryFn: () => base44.entities.Dilution.list('-date', 5),
+    enabled: isAdminDashboard,
   });
   const { data: distillations = [] } = useQuery({
     queryKey: ['distillations'],
     queryFn: () => base44.entities.DistillationRun.list('-date', 5),
+    enabled: isAdminDashboard,
   });
   const { data: bottlings = [] } = useQuery({
     queryKey: ['bottlings'],
     queryFn: () => base44.entities.BottlingRun.list('-date', 5),
+    enabled: isAdminDashboard,
   });
   const { data: thresholds = [] } = useQuery({
     queryKey: ['stockThresholds'],
     queryFn: () => base44.entities.StockThreshold.list('material_name', 200),
+    enabled: isAdminDashboard,
   });
+
+  if (!isAdminDashboard) {
+    return <UserDashboard userName={user?.full_name} />;
+  }
 
   // ── Stats derived from source records ────────────────────────────────────
 
