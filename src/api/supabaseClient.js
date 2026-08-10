@@ -112,6 +112,7 @@ export const db = {
   PagePermission:    makeEntity('PagePermission'),
   PestControlLog:    makeEntity('PestControlLog'),
   PestControlTrap:   makeEntity('PestControlTrap'),
+  ProductAlias:      makeEntity('ProductAlias'),
   RawMaterial:       makeEntity('RawMaterial'),
   Receiving:         makeEntity('Receiving'),
   Recipe:            makeEntity('Recipe'),
