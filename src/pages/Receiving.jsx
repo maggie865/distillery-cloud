@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -10,8 +10,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Upload, Loader2, FileText, Pencil, ExternalLink, Trash2, MapPin, Eye, Search } from 'lucide-react';
+import { Plus, Upload, Loader2, FileText, Pencil, ExternalLink, Trash2, MapPin, Eye, Search, Link2 } from 'lucide-react';
 import MobileCard, { MobileCardGrid, MobileDetailRow } from '@/components/shared/MobileCard';
+import MaterialAutocomplete from '@/components/receiving/MaterialAutocomplete';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
@@ -22,12 +23,142 @@ const TRANSPORT_METHODS = ['road', 'courier', 'air', 'sea', 'pickup'];
 const UNITS = ['litres', 'kg', 'units'];
 const DISTILLERY_ADDRESS = '250 Ocean Beach Road, Bluff, New Zealand';
 
-const BLANK_FORM = {
+// Maps the human-facing Type select values to the lowercase `type` stored on
+// raw_material (and back), so a matched/aliased stock item can pre-fill a
+// line's Type field correctly. 'Botanicals' -> 'botanical' etc.
+const TYPE_MAP = { 'Ethanol': 'ethanol', 'Botanicals': 'botanical', 'Packaging': 'packaging', 'Grain': 'grain', 'Sugar': 'sugar', 'Water': 'water', 'Flavoring': 'flavoring', 'Other': 'other' };
+const INVERSE_TYPE_MAP = Object.fromEntries(Object.entries(TYPE_MAP).map(([k, v]) => [v, k]));
+
+const BLANK_EDIT_FORM = {
   material_name: '', material_type: '', quantity: '', unit: 'litres',
   abv_percent: '', supplier_id: '', supplier_name: '', transport_distance_km: '', transport_method: 'road',
   weight_kg: '', cost_per_unit: '', batch_number: '', packing_slip_number: '',
   date_received: new Date().toISOString().split('T')[0], notes: '', packing_slip_url: ''
 };
+
+const BLANK_HEADER = {
+  supplier_id: '', supplier_name: '', transport_distance_km: '', transport_method: 'road',
+  packing_slip_number: '', date_received: new Date().toISOString().split('T')[0],
+  notes: '', packing_slip_url: '',
+};
+
+const blankLine = () => ({
+  _key: `line-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  material_name: '', material_type: '', quantity: '', unit: 'litres',
+  abv_percent: '', weight_kg: '', cost_per_unit: '', batch_number: '',
+  matchedRawMaterialId: null,
+});
+
+// ── Shared "receive a material into stock" logic ─────────────────────────────
+// Used per-line so a multi-item packing slip can merge several lines into the
+// same RawMaterial record sequentially without racing each other.
+
+function findExistingRawMaterial(allRM, payload) {
+  const isEthanol = (payload.material_type || '').toLowerCase() === 'ethanol';
+  const incomingName = (payload.material_name || '').toLowerCase().trim();
+  if (isEthanol) {
+    // For ethanol: match by name similarity so Lactonol deliveries go into Lactonol record
+    // and wheat/ENA deliveries go into their own record — don't blindly merge all ethanol types
+    return allRM.find(r => (r.type || '').toLowerCase() === 'ethanol' &&
+        (r.name || '').toLowerCase().trim() === incomingName) ||
+      allRM.find(r => (r.type || '').toLowerCase() === 'ethanol' && (() => {
+        const rn = (r.name || '').toLowerCase();
+        const lactonolIn = incomingName.includes('lactonol') || incomingName.includes('lactanol');
+        const lactonolRec = rn.includes('lactonol') || rn.includes('lactanol');
+        if (lactonolIn && lactonolRec) return true;
+        const wheatIn = incomingName.includes('wheat') || incomingName.includes('ena') || incomingName.includes('neutral');
+        const wheatRec = rn.includes('wheat') || rn.includes('ena') || rn.includes('neutral');
+        if (wheatIn && wheatRec) return true;
+        return false;
+      })());
+  }
+  return allRM.find(r => (r.name || '').toLowerCase().trim() === incomingName);
+}
+
+function calcLineCo2e(line, header) {
+  const weight = line.weight_kg ? parseFloat(line.weight_kg) : 0;
+  const distance = header.transport_distance_km ? parseFloat(header.transport_distance_km) : 0;
+  if (header.transport_method === 'pickup' || weight <= 0 || distance <= 0) return 0;
+  return weight / 1000 / 56 * distance * 0.21;
+}
+
+function buildLinePayload(header, line) {
+  const lals = line.material_type === 'Ethanol' && line.abv_percent
+    ? (parseFloat(line.quantity) * parseFloat(line.abv_percent) / 100)
+    : undefined;
+  const weight = line.weight_kg ? parseFloat(line.weight_kg) : 0;
+  const distance = header.transport_distance_km ? parseFloat(header.transport_distance_km) : 0;
+  const method = header.transport_method || 'road';
+  const co2e = calcLineCo2e(line, header);
+
+  return {
+    material_name: line.material_name,
+    material_type: line.material_type || undefined,
+    quantity: parseFloat(line.quantity),
+    unit: line.unit,
+    abv_percent: line.abv_percent ? parseFloat(line.abv_percent) : undefined,
+    lals,
+    supplier_id: header.supplier_id || undefined,
+    supplier_name: header.supplier_name || undefined,
+    transport_distance_km: distance || undefined,
+    transport_method: method || undefined,
+    weight_kg: weight || undefined,
+    co2e_kg: co2e > 0 ? parseFloat(co2e.toFixed(3)) : undefined,
+    cost_per_unit: line.cost_per_unit ? parseFloat(line.cost_per_unit) : undefined,
+    batch_number: line.batch_number || undefined,
+    packing_slip_number: header.packing_slip_number || undefined,
+    date_received: header.date_received,
+    notes: header.notes || undefined,
+    packing_slip_url: header.packing_slip_url || undefined,
+  };
+}
+
+async function receiveLine({ header, line, allRM }) {
+  const payload = buildLinePayload(header, line);
+  const created = await base44.entities.Receiving.create(payload);
+
+  const isEthanol = (payload.material_type || '').toLowerCase() === 'ethanol';
+  const existingRM = line.matchedRawMaterialId
+    ? allRM.find(r => r.id === line.matchedRawMaterialId)
+    : findExistingRawMaterial(allRM, payload);
+
+  const newLot = {
+    lot_number: payload.batch_number
+      ? `${payload.batch_number}${isEthanol && payload.material_name ? ' — ' + payload.material_name : ''}`
+      : (isEthanol && payload.material_name ? payload.material_name : null),
+    date_received: payload.date_received,
+    quantity_received: payload.quantity || 0,
+    quantity_remaining: payload.quantity || 0,
+    supplier: payload.supplier_name || null,
+    cost_per_unit: payload.cost_per_unit || null,
+    receiving_id: created.id,
+  };
+
+  if (existingRM) {
+    const existingLots = Array.isArray(existingRM.lots) ? existingRM.lots : [];
+    return base44.entities.RawMaterial.update(existingRM.id, {
+      quantity: parseFloat(((existingRM.quantity || 0) + (payload.quantity || 0)).toFixed(4)),
+      lals: parseFloat(((existingRM.lals || 0) + (payload.lals || 0)).toFixed(4)),
+      cost_per_unit: payload.cost_per_unit || existingRM.cost_per_unit,
+      date_received: payload.date_received,
+      lots: [...existingLots, newLot],
+    });
+  }
+  return base44.entities.RawMaterial.create({
+    name: payload.material_name,
+    type: TYPE_MAP[payload.material_type] || 'other',
+    quantity: payload.quantity || 0,
+    unit: payload.unit,
+    lals: payload.lals || 0,
+    abv_percent: payload.abv_percent,
+    batch_number: payload.batch_number || null,
+    supplier: payload.supplier_name,
+    cost_per_unit: payload.cost_per_unit,
+    date_received: payload.date_received,
+    receiving_id: created.id,
+    lots: [newLot],
+  });
+}
 
 // ── Packing Slip Viewer Dialog ───────────────────────────────────────────────
 function PackingSlipViewer({ url, onClose }) {
@@ -60,13 +191,100 @@ function PackingSlipViewer({ url, onClose }) {
   );
 }
 
+// ── A single line item within the multi-item Receive dialog ─────────────────
+function LineItemRow({ line, index, onChange, onRemove, canRemove, rawMaterials, aliases, onCreateAlias }) {
+  const set = (field, value) => onChange({ ...line, [field]: value });
+
+  return (
+    <div className="rounded-lg border border-border p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-muted-foreground">Item {index + 1}</span>
+        {canRemove && (
+          <button type="button" onClick={onRemove} className="text-muted-foreground hover:text-destructive transition-colors">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2">
+          <Label className="text-xs">Material Name</Label>
+          <MaterialAutocomplete
+            value={line.material_name}
+            onChange={(name, rm) => {
+              if (!rm) { onChange({ ...line, material_name: name, matchedRawMaterialId: null }); return; }
+              onChange({
+                ...line,
+                material_name: rm.name,
+                material_type: INVERSE_TYPE_MAP[(rm.type || '').toLowerCase()] || line.material_type,
+                unit: rm.unit || line.unit,
+                matchedRawMaterialId: rm.id,
+              });
+            }}
+            rawMaterials={rawMaterials}
+            aliases={aliases}
+            onCreateAlias={onCreateAlias}
+          />
+          {line.matchedRawMaterialId && (
+            <p className="text-xs text-primary flex items-center gap-1 mt-1"><Link2 className="w-3 h-3" /> Matched to existing stock item</p>
+          )}
+        </div>
+        <div>
+          <Label className="text-xs">Type</Label>
+          <Select value={line.material_type} onValueChange={v => set('material_type', v)}>
+            <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+            <SelectContent>
+              {MATERIAL_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs">Quantity</Label>
+          <Input type="number" step="0.01" value={line.quantity} onChange={e => set('quantity', e.target.value)} required />
+        </div>
+        <div>
+          <Label className="text-xs">Unit</Label>
+          <Select value={line.unit} onValueChange={v => set('unit', v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        {line.material_type === 'Ethanol' && (
+          <div>
+            <Label className="text-xs">ABV %</Label>
+            <Input type="number" step="0.1" value={line.abv_percent} onChange={e => set('abv_percent', e.target.value)} />
+          </div>
+        )}
+        <div>
+          <Label className="text-xs">Cost per unit</Label>
+          <Input type="number" step="0.01" value={line.cost_per_unit} onChange={e => set('cost_per_unit', e.target.value)} placeholder="e.g. 2.50" />
+        </div>
+        <div>
+          <Label className="text-xs">Batch / Lot #</Label>
+          <Input value={line.batch_number} onChange={e => set('batch_number', e.target.value)} />
+        </div>
+        <div>
+          <Label className="text-xs">Weight (kg)</Label>
+          <Input type="number" step="0.1" value={line.weight_kg} onChange={e => set('weight_kg', e.target.value)} placeholder="For CO2e" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Receiving() {
-  const [open, setOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(BLANK_EDIT_FORM);
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [header, setHeader] = useState(BLANK_HEADER);
+  const [lines, setLines] = useState([blankLine()]);
+
   const [extracting, setExtracting] = useState(false);
   const [uploadingSlip, setUploadingSlip] = useState(false);
   const [calcingDistance, setCalcingDistance] = useState(false);
-  const [form, setForm] = useState(BLANK_FORM);
   const [viewingSlip, setViewingSlip] = useState(null);
   const queryClient = useQueryClient();
 
@@ -87,17 +305,41 @@ export default function Receiving() {
     queryFn: () => base44.entities.Supplier.list('business_name', 5000),
   });
 
-  const set = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+  const rawMaterialsQuery = useQuery({
+    queryKey: ['rawMaterials'],
+    queryFn: () => base44.entities.RawMaterial.list('name', 5000),
+  });
 
-  const openNew = () => {
-    setEditingId(null);
-    setForm(BLANK_FORM);
-    setOpen(true);
+  const aliasesQuery = useQuery({
+    queryKey: ['productAliases'],
+    queryFn: () => base44.entities.ProductAlias.list('alias_name', 5000),
+  });
+
+  const rawMaterials = rawMaterialsQuery.data || [];
+  const aliases = aliasesQuery.data || [];
+  const rawMaterialById = useMemo(() => new Map(rawMaterials.map(rm => [rm.id, rm])), [rawMaterials]);
+  const aliasByLowerName = useMemo(() => new Map(aliases.map(a => [(a.alias_name || '').toLowerCase().trim(), a])), [aliases]);
+
+  const createAliasMutation = useMutation({
+    mutationFn: ({ aliasName, rawMaterialId }) => base44.entities.ProductAlias.create({ alias_name: aliasName.trim(), raw_material_id: rawMaterialId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['productAliases'] });
+      toast.success('Linked — this name will auto-match next time');
+    },
+    onError: (err) => toast.error('Failed to link: ' + (err?.message || 'Unknown error')),
+  });
+
+  const setEdit = (field, value) => setEditForm(prev => ({ ...prev, [field]: value }));
+
+  const openNewReceive = () => {
+    setHeader(BLANK_HEADER);
+    setLines([blankLine()]);
+    setCreateOpen(true);
   };
 
   const openEdit = (r) => {
     setEditingId(r.id);
-    setForm({
+    setEditForm({
       material_name: r.material_name || '',
       material_type: r.material_type || '',
       quantity: r.quantity != null ? String(r.quantity) : '',
@@ -115,10 +357,10 @@ export default function Receiving() {
       notes: r.notes || '',
       packing_slip_url: r.packing_slip_url || '',
     });
-    setOpen(true);
+    setEditOpen(true);
   };
 
-  const calculateDistance = async (supplierAddress) => {
+  const calculateDistance = async (supplierAddress, applyTo) => {
     if (!supplierAddress) return;
     setCalcingDistance(true);
     try {
@@ -128,7 +370,7 @@ export default function Receiving() {
         destination: DISTILLERY_ADDRESS,
       });
       if (res.data?.distance_km) {
-        setForm(f => ({ ...f, transport_distance_km: String(res.data.distance_km) }));
+        applyTo(f => ({ ...f, transport_distance_km: String(res.data.distance_km) }));
         toast.success(`Distance: ${res.data.distance_km} km`);
       }
     } finally {
@@ -147,16 +389,21 @@ export default function Receiving() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setUploadingSlip(true);
-    if (!open) setOpen(true);
+    if (!createOpen) {
+      setHeader(BLANK_HEADER);
+      setLines([blankLine()]);
+      setCreateOpen(true);
+    }
 
+    setUploadingSlip(true);
     try {
       // 1. Upload to Supabase Storage first
       const publicUrl = await uploadPackingSlip(file);
-      setForm(prev => ({ ...prev, packing_slip_url: publicUrl }));
+      setHeader(prev => ({ ...prev, packing_slip_url: publicUrl }));
       toast.success('Packing slip uploaded');
 
-      // 2. Try to extract data using Base44 OCR
+      // 2. Try to extract data using Base44 OCR — one packing slip can list
+      // several distinct items, so the schema asks for an array of lines.
       setExtracting(true);
       try {
         const { base44 } = await import('@/api/base44Client');
@@ -165,18 +412,28 @@ export default function Receiving() {
           json_schema: {
             type: 'object',
             properties: {
-              material_name: { type: 'string', description: 'Name of the material or product received' },
-              material_type: { type: 'string', description: 'Type: ethanol, botanical, grain, sugar, water, flavoring, or other' },
-              quantity: { type: 'number', description: 'Quantity received' },
-              unit: { type: 'string', description: 'Unit of measurement: litres, kg, or units' },
-              abv_percent: { type: 'number', description: 'ABV percentage if applicable' },
               supplier: { type: 'string', description: 'Supplier or vendor name' },
-              cost_per_unit: { type: 'number', description: 'Cost per unit if listed' },
-              batch_number: { type: 'string', description: 'Lot number, batch number, or invoice number' },
               date_received: { type: 'string', description: 'Date received in YYYY-MM-DD format' },
+              packing_slip_number: { type: 'string', description: 'Packing slip, delivery note, or invoice number' },
               notes: { type: 'string', description: 'Any other relevant notes from the document' },
-            }
-          }
+              items: {
+                type: 'array',
+                description: 'Every distinct material or product line listed on the packing slip',
+                items: {
+                  type: 'object',
+                  properties: {
+                    material_name: { type: 'string', description: 'Name of the material or product received' },
+                    material_type: { type: 'string', description: 'Type: ethanol, botanical, grain, sugar, water, flavoring, packaging, or other' },
+                    quantity: { type: 'number', description: 'Quantity received' },
+                    unit: { type: 'string', description: 'Unit of measurement: litres, kg, or units' },
+                    abv_percent: { type: 'number', description: 'ABV percentage if applicable' },
+                    cost_per_unit: { type: 'number', description: 'Cost per unit if listed' },
+                    batch_number: { type: 'string', description: 'Lot or batch number for this line, if listed' },
+                  },
+                },
+              },
+            },
+          },
         });
 
         if (result.status === 'success' && result.output) {
@@ -191,26 +448,45 @@ export default function Receiving() {
             );
           }
 
-          setForm(prev => ({
+          setHeader(prev => ({
             ...prev,
-            material_name: d.material_name || prev.material_name,
-            material_type: MATERIAL_TYPES.find(t => t.toLowerCase().includes(d.material_type?.toLowerCase())) || prev.material_type,
-            quantity: d.quantity != null ? String(d.quantity) : prev.quantity,
-            unit: VALID_UNITS.includes(d.unit) ? d.unit : prev.unit,
-            abv_percent: d.abv_percent != null ? String(d.abv_percent) : prev.abv_percent,
             supplier_id: matchedSupplier?.id || prev.supplier_id,
             supplier_name: matchedSupplier?.business_name || d.supplier || prev.supplier_name,
-            cost_per_unit: d.cost_per_unit != null ? String(d.cost_per_unit) : prev.cost_per_unit,
-            batch_number: d.batch_number || prev.batch_number,
+            packing_slip_number: d.packing_slip_number || prev.packing_slip_number,
             date_received: d.date_received || prev.date_received,
             notes: d.notes || prev.notes,
           }));
 
           if (matchedSupplier?.address) {
-            setTimeout(() => calculateDistance(matchedSupplier.address), 500);
+            setTimeout(() => calculateDistance(matchedSupplier.address, setHeader), 500);
           }
 
-          toast.success('Packing slip scanned — please review before saving');
+          const items = Array.isArray(d.items) ? d.items.filter(it => it.material_name) : [];
+          if (items.length > 0) {
+            setLines(items.map((it) => {
+              const typedName = (it.material_name || '').toLowerCase().trim();
+              const alias = aliasByLowerName.get(typedName);
+              const matchedRM = alias
+                ? rawMaterialById.get(alias.raw_material_id)
+                : rawMaterials.find(rm => rm.name.toLowerCase().trim() === typedName);
+              return {
+                _key: `line-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                material_name: matchedRM?.name || it.material_name || '',
+                material_type: matchedRM
+                  ? (INVERSE_TYPE_MAP[(matchedRM.type || '').toLowerCase()] || '')
+                  : (MATERIAL_TYPES.find(t => t.toLowerCase().includes((it.material_type || '').toLowerCase())) || ''),
+                unit: matchedRM?.unit || (VALID_UNITS.includes(it.unit) ? it.unit : 'litres'),
+                quantity: it.quantity != null ? String(it.quantity) : '',
+                abv_percent: it.abv_percent != null ? String(it.abv_percent) : '',
+                weight_kg: '',
+                cost_per_unit: it.cost_per_unit != null ? String(it.cost_per_unit) : '',
+                batch_number: it.batch_number || '',
+                matchedRawMaterialId: matchedRM?.id || null,
+              };
+            }));
+          }
+
+          toast.success(`Packing slip scanned — ${items.length || 1} item${items.length !== 1 ? 's' : ''} found, please review before saving`);
         }
       } catch {
         // OCR failed silently — slip is still uploaded and saved
@@ -226,14 +502,14 @@ export default function Receiving() {
     }
   };
 
-  const calcReceivingCo2e = (data = form) => {
+  const calcReceivingCo2e = (data = editForm) => {
     const weight = data.weight_kg ? parseFloat(data.weight_kg) : 0;
     const distance = data.transport_distance_km ? parseFloat(data.transport_distance_km) : 0;
     if (data.transport_method === 'pickup' || weight <= 0 || distance <= 0) return 0;
     return weight / 1000 / 56 * distance * 0.21;
   };
 
-  const buildPayload = (data) => {
+  const buildEditPayload = (data) => {
     const lals = data.material_type === 'Ethanol' && data.abv_percent
       ? (parseFloat(data.quantity) * parseFloat(data.abv_percent) / 100)
       : undefined;
@@ -266,80 +542,22 @@ export default function Receiving() {
   };
 
   const createMutation = useMutation({
-    mutationFn: async (data) => {
-      const payload = buildPayload(data);
-      const created = await base44.entities.Receiving.create(payload);
-
-      // Create or update linked RawMaterial for inventory tracking
-      const TYPE_MAP = { 'Ethanol': 'ethanol', 'Botanicals': 'botanical', 'Packaging': 'packaging', 'Grain': 'grain', 'Sugar': 'sugar', 'Water': 'water', 'Flavoring': 'flavoring', 'Other': 'other' };
-      const allRM = await base44.entities.RawMaterial.list('name', 5000);
-      const isEthanol = (payload.material_type || '').toLowerCase() === 'ethanol';
-      // For ethanol: match by name similarity so Lactonol deliveries go into Lactonol record
-      // and wheat/ENA deliveries go into their own record — don't blindly merge all ethanol types
-      const incomingName = (payload.material_name || '').toLowerCase().trim();
-      const existingRM = isEthanol
-        ? allRM.find(r => (r.type || '').toLowerCase() === 'ethanol' &&
-            (r.name || '').toLowerCase().trim() === incomingName) ||
-          allRM.find(r => (r.type || '').toLowerCase() === 'ethanol' && (() => {
-            const rn = (r.name || '').toLowerCase();
-            // Match if both are Lactonol variants
-            const lactonolIn = incomingName.includes('lactonol') || incomingName.includes('lactanol');
-            const lactonolRec = rn.includes('lactonol') || rn.includes('lactanol');
-            if (lactonolIn && lactonolRec) return true;
-            // Match if both are wheat/ENA variants
-            const wheatIn = incomingName.includes('wheat') || incomingName.includes('ena') || incomingName.includes('neutral');
-            const wheatRec = rn.includes('wheat') || rn.includes('ena') || rn.includes('neutral');
-            if (wheatIn && wheatRec) return true;
-            return false;
-          })())
-        : allRM.find(r => (r.name || '').toLowerCase().trim() === incomingName);
-      // New lot entry to append
-      const newLot = {
-        lot_number: payload.batch_number
-          ? `${payload.batch_number}${isEthanol && payload.material_name ? ' — ' + payload.material_name : ''}`
-          : (isEthanol && payload.material_name ? payload.material_name : null),
-        date_received: payload.date_received,
-        quantity_received: payload.quantity || 0,
-        quantity_remaining: payload.quantity || 0,
-        supplier: payload.supplier_name || null,
-        cost_per_unit: payload.cost_per_unit || null,
-        receiving_id: created.id,
-      };
-
-      if (existingRM) {
-        // Merge into existing record: add to total, append lot
-        const existingLots = Array.isArray(existingRM.lots) ? existingRM.lots : [];
-        await base44.entities.RawMaterial.update(existingRM.id, {
-          quantity: parseFloat(((existingRM.quantity || 0) + (payload.quantity || 0)).toFixed(4)),
-          lals: parseFloat(((existingRM.lals || 0) + (payload.lals || 0)).toFixed(4)),
-          cost_per_unit: payload.cost_per_unit || existingRM.cost_per_unit,
-          date_received: payload.date_received,
-          lots: [...existingLots, newLot],
-        });
-      } else {
-        // Create new record with first lot
-        await base44.entities.RawMaterial.create({
-          name: payload.material_name,
-          type: TYPE_MAP[payload.material_type] || 'other',
-          quantity: payload.quantity || 0,
-          unit: payload.unit,
-          lals: payload.lals || 0,
-          abv_percent: payload.abv_percent,
-          batch_number: payload.batch_number || null,
-          supplier: payload.supplier_name,
-          cost_per_unit: payload.cost_per_unit,
-          date_received: payload.date_received,
-          receiving_id: created.id,
-          lots: [newLot],
-        });
+    mutationFn: async ({ header, lines }) => {
+      let allRM = await base44.entities.RawMaterial.list('name', 5000);
+      for (const line of lines) {
+        const updated = await receiveLine({ header, line, allRM });
+        const idx = allRM.findIndex(r => r.id === updated.id);
+        if (idx >= 0) allRM[idx] = updated; else allRM = [...allRM, updated];
       }
     },
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['receivings'] });
       queryClient.invalidateQueries({ queryKey: ['rawMaterials'] });
-      setOpen(false);
-      setForm(BLANK_FORM);
-      toast.success('Material received and inventory updated');
+      setCreateOpen(false);
+      setHeader(BLANK_HEADER);
+      setLines([blankLine()]);
+      const n = variables.lines.length;
+      toast.success(`${n} item${n !== 1 ? 's' : ''} received and inventory updated`);
     },
     onError: (err) => {
       toast.error('Failed to save: ' + (err?.message || 'Unknown error'));
@@ -348,7 +566,7 @@ export default function Receiving() {
 
   const updateMutation = useMutation({
     mutationFn: async (data) => {
-      const payload = buildPayload(data);
+      const payload = buildEditPayload(data);
       await base44.entities.Receiving.update(editingId, payload);
 
       // If quantity or cost changed, sync linked RawMaterial
@@ -369,24 +587,35 @@ export default function Receiving() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['receivings'] });
       queryClient.invalidateQueries({ queryKey: ['rawMaterials'] });
-      setOpen(false);
+      setEditOpen(false);
       setEditingId(null);
-      setForm(BLANK_FORM);
+      setEditForm(BLANK_EDIT_FORM);
       toast.success('Receiving record updated');
     },
   });
 
-  const handleSubmit = (e) => {
+  const handleCreateSubmit = (e) => {
     e.preventDefault();
-    if (!form.material_type) {
+    for (const line of lines) {
+      if (!line.material_type) {
+        toast.error('Please select a material type for every item');
+        return;
+      }
+      if (!line.material_name || !line.quantity) {
+        toast.error('Every item needs a name and quantity');
+        return;
+      }
+    }
+    createMutation.mutate({ header, lines });
+  };
+
+  const handleEditSubmit = (e) => {
+    e.preventDefault();
+    if (!editForm.material_type) {
       toast.error('Please select a material type');
       return;
     }
-    if (editingId) {
-      updateMutation.mutate(form);
-    } else {
-      createMutation.mutate(form);
-    }
+    updateMutation.mutate(editForm);
   };
 
   const deleteMutation = useMutation({
@@ -410,7 +639,6 @@ export default function Receiving() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
-  const isPending = createMutation.isPending || updateMutation.isPending;
   const rawData = receivingsQuery.data || [];
   const isLoading = receivingsQuery.isLoading;
   const data = rawData.filter(r => {
@@ -420,6 +648,8 @@ export default function Receiving() {
     return matchType && matchSearch;
   });
   const pagedData = data.slice((page - 1) * pageSize, page * pageSize);
+
+  const totalCo2e = lines.reduce((sum, l) => sum + calcLineCo2e(l, header), 0);
 
   return (
     <div className="pb-20 md:pb-0 relative">
@@ -437,13 +667,14 @@ export default function Receiving() {
             {uploadingSlip ? 'Uploading…' : extracting ? 'Scanning…' : 'Scan Packing Slip'}
           </div>
         </label>
-        <Button onClick={openNew}><Plus className="w-4 h-4 mr-2" />Receive Material</Button>
+        <Button onClick={openNewReceive}><Plus className="w-4 h-4 mr-2" />Receive Material</Button>
       </PageHeader>
 
-      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditingId(null); setForm(BLANK_FORM); } }}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      {/* ── Multi-line Receive dialog ── */}
+      <Dialog open={createOpen} onOpenChange={(v) => { setCreateOpen(v); if (!v) { setHeader(BLANK_HEADER); setLines([blankLine()]); } }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="font-display">{editingId ? 'Edit Receiving Record' : 'Receive Material'}</DialogTitle>
+            <DialogTitle className="font-display">Receive Material</DialogTitle>
           </DialogHeader>
 
           {(uploadingSlip || extracting) && (
@@ -454,16 +685,16 @@ export default function Receiving() {
                   {uploadingSlip ? 'Uploading packing slip…' : 'Scanning document…'}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {uploadingSlip ? 'Your file is being saved securely' : 'Extracting fields from your document'}
+                  {uploadingSlip ? 'Your file is being saved securely' : 'Extracting items from your document'}
                 </p>
               </div>
             </div>
           )}
 
-          {!uploadingSlip && !extracting && form.packing_slip_url && (
+          {!uploadingSlip && !extracting && header.packing_slip_url && (
             <div
               className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-2.5 mb-2 cursor-pointer hover:bg-green-100 transition-colors"
-              onClick={() => setViewingSlip(form.packing_slip_url)}
+              onClick={() => setViewingSlip(header.packing_slip_url)}
             >
               <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
               <p className="text-sm text-green-700 font-medium">Packing slip attached — click to preview</p>
@@ -471,15 +702,135 @@ export default function Receiving() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+          <form onSubmit={handleCreateSubmit} className="space-y-5 mt-2">
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Packing Slip Details</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Date Received</Label>
+                  <Input type="date" value={header.date_received} onChange={e => setHeader(h => ({ ...h, date_received: e.target.value }))} required />
+                </div>
+                <div>
+                  <Label>Packing Slip #</Label>
+                  <Input value={header.packing_slip_number} onChange={e => setHeader(h => ({ ...h, packing_slip_number: e.target.value }))} placeholder="Packing slip reference" />
+                </div>
+                <div className="col-span-2">
+                  <Label>Supplier</Label>
+                  <Select value={header.supplier_id} onValueChange={v => {
+                    const supplier = suppliersQuery.data?.find(s => s.id === v);
+                    setHeader(h => ({ ...h, supplier_id: v, supplier_name: supplier?.business_name || '' }));
+                    if (supplier?.address) calculateDistance(supplier.address, setHeader);
+                  }}>
+                    <SelectTrigger><SelectValue placeholder="Select supplier…" /></SelectTrigger>
+                    <SelectContent>
+                      {suppliersQuery.data?.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.business_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {header.supplier_name && (
+                  <div className="col-span-2">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <MapPin className="w-3 h-3" /> {suppliersQuery.data?.find(s => s.id === header.supplier_id)?.address || ''}
+                    </p>
+                  </div>
+                )}
+                <div>
+                  <Label>Transport Method</Label>
+                  <Select value={header.transport_method} onValueChange={v => setHeader(h => ({ ...h, transport_method: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {TRANSPORT_METHODS.map(m => <SelectItem key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Distance (km)</Label>
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      step="0.1"
+                      value={header.transport_distance_km}
+                      onChange={e => setHeader(h => ({ ...h, transport_distance_km: e.target.value }))}
+                      placeholder={calcingDistance ? 'Calculating…' : '0'}
+                      disabled={calcingDistance}
+                    />
+                    {calcingDistance && (
+                      <div className="absolute right-2.5 top-2.5">
+                        <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <Label>Notes</Label>
+                <Textarea value={header.notes} onChange={e => setHeader(h => ({ ...h, notes: e.target.value }))} placeholder="Shared notes for this delivery" />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Items ({lines.length})</p>
+                <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setLines(prev => [...prev, blankLine()])}>
+                  <Plus className="w-3.5 h-3.5" /> Add Item
+                </Button>
+              </div>
+              {lines.map((line, i) => (
+                <LineItemRow
+                  key={line._key}
+                  line={line}
+                  index={i}
+                  onChange={(next) => setLines(prev => prev.map(l => l._key === line._key ? next : l))}
+                  onRemove={() => setLines(prev => prev.filter(l => l._key !== line._key))}
+                  canRemove={lines.length > 1}
+                  rawMaterials={rawMaterials}
+                  aliases={aliases}
+                  onCreateAlias={(aliasName, rawMaterialId) => createAliasMutation.mutateAsync({ aliasName, rawMaterialId })}
+                />
+              ))}
+            </div>
+
+            <div className="rounded-lg bg-muted/40 px-4 py-3 flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Total CO2e</span>
+              <span className="font-semibold text-green-600">{totalCo2e > 0 ? `${totalCo2e.toFixed(3)} kg` : '—'}</span>
+            </div>
+
+            <Button type="submit" className="w-full" disabled={createMutation.isPending || uploadingSlip}>
+              {createMutation.isPending ? 'Saving...' : `Receive ${lines.length} Item${lines.length !== 1 ? 's' : ''}`}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Single-record edit dialog ── */}
+      <Dialog open={editOpen} onOpenChange={(v) => { setEditOpen(v); if (!v) { setEditingId(null); setEditForm(BLANK_EDIT_FORM); } }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-display">Edit Receiving Record</DialogTitle>
+          </DialogHeader>
+
+          {!uploadingSlip && !extracting && editForm.packing_slip_url && (
+            <div
+              className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-2.5 mb-2 cursor-pointer hover:bg-green-100 transition-colors"
+              onClick={() => setViewingSlip(editForm.packing_slip_url)}
+            >
+              <FileText className="w-4 h-4 text-green-600 flex-shrink-0" />
+              <p className="text-sm text-green-700 font-medium">Packing slip attached — click to preview</p>
+              <Eye className="w-4 h-4 text-green-600 ml-auto" />
+            </div>
+          )}
+
+          <form onSubmit={handleEditSubmit} className="space-y-4 mt-2">
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
                 <Label>Material Name</Label>
-                <Input value={form.material_name} onChange={e => set('material_name', e.target.value)} required />
+                <Input value={editForm.material_name} onChange={e => setEdit('material_name', e.target.value)} required />
               </div>
               <div>
                 <Label>Type</Label>
-                <Select value={form.material_type} onValueChange={v => set('material_type', v)}>
+                <Select value={editForm.material_type} onValueChange={v => setEdit('material_type', v)}>
                   <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                   <SelectContent>
                     {MATERIAL_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
@@ -488,46 +839,46 @@ export default function Receiving() {
               </div>
               <div>
                 <Label>Date Received</Label>
-                <Input type="date" value={form.date_received} onChange={e => set('date_received', e.target.value)} required />
+                <Input type="date" value={editForm.date_received} onChange={e => setEdit('date_received', e.target.value)} required />
               </div>
               <div>
                 <Label>Quantity</Label>
-                <Input type="number" step="0.01" value={form.quantity} onChange={e => set('quantity', e.target.value)} required />
+                <Input type="number" step="0.01" value={editForm.quantity} onChange={e => setEdit('quantity', e.target.value)} required />
               </div>
               <div>
                 <Label>Cost per unit (excl. GST)</Label>
-                <Input type="number" step="0.01" value={form.cost_per_unit} onChange={e => set('cost_per_unit', e.target.value)} placeholder="e.g. 2.50" />
+                <Input type="number" step="0.01" value={editForm.cost_per_unit} onChange={e => setEdit('cost_per_unit', e.target.value)} placeholder="e.g. 2.50" />
               </div>
               <div>
                 <Label>Unit</Label>
-                <Select value={form.unit} onValueChange={v => set('unit', v)}>
+                <Select value={editForm.unit} onValueChange={v => setEdit('unit', v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
-              {form.material_type === 'Ethanol' && (
+              {editForm.material_type === 'Ethanol' && (
                 <div>
                   <Label>ABV %</Label>
-                  <Input type="number" step="0.1" value={form.abv_percent} onChange={e => set('abv_percent', e.target.value)} />
+                  <Input type="number" step="0.1" value={editForm.abv_percent} onChange={e => setEdit('abv_percent', e.target.value)} />
                 </div>
               )}
-              {form.material_type === 'Ethanol' && form.quantity && form.abv_percent && (
+              {editForm.material_type === 'Ethanol' && editForm.quantity && editForm.abv_percent && (
                 <div>
                   <Label>Calculated LALs</Label>
                   <div className="h-9 flex items-center px-3 rounded-md bg-muted text-sm font-medium">
-                    {(parseFloat(form.quantity) * parseFloat(form.abv_percent) / 100).toFixed(3)}
+                    {(parseFloat(editForm.quantity) * parseFloat(editForm.abv_percent) / 100).toFixed(3)}
                   </div>
                 </div>
               )}
               <div className="col-span-2">
                 <Label>Supplier</Label>
-                <Select value={form.supplier_id} onValueChange={v => {
+                <Select value={editForm.supplier_id} onValueChange={v => {
                   const supplier = suppliersQuery.data?.find(s => s.id === v);
-                  set('supplier_id', v);
-                  set('supplier_name', supplier?.business_name || '');
-                  if (supplier?.address) calculateDistance(supplier.address);
+                  setEdit('supplier_id', v);
+                  setEdit('supplier_name', supplier?.business_name || '');
+                  if (supplier?.address) calculateDistance(supplier.address, setEditForm);
                 }}>
                   <SelectTrigger><SelectValue placeholder="Select supplier…" /></SelectTrigger>
                   <SelectContent>
@@ -537,16 +888,16 @@ export default function Receiving() {
                   </SelectContent>
                 </Select>
               </div>
-              {form.supplier_name && (
+              {editForm.supplier_name && (
                 <div className="col-span-2">
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <MapPin className="w-3 h-3" /> {suppliersQuery.data?.find(s => s.id === form.supplier_id)?.address || ''}
+                    <MapPin className="w-3 h-3" /> {suppliersQuery.data?.find(s => s.id === editForm.supplier_id)?.address || ''}
                   </p>
                 </div>
               )}
               <div>
                 <Label>Weight (kg)</Label>
-                <Input type="number" step="0.1" value={form.weight_kg} onChange={e => set('weight_kg', e.target.value)} placeholder="For CO2e calculation" />
+                <Input type="number" step="0.1" value={editForm.weight_kg} onChange={e => setEdit('weight_kg', e.target.value)} placeholder="For CO2e calculation" />
               </div>
               <div>
                 <Label>Distance (km)</Label>
@@ -554,8 +905,8 @@ export default function Receiving() {
                   <Input
                     type="number"
                     step="0.1"
-                    value={form.transport_distance_km}
-                    onChange={e => set('transport_distance_km', e.target.value)}
+                    value={editForm.transport_distance_km}
+                    onChange={e => setEdit('transport_distance_km', e.target.value)}
                     placeholder={calcingDistance ? 'Calculating…' : '0'}
                     disabled={calcingDistance}
                   />
@@ -568,7 +919,7 @@ export default function Receiving() {
               </div>
               <div>
                 <Label>Transport Method</Label>
-                <Select value={form.transport_method} onValueChange={v => set('transport_method', v)}>
+                <Select value={editForm.transport_method} onValueChange={v => setEdit('transport_method', v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {TRANSPORT_METHODS.map(m => <SelectItem key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</SelectItem>)}
@@ -582,24 +933,20 @@ export default function Receiving() {
                 </div>
               </div>
               <div>
-                <Label>Cost per Unit</Label>
-                <Input type="number" step="0.01" value={form.cost_per_unit} onChange={e => set('cost_per_unit', e.target.value)} />
-              </div>
-              <div>
                 <Label>Batch Number</Label>
-                <Input value={form.batch_number} onChange={e => set('batch_number', e.target.value)} />
+                <Input value={editForm.batch_number} onChange={e => setEdit('batch_number', e.target.value)} />
               </div>
               <div>
                 <Label>Packing Slip #</Label>
-                <Input value={form.packing_slip_number} onChange={e => set('packing_slip_number', e.target.value)} placeholder="Packing slip reference" />
+                <Input value={editForm.packing_slip_number} onChange={e => setEdit('packing_slip_number', e.target.value)} placeholder="Packing slip reference" />
               </div>
             </div>
             <div>
               <Label>Notes</Label>
-              <Textarea value={form.notes} onChange={e => set('notes', e.target.value)} />
+              <Textarea value={editForm.notes} onChange={e => setEdit('notes', e.target.value)} />
             </div>
-            <Button type="submit" className="w-full" disabled={isPending || uploadingSlip}>
-              {isPending ? 'Saving...' : editingId ? 'Save Changes' : 'Receive Material'}
+            <Button type="submit" className="w-full" disabled={updateMutation.isPending}>
+              {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
             </Button>
           </form>
         </DialogContent>

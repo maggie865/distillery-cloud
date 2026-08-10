@@ -10,12 +10,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Plus, Trash2, Settings as SettingsIcon, User, Cylinder, FlaskConical, MapPin, Upload, Download, FileText, CheckCircle2, XCircle, Loader2, AlertTriangle, ChevronDown, ChevronRight, LayoutDashboard, ShieldCheck, CheckSquare, GripVertical, ClipboardList, Database } from 'lucide-react';
+import { Plus, Trash2, Settings as SettingsIcon, User, Cylinder, FlaskConical, MapPin, Upload, Download, FileText, CheckCircle2, XCircle, Loader2, AlertTriangle, ChevronDown, ChevronRight, LayoutDashboard, ShieldCheck, CheckSquare, GripVertical, ClipboardList, Database, Link2 } from 'lucide-react';
 import DashboardLinkManager from '@/components/settings/DashboardLinkManager';
 import RecipeManager from '@/components/settings/RecipeManager';
 import LocationSettings from '@/components/settings/LocationSettings';
 import ComplianceSettings from '@/components/settings/ComplianceSettings';
 import DataExportPanel from '@/components/settings/DataExportPanel';
+import ProductLinksManager from '@/components/settings/ProductLinksManager';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
@@ -318,7 +319,7 @@ export default function Settings() {
       <PageHeader title="Settings" subtitle="Manage account, tanks, and production recipes" />
 
       <Tabs defaultValue="account" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-9">
+        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-10">
           <TabsTrigger value="account" className="flex items-center gap-2">
             <SettingsIcon className="w-4 h-4" />
             <span className="hidden sm:inline">Account</span>
@@ -330,6 +331,10 @@ export default function Settings() {
           <TabsTrigger value="recipes" className="flex items-center gap-2">
             <FlaskConical className="w-4 h-4" />
             <span className="hidden sm:inline">Recipes</span>
+          </TabsTrigger>
+          <TabsTrigger value="product-links" className="flex items-center gap-2">
+            <Link2 className="w-4 h-4" />
+            <span className="hidden sm:inline">Product Links</span>
           </TabsTrigger>
           <TabsTrigger value="dashboard" className="flex items-center gap-2">
             <LayoutDashboard className="w-4 h-4" />
@@ -532,6 +537,11 @@ export default function Settings() {
         {/* Recipes Tab */}
         <TabsContent value="recipes" className="space-y-6">
           <RecipeManager />
+        </TabsContent>
+
+        {/* Product Links Tab */}
+        <TabsContent value="product-links" className="space-y-6">
+          <ProductLinksManager />
         </TabsContent>
         {/* Import Tab */}
         <TabsContent value="import" className="space-y-5">
