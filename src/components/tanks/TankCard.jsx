@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { db } from '@/api/supabaseClient';
 import { cn } from '@/lib/utils';
@@ -7,6 +8,10 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { ArrowRightLeft, MapPin, CheckCircle2, Sparkles, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
+
+// Stops a click on an interactive control inside the card from also
+// triggering the card's own navigate-to-detail handler.
+const stop = (fn) => (e) => { e.stopPropagation(); fn(e); };
 
 const purposeLabels = {
   maceration_dilution: 'Maceration / Dilution',
@@ -31,6 +36,7 @@ const statusStyles = {
 
 export default function TankCard({ tank, onTransfer }) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isAdmin = user?.role === 'admin';
 
@@ -115,7 +121,10 @@ export default function TankCard({ tank, onTransfer }) {
   const canToggleReady = isAdmin && isFinishingTank;
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3">
+    <div
+      className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3 cursor-pointer transition-shadow hover:shadow-md"
+      onClick={() => navigate(`/tanks/${tank.id}`)}
+    >
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div>
@@ -195,6 +204,7 @@ export default function TankCard({ tank, onTransfer }) {
               checked={!!tank.is_ready_for_bottling}
               onCheckedChange={handleToggle}
               disabled={!canToggleReady || toggleReady.isPending}
+              onClick={(e) => e.stopPropagation()}
             />
           ) : (
             <span className={cn('text-xs font-semibold', tank.is_ready_for_bottling ? 'text-green-600' : 'text-muted-foreground')}>
@@ -215,7 +225,7 @@ export default function TankCard({ tank, onTransfer }) {
           <Button
             size="sm"
             className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
-            onClick={() => markAvailableFromMaintenance.mutate()}
+            onClick={stop(() => markAvailableFromMaintenance.mutate())}
             disabled={markAvailableFromMaintenance.isPending}
           >
             <Sparkles className="w-3.5 h-3.5" />
@@ -234,7 +244,7 @@ export default function TankCard({ tank, onTransfer }) {
           <Button
             size="sm"
             className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
-            onClick={() => markClean.mutate()}
+            onClick={stop(() => markClean.mutate())}
             disabled={markClean.isPending}
           >
             <Sparkles className="w-3.5 h-3.5" />
@@ -248,7 +258,7 @@ export default function TankCard({ tank, onTransfer }) {
         variant="outline"
         size="sm"
         className="w-full gap-2 mt-auto"
-        onClick={() => onTransfer(tank)}
+        onClick={stop(() => onTransfer(tank))}
         disabled={tank.status === 'cleaning' || tank.status === 'maintenance'}
       >
         <ArrowRightLeft className="w-3.5 h-3.5" />
@@ -261,7 +271,7 @@ export default function TankCard({ tank, onTransfer }) {
           variant="ghost"
           size="sm"
           className="w-full gap-2 text-red-600 hover:text-red-700 hover:bg-red-50 text-xs"
-          onClick={() => markMaintenance.mutate()}
+          onClick={stop(() => markMaintenance.mutate())}
           disabled={markMaintenance.isPending}
         >
           <Wrench className="w-3.5 h-3.5" />
