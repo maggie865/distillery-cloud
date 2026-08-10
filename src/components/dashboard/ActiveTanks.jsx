@@ -39,7 +39,7 @@ export default function ActiveTanks() {
             return (
               <button
                 key={t.id}
-                onClick={() => navigate('/tanks')}
+                onClick={() => navigate(`/tanks/${t.id}`)}
                 className="w-full text-left rounded-lg border border-border p-3 hover:bg-muted/40 transition-colors"
               >
                 <div className="flex items-center justify-between mb-1.5">

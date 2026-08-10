@@ -44,6 +44,7 @@ import Suppliers from '@/pages/Suppliers';
 import WhiskeyBarrels from '@/pages/WhiskeyBarrels';
 import UtilityTracker from '@/pages/UtilityTracker';
 import Permissions from '@/pages/Permissions';
+import TankDetail from '@/pages/TankDetail';
 
 export const NAV_GROUPS = ['Production', 'Inventory', 'Sales', 'Compliance'];
 
@@ -51,6 +52,7 @@ export const PAGES = [
   { key: 'dashboard',        label: 'Dashboard',        path: '/',                 icon: Home,          component: Dashboard,        navGroup: 'top' },
 
   { key: 'tanks',             label: 'Tanks',             path: '/tanks',             icon: Cylinder,      component: Tanks,             navGroup: 'Production' },
+  { key: 'tank-detail',       label: 'Tank Detail',       path: '/tanks/:tankId',     icon: Cylinder,      component: TankDetail,        navGroup: null },
   { key: 'dilutions',         label: 'Dilutions',         path: '/dilutions',         icon: Droplets,      component: Dilutions,         navGroup: 'Production' },
   { key: 'distillation',      label: 'Distillations',     path: '/distillation',      icon: Flame,         component: Distillation,      navGroup: 'Production' },
   { key: 'sns-distillation',  label: 'SNS Distillation',  path: '/sns-distillation',  icon: Flame,         component: SNSDistillation,   navGroup: 'Production' },

@@ -18,14 +18,14 @@ const ACTIONS = [
 { value: 'cleaning', label: 'Mark as Cleaning' }];
 
 
-export default function TransferDialog({ tank, allTanks, open, onOpenChange }) {
+export default function TransferDialog({ tank, allTanks, open, onOpenChange, initialAction = 'fill' }) {
   const queryClient = useQueryClient();
   const today = new Date().toISOString().split('T')[0];
 
   const [form, setForm] = useState({
-    action: 'fill',
+    action: initialAction,
     date: today,
-    volume_litres: '',
+    volume_litres: initialAction === 'empty' ? String(tank?.current_volume || 0) : '',
     abv: tank?.current_abv || '',
     product: tank?.current_product || '',
     batch_number: tank?.current_batch || '',
