@@ -12,7 +12,6 @@ import PageHeader from '@/components/shared/PageHeader';
 import Pagination from '@/components/ui/Pagination';
 import CustomerHealthBadge from '@/components/customers/CustomerHealthBadge';
 import CustomerFormDialog, { CUSTOMER_TYPES, CUSTOMER_STATUSES } from '@/components/customers/CustomerFormDialog';
-import XeroSyncPanel from '@/components/customers/XeroSyncPanel';
 import DuplicateCustomersPanel from '@/components/customers/DuplicateCustomersPanel';
 import CustomerMapPanel from '@/components/customers/CustomerMapPanel';
 import NeedsAttentionList from '@/components/customers/NeedsAttentionList';
@@ -69,10 +68,6 @@ export default function Customers() {
           <Plus className="w-4 h-4" /> Add Customer
         </Button>
       </PageHeader>
-
-      <div className="mb-5">
-        <XeroSyncPanel />
-      </div>
 
       <Tabs defaultValue="all">
         <TabsList className="mb-5">
