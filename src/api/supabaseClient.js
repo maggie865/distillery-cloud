@@ -100,6 +100,8 @@ export const db = {
   AppSettings:       makeEntity('AppSettings'),
   BottlingRun:       makeEntity('BottlingRun'),
   Customer:          makeEntity('Customer'),
+  CustomerActivity:  makeEntity('CustomerActivity'),
+  CustomerRequest:   makeEntity('CustomerRequest'),
   DashboardLink:     makeEntity('DashboardLink'),
   Dilution:          makeEntity('Dilution'),
   Dispatch:          makeEntity('Dispatch'),

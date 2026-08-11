@@ -1,290 +1,198 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { db } from '@/api/supabaseClient';
+import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useCustomersWithStats } from '@/hooks/useCustomersWithStats';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Trash2, Users, MapPin, Pencil, Zap } from 'lucide-react';
-import MobileCard, { MobileCardGrid, MobileDetailRow } from '@/components/shared/MobileCard';
-import { toast } from 'sonner';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Plus, Search } from 'lucide-react';
 import PageHeader from '@/components/shared/PageHeader';
-import AddressAutocomplete from '@/components/shared/AddressAutocomplete';
 import Pagination from '@/components/ui/Pagination';
-import { base44 } from '@/api/base44Client';
+import CustomerHealthBadge from '@/components/customers/CustomerHealthBadge';
+import CustomerFormDialog, { CUSTOMER_TYPES, CUSTOMER_STATUSES } from '@/components/customers/CustomerFormDialog';
+import XeroSyncPanel from '@/components/customers/XeroSyncPanel';
+import DuplicateCustomersPanel from '@/components/customers/DuplicateCustomersPanel';
+import CustomerMapPanel from '@/components/customers/CustomerMapPanel';
+import NeedsAttentionList from '@/components/customers/NeedsAttentionList';
+import CustomerVisitReport from '@/components/customers/CustomerVisitReport';
+import { daysSince } from '@/lib/customerHealth';
+import { format, parseISO } from 'date-fns';
 
-const EMPTY_FORM = { business_name: '', delivery_address: '' };
-const PAGE_SIZE = 50;
+function relativeDays(dateStr) {
+  if (!dateStr) return '—';
+  const d = daysSince(dateStr);
+  if (d === 0) return 'Today';
+  if (d === 1) return 'Yesterday';
+  return `${d} days ago`;
+}
 
 export default function Customers() {
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [deletingCustomer, setDeletingCustomer] = useState(null);
-  const [editingCustomer, setEditingCustomer] = useState(null);
-  const [editForm, setEditForm] = useState(EMPTY_FORM);
+  const navigate = useNavigate();
+  const { rows, isLoading } = useCustomersWithStats();
+
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [regionFilter, setRegionFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [managerFilter, setManagerFilter] = useState('all');
+  const [visitOverdueOnly, setVisitOverdueOnly] = useState(false);
+  const [followUpOverdueOnly, setFollowUpOverdueOnly] = useState(false);
+  const [openRequestOnly, setOpenRequestOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const [isImporting, setIsImporting] = useState(false);
-  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
 
-  const { data: allCustomers = [] } = useQuery({
-    queryKey: ['customers'],
-    queryFn: () => db.Customer.list('business_name', 5000),
+  const regions = useMemo(() => [...new Set(rows.map((r) => r.customer.region).filter(Boolean))].sort(), [rows]);
+  const managers = useMemo(() => [...new Set(rows.map((r) => r.customer.account_manager).filter(Boolean))].sort(), [rows]);
+
+  const filtered = rows.filter((r) => {
+    const c = r.customer;
+    const s = search.toLowerCase();
+    const matchSearch = !s || c.business_name.toLowerCase().includes(s) || (c.city || '').toLowerCase().includes(s) || (c.primary_contact || '').toLowerCase().includes(s);
+    const matchType = typeFilter === 'all' || c.customer_type === typeFilter;
+    const matchRegion = regionFilter === 'all' || c.region === regionFilter;
+    const matchStatus = statusFilter === 'all' || c.status === statusFilter;
+    const matchManager = managerFilter === 'all' || c.account_manager === managerFilter;
+    const matchVisitOverdue = !visitOverdueOnly || r.visitOverdue;
+    const matchFollowUp = !followUpOverdueOnly || r.followUp?.overdue;
+    const matchRequest = !openRequestOnly || r.openRequests.length > 0;
+    return matchSearch && matchType && matchRegion && matchStatus && matchManager && matchVisitOverdue && matchFollowUp && matchRequest;
   });
-  const totalCount = allCustomers.length;
-  const customers = allCustomers.slice((page - 1) * pageSize, page * pageSize);
-
-  const createMutation = useMutation({
-    mutationFn: () => db.Customer.create(form),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
-      setPage(1);
-      setShowForm(false);
-      setForm(EMPTY_FORM);
-      toast.success('Customer added');
-    },
-  });
-
-  const editMutation = useMutation({
-    mutationFn: () => db.Customer.update(editingCustomer.id, {
-      business_name: editForm.business_name,
-      delivery_address: editForm.delivery_address,
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
-      setEditingCustomer(null);
-      toast.success('Customer updated');
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id) => db.Customer.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
-      setDeletingCustomer(null);
-      toast.success('Customer removed');
-    },
-  });
-
-  const handleImportFromSheets = async () => {
-    setIsImporting(true);
-    try {
-      const res = await base44.functions.invoke('syncCustomersFromSheet', {});
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
-      setPage(1);
-      const d = res.data || {};
-      toast.success(`Imported ${d.synced ?? 0} customers (${d.created ?? 0} new, ${d.updated ?? 0} updated)`);
-    } catch (err) {
-      toast.error('Failed to import from spreadsheet');
-    } finally {
-      setIsImporting(false);
-    }
-  };
+  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <div className="pb-20 md:pb-0">
-      <PageHeader title="Customers" subtitle="Manage your customer directory for dispatch">
-        <div className="flex gap-2">
-          <Button onClick={() => setShowForm(true)} className="gap-2">
-            <Plus className="w-4 h-4" />
-            Add Customer
-          </Button>
-          <Button variant="outline" onClick={handleImportFromSheets} disabled={isImporting} className="gap-2">
-            <Zap className="w-4 h-4" />
-            {isImporting ? 'Importing...' : 'Import from Sheets'}
-          </Button>
-        </div>
+      <PageHeader title="Customers" subtitle="Your customer accounts, activity and follow-ups">
+        <Button onClick={() => setShowForm(true)} className="gap-2">
+          <Plus className="w-4 h-4" /> Add Customer
+        </Button>
       </PageHeader>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6 max-w-sm">
-        <div className="rounded-xl border p-4 flex flex-col gap-1 bg-accent border-accent-foreground/10">
-          <div className="flex items-center gap-2">
-            <Users className="w-4 h-4 text-primary" />
-            <span className="text-xs font-medium text-muted-foreground">Total Customers</span>
-          </div>
-          <p className="text-2xl font-bold font-display text-primary">{totalCount}</p>
-        </div>
+      <div className="mb-5">
+        <XeroSyncPanel />
       </div>
 
-      <Card className="p-4">
-        <div className="hidden md:block">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Business Name</TableHead>
-              <TableHead>Delivery Address</TableHead>
-              <TableHead></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {customers.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={3} className="text-center py-10 text-muted-foreground">
-                  No customers yet — add one to get started
-                </TableCell>
-              </TableRow>
-            ) : customers.map(c => (
-              <TableRow key={c.id}>
-                <TableCell className="font-semibold">{c.business_name}</TableCell>
-                <TableCell className="text-muted-foreground flex items-center gap-1.5">
-                  <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
-                  {c.delivery_address}
-                </TableCell>
-                <TableCell className="flex gap-1 justify-end">
-                  <Button
-                    variant="ghost" size="icon" className="h-7 w-7"
-                    onClick={() => { setEditingCustomer(c); setEditForm({ business_name: c.business_name, delivery_address: c.delivery_address }); }}
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                    onClick={() => setDeletingCustomer(c)}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        </div>
-        <MobileCardGrid>
-          {customers.length === 0 ? (
-            <p className="text-center py-10 text-muted-foreground text-sm">No customers yet</p>
-          ) : customers.map(c => (
-            <MobileCard
-              key={c.id}
-              title={c.business_name}
-              subtitle={c.delivery_address}
-              badge={<span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="w-3 h-3" /> Address</span>}
-              actions={
-                <>
-                  <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={() => { setEditingCustomer(c); setEditForm({ business_name: c.business_name, delivery_address: c.delivery_address }); }}><Pencil className="w-3.5 h-3.5" /> Edit</Button>
-                  <Button variant="outline" size="sm" className="flex-1 gap-1.5 text-destructive" onClick={() => setDeletingCustomer(c)}><Trash2 className="w-3.5 h-3.5" /> Delete</Button>
-                </>
-              }
-            >
-              <MobileDetailRow label="Delivery Address" value={c.delivery_address} />
-            </MobileCard>
-          ))}
-        </MobileCardGrid>
-        <Pagination total={totalCount} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={(s) => { setPageSize(s); setPage(1); }} />
-      </Card>
+      <Tabs defaultValue="all">
+        <TabsList className="mb-5">
+          <TabsTrigger value="all">All Customers</TabsTrigger>
+          <TabsTrigger value="attention">Needs Attention</TabsTrigger>
+          <TabsTrigger value="visit-report">Visit Report</TabsTrigger>
+          <TabsTrigger value="map">Map</TabsTrigger>
+          <TabsTrigger value="duplicates">Duplicates</TabsTrigger>
+        </TabsList>
 
-      {/* Add Customer Dialog */}
-      <Dialog open={showForm} onOpenChange={v => { setShowForm(v); if (!v) setForm(EMPTY_FORM); }}>
-        <DialogContent
-          className="max-w-md"
-          onInteractOutside={e => { if (e.target?.closest?.('.pac-container')) e.preventDefault(); }}
-          onPointerDownOutside={e => { if (e.target?.closest?.('.pac-container')) e.preventDefault(); }}
-        >
-          <DialogHeader>
-            <DialogTitle className="font-display">Add Customer</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 mt-2">
-            <div>
-              <Label>Business Name</Label>
-              <Input
-                value={form.business_name}
-                onChange={e => setForm(f => ({ ...f, business_name: e.target.value }))}
-                placeholder="e.g. Coastal Liquor"
-                className="mt-1"
-              />
+        <TabsContent value="all">
+          <Card className="p-4 mb-4">
+            <div className="flex flex-col lg:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
+                <Input placeholder="Search name, city, contact…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="pl-8" />
+              </div>
+              <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setPage(1); }}>
+                <SelectTrigger className="w-full lg:w-40"><SelectValue placeholder="Type" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  {CUSTOMER_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={regionFilter} onValueChange={(v) => { setRegionFilter(v); setPage(1); }}>
+                <SelectTrigger className="w-full lg:w-40"><SelectValue placeholder="Region" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Regions</SelectItem>
+                  {regions.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
+                <SelectTrigger className="w-full lg:w-40"><SelectValue placeholder="Status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  {CUSTOMER_STATUSES.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={managerFilter} onValueChange={(v) => { setManagerFilter(v); setPage(1); }}>
+                <SelectTrigger className="w-full lg:w-44"><SelectValue placeholder="Account Manager" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Managers</SelectItem>
+                  {managers.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-            <div>
-              <Label>Delivery Address</Label>
-              <AddressAutocomplete
-                value={form.delivery_address}
-                onChange={v => setForm(f => ({ ...f, delivery_address: v }))}
-                placeholder="Full delivery address"
-                className="mt-1"
-              />
+            <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-border">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={visitOverdueOnly} onChange={(e) => { setVisitOverdueOnly(e.target.checked); setPage(1); }} /> Visit overdue
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={followUpOverdueOnly} onChange={(e) => { setFollowUpOverdueOnly(e.target.checked); setPage(1); }} /> Follow-up overdue
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={openRequestOnly} onChange={(e) => { setOpenRequestOnly(e.target.checked); setPage(1); }} /> Has open request
+              </label>
             </div>
-            <Button
-              onClick={() => createMutation.mutate()}
-              disabled={createMutation.isPending || !form.business_name || !form.delivery_address}
-              className="w-full"
-            >
-              {createMutation.isPending ? 'Saving…' : 'Add Customer'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </Card>
 
-      {/* Edit Customer Dialog */}
-      <Dialog open={!!editingCustomer} onOpenChange={v => !v && setEditingCustomer(null)}>
-        <DialogContent
-          className="max-w-md"
-          onInteractOutside={e => { if (e.target?.closest?.('.pac-container')) e.preventDefault(); }}
-          onPointerDownOutside={e => { if (e.target?.closest?.('.pac-container')) e.preventDefault(); }}
-        >
-          <DialogHeader>
-            <DialogTitle className="font-display">Edit Customer</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 mt-2">
-            <div>
-              <Label>Business Name</Label>
-              <Input
-                value={editForm.business_name}
-                onChange={e => setEditForm(f => ({ ...f, business_name: e.target.value }))}
-                className="mt-1"
-              />
+          <Card className="overflow-hidden">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Location</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Last Order</TableHead>
+                    <TableHead>Last Visit</TableHead>
+                    <TableHead>Last Contact</TableHead>
+                    <TableHead>Next Follow-up</TableHead>
+                    <TableHead>Account Manager</TableHead>
+                    <TableHead>Health</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {isLoading ? (
+                    <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
+                  ) : paged.length === 0 ? (
+                    <TableRow><TableCell colSpan={9} className="text-center py-10 text-muted-foreground">No customers match these filters</TableCell></TableRow>
+                  ) : paged.map((r) => (
+                    <TableRow key={r.customer.id} className="cursor-pointer" onClick={() => navigate(`/customers/${r.customer.id}`)}>
+                      <TableCell className="font-semibold">{r.customer.business_name}</TableCell>
+                      <TableCell className="text-muted-foreground">{r.customer.city || r.customer.region || '—'}</TableCell>
+                      <TableCell className="capitalize">{(r.customer.status || 'active').replace('_', ' ')}</TableCell>
+                      <TableCell className="text-sm">{relativeDays(r.lastOrder)}</TableCell>
+                      <TableCell className="text-sm">{relativeDays(r.lastVisit)}</TableCell>
+                      <TableCell className="text-sm">{relativeDays(r.lastContact)}</TableCell>
+                      <TableCell className="text-sm">
+                        {r.followUp ? (r.followUp.overdue ? <span className="text-destructive font-medium">Overdue</span> : format(parseISO(r.followUp.date), 'd MMM')) : '—'}
+                      </TableCell>
+                      <TableCell className="text-sm">{r.customer.account_manager || '—'}</TableCell>
+                      <TableCell><CustomerHealthBadge health={r.health} reason={r.healthReason} showLabel={false} /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
-            <div>
-              <Label>Delivery Address</Label>
-              <AddressAutocomplete
-                value={editForm.delivery_address}
-                onChange={v => setEditForm(f => ({ ...f, delivery_address: v }))}
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label>Xero Contact ID</Label>
-              <Input
-                value={editingCustomer?.xero_contact_id || ''}
-                readOnly
-                placeholder="Not yet linked"
-                className="mt-1 bg-muted"
-              />
-              <p className="text-xs text-muted-foreground mt-1">Set automatically when Xero integration is connected.</p>
-            </div>
-            <Button
-              onClick={() => editMutation.mutate()}
-              disabled={editMutation.isPending || !editForm.business_name || !editForm.delivery_address}
-              className="w-full"
-            >
-              {editMutation.isPending ? 'Saving…' : 'Save Changes'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+            <Pagination total={filtered.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={(s) => { setPageSize(s); setPage(1); }} />
+          </Card>
+        </TabsContent>
 
-      {/* Delete Confirm */}
-      <AlertDialog open={!!deletingCustomer} onOpenChange={v => !v && setDeletingCustomer(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove Customer?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will remove <strong>{deletingCustomer?.business_name}</strong> from your customer directory. Existing dispatch records are unaffected.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive hover:bg-destructive/90"
-              onClick={() => deleteMutation.mutate(deletingCustomer.id)}
-              disabled={deleteMutation.isPending}
-            >
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <TabsContent value="attention">
+          <NeedsAttentionList rows={rows} isLoading={isLoading} />
+        </TabsContent>
+
+        <TabsContent value="visit-report">
+          <CustomerVisitReport rows={rows} />
+        </TabsContent>
+
+        <TabsContent value="map">
+          <CustomerMapPanel />
+        </TabsContent>
+
+        <TabsContent value="duplicates">
+          <DuplicateCustomersPanel customers={rows.map((r) => r.customer)} />
+        </TabsContent>
+      </Tabs>
+
+      <CustomerFormDialog customer={null} open={showForm} onOpenChange={setShowForm} />
     </div>
   );
 }
