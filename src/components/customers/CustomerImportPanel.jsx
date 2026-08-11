@@ -107,10 +107,13 @@ export default function CustomerImportPanel() {
     },
     onSuccess: (r) => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
-      setResult(r);
+      setResult({ success: true, ...r });
       toast.success(`Imported ${r.created + r.updated} customers`);
     },
-    onError: (e) => toast.error('Import failed: ' + e.message),
+    onError: (e) => {
+      setResult({ success: false, error: e.message });
+      toast.error('Import failed: ' + e.message);
+    },
   });
 
   return (
@@ -144,7 +147,7 @@ export default function CustomerImportPanel() {
               <Button variant="ghost" size="sm" onClick={reset}>Change file</Button>
             </div>
 
-            {result ? (
+            {result?.success ? (
               <div className="rounded-lg border border-success/30 bg-success/5 p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <CheckCircle2 className="w-5 h-5 text-success" />
@@ -155,6 +158,15 @@ export default function CustomerImportPanel() {
                   {result.skipped > 0 && ` · ${result.skipped} skipped (no business name)`}
                 </p>
                 <Button variant="outline" size="sm" className="mt-3" onClick={reset}>Import another file</Button>
+              </div>
+            ) : result?.success === false ? (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="w-5 h-5 text-destructive" />
+                  <p className="font-semibold text-destructive">Import failed</p>
+                </div>
+                <p className="text-sm text-destructive/80">{result.error}</p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => setResult(null)}>Try again</Button>
               </div>
             ) : (
               <>
