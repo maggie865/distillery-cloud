@@ -4,10 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Upload, Download, FileText, CheckCircle2, XCircle, Loader2, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
-import CustomerImportPanel from '@/components/customers/CustomerImportPanel';
 
 const TEMPLATE_ROWS = [
   'section,batch_code,product_name,date_started,date_completed,target_volume,target_abv,distillation_run_count,total_output_lals,holding_tank,status,ethanol_lot,notes',
@@ -91,19 +89,6 @@ function ImportPreviewSection({ title, items, columns }) {
 }
 
 export default function ImportDataPanel() {
-  return (
-    <Tabs defaultValue="batch">
-      <TabsList className="mb-5">
-        <TabsTrigger value="batch">Batch Data</TabsTrigger>
-        <TabsTrigger value="customers">Customers</TabsTrigger>
-      </TabsList>
-      <TabsContent value="batch"><BatchDataImportPanel /></TabsContent>
-      <TabsContent value="customers"><CustomerImportPanel /></TabsContent>
-    </Tabs>
-  );
-}
-
-function BatchDataImportPanel() {
   const [importParsed, setImportParsed] = useState(null);
   const [importErrors, setImportErrors] = useState([]);
   const [importFileName, setImportFileName] = useState('');

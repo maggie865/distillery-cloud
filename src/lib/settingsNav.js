@@ -16,7 +16,7 @@
 import {
   User, Building2, Users, Cylinder, FlaskConical, Link2, Boxes, Truck, Upload,
   CheckSquare, Wrench, MapPin, ShieldCheck, LayoutDashboard, Database, Factory,
-  Package, ClipboardList, Lock,
+  Package, ClipboardList, Lock, Activity,
 } from 'lucide-react';
 
 import MyProfilePanel from '@/components/settings/MyProfilePanel';
@@ -30,6 +30,7 @@ import PestControlMapSettings from '@/components/settings/PestControlMapSettings
 import ComplianceSettings from '@/components/settings/ComplianceSettings';
 import DashboardLinkManager from '@/components/settings/DashboardLinkManager';
 import DataExportPanel from '@/components/settings/DataExportPanel';
+import CustomerImportPanel from '@/components/customers/CustomerImportPanel';
 
 export const SETTINGS_NAV = [
   {
@@ -59,7 +60,15 @@ export const SETTINGS_NAV = [
     items: [
       { key: 'inventory-settings', label: 'Inventory Settings', description: 'Stock thresholds and low-stock alerts.', icon: Boxes, kind: 'link', path: '/inventory' },
       { key: 'suppliers', label: 'Suppliers', description: 'Manage supplier details and contacts.', icon: Truck, kind: 'link', path: '/suppliers' },
-      { key: 'import', label: 'Import Data', description: 'Bulk import batch history or customers via CSV.', icon: Upload, kind: 'embed', component: ImportDataPanel },
+      { key: 'import', label: 'Import Data', description: 'Upload historical batch data via CSV.', icon: Upload, kind: 'embed', component: ImportDataPanel },
+    ],
+  },
+  {
+    key: 'sales',
+    label: 'Sales',
+    icon: Activity,
+    items: [
+      { key: 'customers', label: 'Customers', description: 'Import customers from a Xero CSV export or other contact list.', icon: Users, kind: 'embed', component: CustomerImportPanel },
     ],
   },
   {
