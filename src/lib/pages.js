@@ -17,7 +17,7 @@ import {
   Home, Droplets, Flame, Wine, Cylinder, TrendingUp, Users,
   Warehouse, Building2, FileText, Settings as SettingsIcon, PackagePlus,
   Truck, ClipboardList, Thermometer, Wrench, Bug, AlertTriangle, CheckSquare,
-  Leaf, Archive, Zap, ShieldCheck,
+  Leaf, Archive, Zap, ShieldCheck, Activity,
 } from 'lucide-react';
 
 import Dashboard from '@/pages/Dashboard';
@@ -45,6 +45,8 @@ import WhiskeyBarrels from '@/pages/WhiskeyBarrels';
 import UtilityTracker from '@/pages/UtilityTracker';
 import Permissions from '@/pages/Permissions';
 import TankDetail from '@/pages/TankDetail';
+import SalesOverview from '@/pages/SalesOverview';
+import CustomerDetail from '@/pages/CustomerDetail';
 
 export const NAV_GROUPS = ['Production', 'Inventory', 'Sales', 'Compliance'];
 
@@ -64,8 +66,10 @@ export const PAGES = [
   { key: 'stock-takes',       label: 'Stock Takes',       path: '/stock-takes',       icon: ClipboardList, component: StockTakes,        navGroup: 'Inventory' },
   { key: 'whiskey-barrels',   label: 'Whiskey Barrels',   path: '/whiskey-barrels',   icon: Archive,       component: WhiskeyBarrels,    navGroup: 'Inventory' },
 
+  { key: 'sales',             label: 'Sales',             path: '/sales',             icon: Activity,      component: SalesOverview,     navGroup: 'Sales' },
   { key: 'dispatch',          label: 'Dispatch',          path: '/dispatch',          icon: TrendingUp,    component: DispatchHub,       navGroup: 'Sales' },
   { key: 'customers',         label: 'Customers',         path: '/customers',         icon: Users,         component: Customers,         navGroup: 'Sales' },
+  { key: 'customer-detail',   label: 'Customer Detail',   path: '/customers/:customerId', icon: Users,     component: CustomerDetail,    navGroup: null },
   { key: 'suppliers',         label: 'Suppliers',         path: '/suppliers',         icon: Truck,         component: Suppliers,         navGroup: 'Sales' },
 
   { key: 'checklists',        label: 'Checklists',        path: '/checklists',        icon: CheckSquare,   component: Checklists,        navGroup: 'Compliance' },
