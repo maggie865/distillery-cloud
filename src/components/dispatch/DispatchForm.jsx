@@ -12,22 +12,11 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { base44 } from '@/api/base44Client';
 import CustomerAutocomplete from '@/components/sales/CustomerAutocomplete.jsx';
+import { calcWeightKg, calcCO2e, allocateBluffLineItems } from '@/lib/dispatchAllocation';
+import { useProductStock } from '@/hooks/useProductStock';
 
 const DEFAULT_DISTILLERY_ORIGIN = '250 Ocean Beach Road, Bluff, New Zealand';
 const DEFAULT_WAREHOUSE_ADDRESS = '27 Pavillion Drive, Māngere, Auckland 2015, New Zealand';
-
-const calcWeightKg = (bottleSizeMl, numBottles) => {
-  if (!numBottles) return 0;
-  const kgPerBottle = bottleSizeMl <= 250 ? (6 / 12) : (10 / 6);
-  return parseFloat((kgPerBottle * numBottles).toFixed(2));
-};
-
-const EMISSION_FACTORS = { road: 0.12, courier: 0.12, air: 0.9, sea: 0.01, pickup: 0 };
-
-const calcCO2e = (distanceKm, weightKg, method) => {
-  if (!distanceKm || !weightKg || !method) return 0;
-  return parseFloat(((distanceKm * weightKg / 1000) * (EMISSION_FACTORS[method] || 0)).toFixed(3));
-};
 
 const EMPTY_FORM = {
   dispatch_date: new Date().toISOString().split('T')[0],
@@ -54,6 +43,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
   const [newLineBatchId, setNewLineBatchId] = useState('');
 
   const queryClient = useQueryClient();
+  const { getStock } = useProductStock();
 
   const { data: appSettings = [] } = useQuery({
     queryKey: ['appSettings'],
@@ -80,7 +70,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
       map[key].batches.push(fg);
     }
     return Object.values(map).map(opt => {
-      const batchesWithAvail = opt.batches.map(fg => {
+      let batchesWithAvail = opt.batches.map(fg => {
         return { ...fg, available: fg.quantity_bottles || 0 };
       }).filter(b => b.available > 0);
       batchesWithAvail.sort((a, b) => {
@@ -89,11 +79,26 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
         if (an && bn) return an.localeCompare(bn, undefined, { numeric: true });
         if (an) return -1;
         if (bn) return 1;
-        return new Date(a.created_date) - new Date(b.created_date);
+        return new Date(a.created_at) - new Date(b.created_at);
       });
+      // Other pending/picking/ready dispatches (e.g. an open Quick Order)
+      // have already reserved some of this stock even though it hasn't
+      // been physically deducted yet — consume it FIFO-first here too, so
+      // this form can't oversell what's already spoken for.
+      let reserved = getStock(opt.product_name, opt.bottle_size_ml, 'Bluff').reserved;
+      if (reserved > 0) {
+        batchesWithAvail = batchesWithAvail
+          .map(b => {
+            if (reserved <= 0) return b;
+            const take = Math.min(b.available, reserved);
+            reserved -= take;
+            return { ...b, available: b.available - take };
+          })
+          .filter(b => b.available > 0);
+      }
       return { ...opt, batches: batchesWithAvail, totalAvailable: batchesWithAvail.reduce((s, b) => s + b.available, 0) };
     }).filter(opt => opt.totalAvailable > 0);
-  }, [sellableGoods]);
+  }, [sellableGoods, getStock]);
 
   const bluffBatches = useMemo(() => {
     const list = [];
@@ -108,12 +113,27 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
   // 3PL: individual WarehouseStock records, filtered by the selected source location
   const threePLProductOptions = useMemo(() => {
     const loc = dispatchedFrom === 'UK Bonded' ? 'UK Bonded' : 'Auckland 3PL';
-    return warehouseStock
+    const rows = warehouseStock
       .filter(ws => ws.status !== 'in_transit')
       .filter(ws => (ws.warehouse_location || 'Auckland 3PL') === loc)
       .map(ws => ({ ...ws, available: ws.quantity_bottles || 0 }))
       .filter(ws => ws.available > 0);
-  }, [warehouseStock, dispatchedFrom]);
+
+    // Same reservation-aware trim as Bluff, grouped by product+size since
+    // reservations aren't tied to a specific warehouse_stock row.
+    const reservedByProduct = {};
+    return rows
+      .map(ws => {
+        const key = `${ws.product_name}||${ws.bottle_size_ml || ''}`;
+        if (!(key in reservedByProduct)) reservedByProduct[key] = getStock(ws.product_name, ws.bottle_size_ml, loc).reserved;
+        let reserved = reservedByProduct[key];
+        if (reserved <= 0) return ws;
+        const take = Math.min(ws.available, reserved);
+        reservedByProduct[key] = reserved - take;
+        return { ...ws, available: ws.available - take };
+      })
+      .filter(ws => ws.available > 0);
+  }, [warehouseStock, dispatchedFrom, getStock]);
 
   const committedByProduct = useMemo(() => {
     const map = {};
@@ -236,43 +256,16 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
     mutationFn: async () => {
       const distanceKm = parseFloat(form.transport_distance_km) || 0;
       const transportMethod = form.transport_method;
+      // Physical stock only ever moves once a dispatch is actually
+      // 'dispatched' — Pending/Picking/Ready reserve the line items (they
+      // already count against availability via useProductStock) without
+      // touching finished_good/warehouse_stock yet. See DispatchHub's
+      // status-transition handling for the deduct-on-dispatched /
+      // restore-on-leaving-dispatched logic that mirrors this.
+      const deductsStock = form.status === 'dispatched';
 
       if (dispatchedFrom === 'Bluff') {
-        const batchAvailMap = {};
-        for (const opt of bluffProductOptions) for (const b of opt.batches) batchAvailMap[b.id] = b.available;
-        const allAllocations = [];
-
-        for (const li of lineItems) {
-          const product = bluffProductOptions.find(p => `${p.product_name}||${p.bottle_size_ml}` === li.productKey);
-          if (!product) continue;
-          let remaining = parseInt(li.quantity) || 0;
-          if (li.batchId) {
-            const batch = product.batches.find(b => b.id === li.batchId);
-            if (!batch) throw new Error(`Batch not found for ${product.product_name}`);
-            const avail = batchAvailMap[batch.id] || 0;
-            if (avail < remaining) throw new Error(`Insufficient stock for ${product.product_name} batch ${batch.batch_number} (${avail} available)`);
-            const bottleSize = batch.bottle_size_ml || 700;
-            const lals = ((remaining * bottleSize) / 1000) * (batch.abv_percent || 0) / 100;
-            const weightKg = calcWeightKg(bottleSize, remaining);
-            allAllocations.push({ batch, take: remaining, lals, weightKg, co2e: calcCO2e(distanceKm, weightKg, transportMethod) });
-            batchAvailMap[batch.id] = avail - remaining;
-            remaining = 0;
-          } else {
-            for (const batch of product.batches) {
-              if (remaining <= 0) break;
-              const avail = batchAvailMap[batch.id] || 0;
-              if (avail <= 0) continue;
-              const take = Math.min(remaining, avail);
-              const bottleSize = batch.bottle_size_ml || 700;
-              const lals = ((take * bottleSize) / 1000) * (batch.abv_percent || 0) / 100;
-              const weightKg = calcWeightKg(bottleSize, take);
-              allAllocations.push({ batch, take, lals, weightKg, co2e: calcCO2e(distanceKm, weightKg, transportMethod) });
-              batchAvailMap[batch.id] = avail - take;
-              remaining -= take;
-            }
-          }
-          if (remaining > 0) throw new Error(`Insufficient stock for ${product.product_name} (${product.bottle_size_ml}ml)`);
-        }
+        const allAllocations = allocateBluffLineItems(lineItems, bluffProductOptions, { distanceKm, transportMethod });
 
         for (const a of allAllocations) {
           await db.Dispatch.create({
@@ -290,6 +283,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
             duty_free: form.duty_free === true,
             is_export: form.is_export === true,
           });
+          if (!deductsStock) continue;
           const newQty = (a.batch.quantity_bottles || 0) - a.take;
           const newLals = Math.max(0, (a.batch.total_lals || 0) - parseFloat(a.lals.toFixed(4)));
           if (newQty <= 0) await db.FinishedGood.delete(a.batch.id);
@@ -312,6 +306,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
             co2e_kg: co2e > 0 ? parseFloat(co2e.toFixed(3)) : undefined, status: form.status || 'dispatched',
             sample_dispatch: form.sample_dispatch === true, duty_free: form.duty_free === true, is_export: form.is_export === true, notes: form.notes || undefined, dispatched_from: dispatchedFrom,
           });
+          if (!deductsStock) continue;
           const newQty = Math.max(0, ws.quantity_bottles - qty);
           const newLals = Math.max(0, (ws.total_lals || 0) - lals);
           await db.WarehouseStock.update(ws.id, { quantity_bottles: newQty, total_lals: parseFloat(newLals.toFixed(4)) });
@@ -496,7 +491,13 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
             <Label>Status</Label>
             <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v }))}>
               <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="dispatched">Dispatched</SelectItem><SelectItem value="delivered">Delivered</SelectItem></SelectContent>
+              <SelectContent>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="picking">Picking</SelectItem>
+                <SelectItem value="ready">Ready</SelectItem>
+                <SelectItem value="dispatched">Dispatched</SelectItem>
+                <SelectItem value="delivered">Delivered</SelectItem>
+              </SelectContent>
             </Select>
           </div>
 

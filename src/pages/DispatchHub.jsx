@@ -24,10 +24,20 @@ import StockLocationDialog from '@/components/dispatch/StockLocationDialog.jsx';
 import TransferTo3PLDialog from '@/components/dispatch/TransferTo3PLDialog.jsx';
 import ExciseFlags from '@/components/dispatch/ExciseFlags.jsx';
 import DeliveryMap from '@/components/sales/DeliveryMap';
+import { buildBluffProductOptions, allocateBluffLineItems } from '@/lib/dispatchAllocation';
 
 const DISTILLERY_ORIGIN = '250 Ocean Beach Road, Bluff, New Zealand';
 const WAREHOUSE_ADDRESS = '27 Pavillion Drive, Māngere, Auckland 2015, New Zealand';
 const CHANNEL_LABELS = { wholesale: 'Wholesale', cellar_door: 'Cellar Door', shopify: 'Shopify', airpoints: 'Airpoints', website: 'Website', other: 'Other' };
+// Physical stock is only ever committed (deducted) once a dispatch reaches
+// one of these statuses; Pending/Picking/Ready reserve the line item (see
+// useProductStock) without touching finished_good/warehouse_stock. A
+// dispatch transitioning INTO this set deducts stock for the first time;
+// transitioning OUT of it restores what was deducted.
+const DEDUCTED_STATUSES = new Set(['dispatched', 'delivered']);
+// Cancelling only makes sense before stock has actually gone out — once a
+// dispatch is Dispatched/Delivered, "Return stock" is the correct undo path.
+const CANCELLABLE_STATUSES = new Set(['pending', 'picking', 'ready']);
 
 const calcCO2e = (distanceKm, weightKg, method) => {
   if (!distanceKm || !weightKg || !method) return 0;
@@ -86,6 +96,12 @@ export default function DispatchHub() {
 
   const pagedFiltered = filtered.slice((page - 1) * pageSize, page * pageSize);
 
+  // Exact-match deduction/restore — for a dispatch row that already has a
+  // batch_number assigned (the normal case: DispatchForm always assigns a
+  // batch at creation, whether FIFO or manually chosen, regardless of the
+  // status picked). This only ever runs when a dispatch is transitioning
+  // into or out of {dispatched, delivered} (see DEDUCTED_STATUSES) — not on
+  // every edit — so "Pending" no longer silently moves physical stock.
   const depleteStock = async (dispatch) => {
     const from = dispatch.dispatched_from || 'Bluff';
     const is3PL = from === 'Auckland 3PL' || from === 'UK Bonded';
@@ -111,6 +127,57 @@ export default function DispatchHub() {
         else await db.FinishedGood.update(fg.id, { quantity_bottles: newQty, total_lals: newLals });
       }
     }
+  };
+
+  // A Quick-Order-created dispatch has no batch_number yet (Quick Order is
+  // product/quantity, not batch-level — it just reserves against the
+  // product as a whole). The first time such a row transitions into
+  // 'dispatched', a real batch has to be picked for the first time, using
+  // the same FIFO allocator DispatchForm itself uses. If the quantity spans
+  // more than one batch, the extra portion becomes additional dispatch rows
+  // (order_id preserved) — mirroring how DispatchForm already creates one
+  // row per batch allocation for a manually-entered multi-batch dispatch.
+  // Returns the fields to merge into THIS row's update payload; the caller
+  // is responsible for actually saving them (so it happens in the same
+  // update as the rest of the edited form, not a second racing write).
+  const allocateBluffBatchForDispatch = async (dispatch) => {
+    const productOptions = buildBluffProductOptions(finishedGoods);
+    const [first, ...rest] = allocateBluffLineItems(
+      [{ productKey: `${dispatch.product_name}||${dispatch.bottle_size_ml || ''}`, quantity: dispatch.quantity_bottles }],
+      productOptions,
+      { distanceKm: dispatch.transport_distance_km || 0, transportMethod: dispatch.transport_method }
+    );
+    if (!first) throw new Error(`No stock available for ${dispatch.product_name}`);
+
+    const depleteBatch = async (batch, take, lals) => {
+      const newQty = (batch.quantity_bottles || 0) - take;
+      const newLals = Math.max(0, (batch.total_lals || 0) - parseFloat(lals.toFixed(4)));
+      if (newQty <= 0) await db.FinishedGood.delete(batch.id);
+      else await db.FinishedGood.update(batch.id, { quantity_bottles: newQty, total_lals: parseFloat(newLals.toFixed(4)) });
+    };
+
+    await depleteBatch(first.batch, first.take, first.lals);
+    for (const a of rest) {
+      const { id, created_at, ...rowRest } = dispatch;
+      await db.Dispatch.create({
+        ...rowRest,
+        batch_number: a.batch.batch_number,
+        quantity_bottles: a.take,
+        total_lals: parseFloat(a.lals.toFixed(4)),
+        parcel_weight_kg: a.weightKg,
+        co2e_kg: a.co2e,
+        status: 'dispatched',
+      });
+      await depleteBatch(a.batch, a.take, a.lals);
+    }
+
+    return {
+      batch_number: first.batch.batch_number,
+      quantity_bottles: first.take,
+      total_lals: parseFloat(first.lals.toFixed(4)),
+      parcel_weight_kg: first.weightKg,
+      co2e_kg: first.co2e,
+    };
   };
 
   const stockFieldsChanged = (orig, data) => {
@@ -139,10 +206,33 @@ export default function DispatchHub() {
       };
       Object.assign(cleanData, flagPayload);
 
-      // If stock-relevant fields changed, return stock to old batch and deplete from new batch
-      if (stockFieldsChanged(editingDispatch, data)) {
+      // Physical stock moves only on transition into/out of {dispatched,
+      // delivered} — not on every edit, and not based on which fields
+      // changed (that old rule is exactly what let a 'pending' dispatch
+      // silently deduct stock at creation).
+      const oldStatus = editingDispatch.status || 'pending';
+      const newStatus = data.status || oldStatus;
+      const wasDeducted = DEDUCTED_STATUSES.has(oldStatus);
+      const willDeduct = DEDUCTED_STATUSES.has(newStatus);
+      const merged = { ...editingDispatch, ...data };
+
+      if (wasDeducted && !willDeduct) {
+        // Leaving Dispatched/Delivered (e.g. reverting to Pending) — release
+        // what was actually deducted, using the OLD row's known batch.
         await restoreStock(editingDispatch);
-        await depleteStock(data);
+      } else if (!wasDeducted && willDeduct) {
+        // Entering Dispatched/Delivered for the first time — deduct now.
+        const isBluff = (merged.dispatched_from || 'Bluff') === 'Bluff';
+        if (isBluff && !merged.batch_number) {
+          Object.assign(cleanData, await allocateBluffBatchForDispatch(merged));
+        } else {
+          await depleteStock(merged);
+        }
+      } else if (wasDeducted && willDeduct && stockFieldsChanged(editingDispatch, data)) {
+        // Already deducted on both sides, but which batch/product/qty
+        // changed — undo the old deduction and redo it against the new one.
+        await restoreStock(editingDispatch);
+        await depleteStock(merged);
       }
 
       // Merge flags separately to guarantee they are always sent
@@ -212,14 +302,19 @@ export default function DispatchHub() {
 
   const returnMutation = useMutation({
     mutationFn: async (dispatch) => {
-      await restoreStock(dispatch);
+      // Only restore physical stock if this row actually had any deducted —
+      // a still-Pending/Picking/Ready row was only ever reserved.
+      if (DEDUCTED_STATUSES.has(dispatch.status)) await restoreStock(dispatch);
       await db.Dispatch.update(dispatch.id, { status: 'pending', notes: (dispatch.notes ? dispatch.notes + ' [RETURNED]' : '[RETURNED]') });
     },
     onSuccess: () => { invalidateAll(); setReturningDispatch(null); toast.success('Stock returned'); },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (dispatch) => { await restoreStock(dispatch); await db.Dispatch.delete(dispatch.id); },
+    mutationFn: async (dispatch) => {
+      if (DEDUCTED_STATUSES.has(dispatch.status)) await restoreStock(dispatch);
+      await db.Dispatch.delete(dispatch.id);
+    },
     onSuccess: () => { invalidateAll(); setDeletingDispatch(null); toast.success('Dispatch deleted and stock restored'); },
   });
 
@@ -311,7 +406,15 @@ export default function DispatchHub() {
             </Select>
             <Select value={filterStatus} onValueChange={v => { setFilterStatus(v); setPage(1); }}>
               <SelectTrigger className="w-full sm:w-36"><SelectValue placeholder="All statuses" /></SelectTrigger>
-              <SelectContent><SelectItem value="all">All Statuses</SelectItem><SelectItem value="pending">Pending</SelectItem><SelectItem value="dispatched">Dispatched</SelectItem><SelectItem value="delivered">Delivered</SelectItem></SelectContent>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="picking">Picking</SelectItem>
+                <SelectItem value="ready">Ready</SelectItem>
+                <SelectItem value="dispatched">Dispatched</SelectItem>
+                <SelectItem value="delivered">Delivered</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+              </SelectContent>
             </Select>
           </div>
         </div>
@@ -482,7 +585,16 @@ export default function DispatchHub() {
               <div><Label>Dispatch Date</Label><Input type="date" value={editForm.dispatch_date || ''} onChange={e => setEditForm(f => ({ ...f, dispatch_date: e.target.value }))} className="mt-1" /></div>
               <div><Label>Status</Label><Select value={editForm.status || 'dispatched'} onValueChange={v => setEditForm(f => ({ ...f, status: v }))}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="dispatched">Dispatched</SelectItem><SelectItem value="delivered">Delivered</SelectItem></SelectContent>
+                <SelectContent>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="picking">Picking</SelectItem>
+                  <SelectItem value="ready">Ready</SelectItem>
+                  <SelectItem value="dispatched">Dispatched</SelectItem>
+                  <SelectItem value="delivered">Delivered</SelectItem>
+                  {/* Cancelling only makes sense before stock has gone out — once
+                      Dispatched/Delivered, "Return stock" is the correct undo path. */}
+                  {CANCELLABLE_STATUSES.has(editingDispatch?.status) && <SelectItem value="cancelled">Cancelled</SelectItem>}
+                </SelectContent>
               </Select></div>
             </div>
             <div><Label>Notes</Label><Input value={editForm.notes || ''} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} className="mt-1" /></div>

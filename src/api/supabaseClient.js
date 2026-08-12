@@ -101,7 +101,10 @@ export const db = {
   BottlingRun:       makeEntity('BottlingRun'),
   Customer:          makeEntity('Customer'),
   CustomerActivity:  makeEntity('CustomerActivity'),
+  CustomerOrder:     makeEntity('CustomerOrder'),
+  CustomerParLevel:  makeEntity('CustomerParLevel'),
   CustomerRequest:   makeEntity('CustomerRequest'),
+  CustomerStockCheck: makeEntity('CustomerStockCheck'),
   DashboardLink:     makeEntity('DashboardLink'),
   Dilution:          makeEntity('Dilution'),
   Dispatch:          makeEntity('Dispatch'),
@@ -114,6 +117,7 @@ export const db = {
   PagePermission:    makeEntity('PagePermission'),
   PestControlLog:    makeEntity('PestControlLog'),
   PestControlTrap:   makeEntity('PestControlTrap'),
+  Product:           makeEntity('Product'),
   ProductAlias:      makeEntity('ProductAlias'),
   RawMaterial:       makeEntity('RawMaterial'),
   Receiving:         makeEntity('Receiving'),
@@ -168,4 +172,10 @@ export const auth = {
 export const admin = {
   listUsers: () => supabase.rpc('list_users_for_admin'),
   setUserRole: (userId, role) => supabase.rpc('set_user_role', { target_user_id: userId, new_role: role }),
+};
+
+// ── Order numbering — atomic, server-side (see generate_order_number() in
+// supabase/migrations/) — never generate order numbers client-side. ────────
+export const orders = {
+  generateOrderNumber: () => supabase.rpc('generate_order_number'),
 };

@@ -47,6 +47,7 @@ import Permissions from '@/pages/Permissions';
 import TankDetail from '@/pages/TankDetail';
 import SalesOverview from '@/pages/SalesOverview';
 import CustomerDetail from '@/pages/CustomerDetail';
+import OrderDetail from '@/pages/OrderDetail';
 
 export const NAV_GROUPS = ['Production', 'Inventory', 'Sales', 'Compliance'];
 
@@ -70,6 +71,7 @@ export const PAGES = [
   { key: 'dispatch',          label: 'Dispatch',          path: '/dispatch',          icon: TrendingUp,    component: DispatchHub,       navGroup: 'Sales' },
   { key: 'customers',         label: 'Customers',         path: '/customers',         icon: Users,         component: Customers,         navGroup: 'Sales' },
   { key: 'customer-detail',   label: 'Customer Detail',   path: '/customers/:customerId', icon: Users,     component: CustomerDetail,    navGroup: null },
+  { key: 'order-detail',      label: 'Order Detail',      path: '/customers/:customerId/orders/:orderId', icon: Users, component: OrderDetail, navGroup: null },
   { key: 'suppliers',         label: 'Suppliers',         path: '/suppliers',         icon: Truck,         component: Suppliers,         navGroup: 'Sales' },
 
   { key: 'checklists',        label: 'Checklists',        path: '/checklists',        icon: CheckSquare,   component: Checklists,        navGroup: 'Compliance' },
