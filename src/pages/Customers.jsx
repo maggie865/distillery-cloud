@@ -179,7 +179,7 @@ export default function Customers() {
         </TabsContent>
 
         <TabsContent value="map">
-          <CustomerMapPanel />
+          <CustomerMapPanel customers={filtered.map((r) => r.customer)} />
         </TabsContent>
 
         <TabsContent value="duplicates">

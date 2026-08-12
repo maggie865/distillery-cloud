@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
-import { base44 } from '@/api/base44Client';
+import { useQueryClient } from '@tanstack/react-query';
+import { db } from '@/api/supabaseClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -89,6 +90,7 @@ function ImportPreviewSection({ title, items, columns }) {
 }
 
 export default function ImportDataPanel() {
+  const queryClient = useQueryClient();
   const [importParsed, setImportParsed] = useState(null);
   const [importErrors, setImportErrors] = useState([]);
   const [importFileName, setImportFileName] = useState('');
@@ -115,16 +117,123 @@ export default function ImportDataPanel() {
     if (!importParsed || importErrors.length > 0) return;
     setImporting(true);
     try {
-      const res = await base44.functions.invoke('importBatchData', { batchData: importParsed });
-      if (res.data?.success) {
-        setImportResult({ success: true, batch_code: res.data.batch_code, results: res.data.results });
-        toast.success('Batch ' + res.data.batch_code + ' imported successfully');
-        setImportParsed(null);
-        setImportFileName('');
-      } else {
-        setImportResult({ success: false, error: res.data?.error || 'Unknown error' });
-        toast.error('Import failed: ' + (res.data?.error || 'Unknown error'));
+      const { masterBatch, subBatches, distillationRuns, dilutions, bottlingRun, wastageRecords } = importParsed;
+
+      const master = await db.MasterBatch.create({
+        batch_code: masterBatch.batch_code,
+        product_name: masterBatch.product_name,
+        date_started: masterBatch.date_started,
+        date_completed: masterBatch.date_completed,
+        status: masterBatch.status,
+        target_volume: masterBatch.target_volume,
+        target_abv: masterBatch.target_abv,
+        holding_tank: masterBatch.holding_tank,
+        distillation_run_count: masterBatch.distillation_run_count,
+        total_output_lals: masterBatch.total_output_lals,
+        ethanol_lot: masterBatch.ethanol_lot,
+        notes: masterBatch.notes,
+      });
+
+      const results = { subBatches: 0, distillationRuns: 0, dilutions: 0, wastageRecords: 0 };
+
+      for (const sb of subBatches) {
+        await db.SubBatch.create({
+          master_batch_id: master.id,
+          master_batch_code: master.batch_code,
+          sub_batch_code: sb.sub_batch_code,
+          date: sb.date,
+          ethanol_lot: sb.ethanol_lot,
+          botanical_lots: sb.botanical_lots,
+          input_volume: sb.input_volume,
+          input_abv: sb.input_abv,
+          status: sb.status,
+        });
+        results.subBatches++;
       }
+
+      for (const run of distillationRuns) {
+        await db.DistillationRun.create({
+          batch_number: run.batch_number || master.batch_code,
+          sub_batch_code: run.sub_batch_code,
+          date: run.date,
+          product_name: master.product_name,
+          input_volume: run.input_volume,
+          input_abv: run.input_abv,
+          input_lals: run.input_lals,
+          heads_volume: run.heads_volume,
+          heads_abv: run.heads_abv,
+          heads_lals: run.heads_lals,
+          hearts_volume: run.hearts_volume,
+          hearts_abv: run.hearts_abv,
+          hearts_lals: run.hearts_lals,
+          tails_volume: run.tails_volume,
+          tails_abv: run.tails_abv,
+          tails_lals: run.tails_lals,
+          dumped_volume: run.dumped_volume,
+          dumped_abv: run.dumped_abv,
+          dumped_lals: run.dumped_lals,
+          status: run.status,
+        });
+        results.distillationRuns++;
+      }
+
+      for (const d of dilutions) {
+        await db.Dilution.create({
+          batch_number: d.batch_number || master.batch_code,
+          date: d.date,
+          input_ethanol_volume: d.input_volume,
+          input_abv: d.input_abv,
+          input_lals: d.input_lals,
+          water_added: d.water_added,
+          output_volume: d.output_volume,
+          output_abv: d.output_abv,
+          output_lals: d.output_lals,
+          status: d.status,
+          notes: d.notes,
+        });
+        results.dilutions++;
+      }
+
+      if (bottlingRun) {
+        await db.BottlingRun.create({
+          batch_number: bottlingRun.batch_number || master.batch_code,
+          product_name: bottlingRun.product_name || master.product_name,
+          date: bottlingRun.date,
+          input_volume: bottlingRun.input_volume,
+          input_abv: bottlingRun.input_abv,
+          input_lals: bottlingRun.input_lals,
+          bottle_size_ml: bottlingRun.bottle_size_ml,
+          bottles_produced: bottlingRun.bottles_produced,
+          lals_per_bottle: bottlingRun.lals_per_bottle,
+          status: bottlingRun.status,
+        });
+      }
+
+      for (const w of wastageRecords) {
+        await db.WastageRecord.create({
+          date: w.date,
+          batch_number: w.batch_number || master.batch_code,
+          product_name: master.product_name,
+          volume: w.volume_litres,
+          abv: w.abv_percent,
+          lals: w.lals,
+          notes: w.notes,
+          source: 'csv_import',
+        });
+        results.wastageRecords++;
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['masterBatches'] });
+      queryClient.invalidateQueries({ queryKey: ['subBatches'] });
+      queryClient.invalidateQueries({ queryKey: ['distillationRuns'] });
+      queryClient.invalidateQueries({ queryKey: ['dilutions'] });
+      queryClient.invalidateQueries({ queryKey: ['bottlingRuns'] });
+      queryClient.invalidateQueries({ queryKey: ['wastageRecords'] });
+
+      setImportResult({ success: true, batch_code: master.batch_code, results });
+      toast.success('Batch ' + master.batch_code + ' imported successfully');
+      setImportParsed(null);
+      setImportFileName('');
     } catch (err) {
       setImportResult({ success: false, error: err.message });
       toast.error('Import failed: ' + err.message);
@@ -170,7 +279,7 @@ export default function ImportDataPanel() {
               <p className="font-semibold text-emerald-800">Batch {importResult.batch_code} imported successfully</p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[['Sub Batches', importResult.results?.subBatches?.length], ['Distillation Runs', importResult.results?.distillationRuns?.length], ['Dilutions', importResult.results?.dilutions?.length], ['Wastage Records', importResult.results?.wastageRecords?.length]].map(([label, val]) => (
+              {[['Sub Batches', importResult.results?.subBatches], ['Distillation Runs', importResult.results?.distillationRuns], ['Dilutions', importResult.results?.dilutions], ['Wastage Records', importResult.results?.wastageRecords]].map(([label, val]) => (
                 <div key={label} className="rounded-lg bg-white border border-emerald-200 px-3 py-2 text-center">
                   <p className="text-lg font-bold text-emerald-700">{val ?? 0}</p>
                   <p className="text-xs text-emerald-600">{label}</p>
