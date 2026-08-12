@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { base44 } from '@/api/base44Client';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { MapPin, Loader2, RefreshCw } from 'lucide-react';
@@ -15,20 +14,18 @@ export default function DeliveryMap({ dispatches, customers, distilleryOrigin })
   const [distilleryCoords, setDistilleryCoords] = useState(null);
   const [error, setError] = useState(null);
 
-  // Load the Maps JS SDK once (fetch key from backend)
+  // Load the Maps JS SDK once
   useEffect(() => {
     if (window.google?.maps) { initMap(); return; }
 
-    base44.functions.invoke('getMapsConfig', {}).then(res => {
-      const apiKey = res.data?.apiKey;
-      if (!apiKey) { setError('Maps API key not configured'); return; }
-      const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
-      script.async = true;
-      script.onload = initMap;
-      script.onerror = () => setError('Failed to load Google Maps');
-      document.head.appendChild(script);
-    });
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+    if (!apiKey) { setError('Maps API key not configured'); return; }
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
+    script.async = true;
+    script.onload = initMap;
+    script.onerror = () => setError('Failed to load Google Maps');
+    document.head.appendChild(script);
   }, []);
 
   const initMap = () => {
@@ -42,14 +39,27 @@ export default function DeliveryMap({ dispatches, customers, distilleryOrigin })
     geocodeAll();
   };
 
+  const geocodeOne = async (geocoder, address) => {
+    try {
+      const { results } = await geocoder.geocode({ address });
+      const loc = results[0]?.geometry?.location;
+      if (!loc) return null;
+      return { lat: loc.lat(), lng: loc.lng() };
+    } catch {
+      return null;
+    }
+  };
+
   const geocodeAll = async () => {
     setLoading(true);
     setError(null);
 
+    const geocoder = new window.google.maps.Geocoder();
+
     // Geocode distillery
-    const distRes = await base44.functions.invoke('geocodeAddress', { address: DISTILLERY_ADDRESS });
-    if (!distRes.data?.lat) { setError('Could not geocode distillery address'); setLoading(false); return; }
-    setDistilleryCoords(distRes.data);
+    const distCoords = await geocodeOne(geocoder, DISTILLERY_ADDRESS);
+    if (!distCoords) { setError('Could not geocode distillery address'); setLoading(false); return; }
+    setDistilleryCoords(distCoords);
 
     // Collect unique customer addresses from dispatch history
     const addresses = [...new Set(
@@ -60,8 +70,8 @@ export default function DeliveryMap({ dispatches, customers, distilleryOrigin })
 
     const results = {};
     await Promise.all(addresses.map(async (addr) => {
-      const r = await base44.functions.invoke('geocodeAddress', { address: addr });
-      if (r.data?.lat) results[addr] = r.data;
+      const coords = await geocodeOne(geocoder, addr);
+      if (coords) results[addr] = coords;
     }));
 
     setGeocoded(results);

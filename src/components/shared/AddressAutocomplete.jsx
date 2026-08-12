@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { base44 } from '@/api/base44Client';
 import { MapPin } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -39,12 +38,8 @@ function loadMapsScript(apiKey) {
   });
 }
 
-let apiKeyPromise = null;
 function getApiKey() {
-  if (!apiKeyPromise) {
-    apiKeyPromise = base44.functions.invoke('getMapsConfig', {}).then(r => r.data?.apiKey);
-  }
-  return apiKeyPromise;
+  return import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 }
 
 export default function AddressAutocomplete({ value, onChange, placeholder, className }) {
