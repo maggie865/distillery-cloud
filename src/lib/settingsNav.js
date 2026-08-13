@@ -8,21 +8,26 @@
  *    shown as a "go to X" card via `path` rather than duplicated here.
  *
  * Deliberately NOT included: anything the app has no real settings for yet
- * (e.g. notification preferences, KPI preferences, a standalone "Products"
- * concept, cleaning schedules, excise/documentation config). Inventing
- * placeholder controls for those would violate the "don't create dummy
- * settings" requirement this structure was built against.
+ * (e.g. notification preferences, KPI preferences, cleaning schedules,
+ * excise/documentation config). Inventing placeholder controls for those
+ * would violate the "don't create dummy settings" requirement this
+ * structure was built against. Products *is* now a real settings concept
+ * (see 'products'/'packaging-recipes' below) — it backs Customer
+ * Stock/Quick Order and the recipe-to-finished-good linkage, not a
+ * placeholder.
  */
 import {
   User, Building2, Users, Cylinder, FlaskConical, Link2, Boxes, Truck, Upload,
   CheckSquare, Wrench, MapPin, ShieldCheck, LayoutDashboard, Database, Factory,
-  Package, ClipboardList, Lock, Activity,
+  Package, PackagePlus, ClipboardList, Lock, Activity,
 } from 'lucide-react';
 
 import MyProfilePanel from '@/components/settings/MyProfilePanel';
 import LocationSettings from '@/components/settings/LocationSettings';
 import TanksEquipmentSettings from '@/components/settings/TanksEquipmentSettings';
 import RecipeManager from '@/components/settings/RecipeManager';
+import PackagingRecipeManager from '@/components/settings/PackagingRecipeManager';
+import ProductsManager from '@/components/settings/ProductsManager';
 import ProductLinksManager from '@/components/settings/ProductLinksManager';
 import ImportDataPanel from '@/components/settings/ImportDataPanel';
 import ChecklistManager from '@/components/settings/ChecklistManager';
@@ -49,7 +54,9 @@ export const SETTINGS_NAV = [
     icon: Factory,
     items: [
       { key: 'tanks', label: 'Tanks & Equipment', description: 'Manage tanks, capacities and equipment.', icon: Cylinder, kind: 'embed', component: TanksEquipmentSettings },
-      { key: 'recipes', label: 'Recipes', description: 'Manage production recipes and formulations.', icon: FlaskConical, kind: 'embed', component: RecipeManager },
+      { key: 'products', label: 'Products', description: 'Manage your finished-good product catalog (SKU, bottle size, active status).', icon: Package, kind: 'embed', component: ProductsManager },
+      { key: 'recipes', label: 'Recipes', description: 'Manage base spirit recipes and botanicals.', icon: FlaskConical, kind: 'embed', component: RecipeManager },
+      { key: 'packaging-recipes', label: 'Packaging Recipes', description: 'Link each bottle size to a base recipe, a product, and its packaging materials.', icon: PackagePlus, kind: 'embed', component: PackagingRecipeManager },
       { key: 'product-links', label: 'Product Links', description: 'Link supplier packing-slip names to your stock items.', icon: Link2, kind: 'embed', component: ProductLinksManager },
     ],
   },

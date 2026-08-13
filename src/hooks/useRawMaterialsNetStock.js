@@ -94,8 +94,10 @@ export function useRawMaterialsNetStock() {
     packagingRecipes.forEach(recipe => {
       if (!recipe.packaging?.length) return;
       const recipeName = (recipe.name || '').toLowerCase();
+      // bottle_size_ml is a real column now — only fall back to parsing it
+      // out of the name for older packaging recipes that predate that column.
       const sizeMatch = recipeName.match(/(\d+)\s*ml/);
-      const recipeSizeMl = sizeMatch ? parseInt(sizeMatch[1]) : null;
+      const recipeSizeMl = recipe.bottle_size_ml || (sizeMatch ? parseInt(sizeMatch[1]) : null);
       let matchingBottles = 0;
       if (recipeSizeMl) {
         matchingBottles = bottlingRuns

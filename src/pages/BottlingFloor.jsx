@@ -18,8 +18,6 @@ import StatusBadge from '@/components/shared/StatusBadge';
 import BottlingRunTracker from '@/components/bottling/BottlingRunTracker';
 import Pagination from '@/components/ui/Pagination';
 
-const BOTTLE_SIZES = [200, 700];
-
 const ACTIVE_RUN_KEY = 'bottling_active_run';
 
 export default function BottlingFloor() {
@@ -27,8 +25,7 @@ export default function BottlingFloor() {
   const [showNewRun, setShowNewRun] = useState(false);
   const [selectedBatchId, setSelectedBatchId] = useState('');
   const [selectedTankId, setSelectedTankId] = useState('');
-  const [bottleSizeMl, setBottleSizeMl] = useState('700');
-  const [selectedRecipeId, setSelectedRecipeId] = useState('');
+  const [selectedPackagingRecipeId, setSelectedPackagingRecipeId] = useState('');
   const [staffNames, setStaffNames] = useState([]);
   const [newStaffName, setNewStaffName] = useState('');
   const [historyFilter, setHistoryFilter] = useState({ startDate: '', endDate: '' });
@@ -109,31 +106,30 @@ export default function BottlingFloor() {
 
   const selectedTank = tanks.find(t => t.id === selectedTankId);
 
-  // Packaging recipes — auto-match by bottle size
+  // Packaging recipes = bottle-size variants (recipe_type 'packaging'),
+  // each linking a base spirit recipe, a bottle size, the packaging
+  // materials it needs, and the finished-good Product it produces — see
+  // Settings -> Packaging Recipes. Narrowed to the ones matching the
+  // selected batch's spirit recipe (by product_name, same string
+  // convention finished_good/dispatch already use), falling back to every
+  // packaging recipe if no match is found (legacy/free-text batch names).
   const packagingRecipes = recipes.filter(r => r.recipe_type === 'packaging');
-
-  // Find the packaging recipe whose packaging items include a bottle matching this size
-  const autoMatchedRecipe = bottleSizeMl
-    ? packagingRecipes.find(r =>
-        r.packaging?.some(p =>
-          p.type === 'bottle' && (
-            p.name?.includes(bottleSizeMl) ||
-            p.name?.toLowerCase().includes(`${bottleSizeMl}ml`) ||
-            p.name?.toLowerCase().includes(`${bottleSizeMl} ml`)
-          )
-        )
-      )
+  const matchedSpiritRecipe = selectedBatch
+    ? recipes.find(r => r.recipe_type === 'spirit' && r.name === selectedBatch.product_name)
     : null;
+  const availablePackagingRecipes = matchedSpiritRecipe
+    ? (packagingRecipes.filter(r => r.base_recipe_id === matchedSpiritRecipe.id).length > 0
+        ? packagingRecipes.filter(r => r.base_recipe_id === matchedSpiritRecipe.id)
+        : packagingRecipes)
+    : packagingRecipes;
 
-  // Use the auto-matched recipe, or fall back to manually selected one
-  const selectedRecipe = autoMatchedRecipe || recipes.find(r => r.id === selectedRecipeId);
+  const selectedRecipe = packagingRecipes.find(r => r.id === selectedPackagingRecipeId);
   const bottlesPerCase = selectedRecipe?.bottles_per_case || 6;
 
   const resetForm = () => {
     setSelectedBatchId('');
     setSelectedTankId('');
-    setBottleSizeMl('700');
-    setSelectedRecipeId('');
+    setSelectedPackagingRecipeId('');
     setStaffNames([]);
     setNewStaffName('');
   };
@@ -148,7 +144,7 @@ export default function BottlingFloor() {
 
   const removeStaff = (idx) => setStaffNames(staffNames.filter((_, i) => i !== idx));
 
-  const canStart = selectedBatchId && selectedTankId;
+  const canStart = selectedBatchId && selectedTankId && selectedPackagingRecipeId && selectedRecipe?.bottle_size_ml;
 
   const startRun = () => {
     setActiveRun({
@@ -156,11 +152,12 @@ export default function BottlingFloor() {
       product_name: selectedBatch.product_name,
       tank_id: selectedTankId,
       tank_name: selectedTank?.name || '',
-      bottle_size_ml: parseInt(bottleSizeMl),
+      bottle_size_ml: selectedRecipe.bottle_size_ml,
       bottles_per_case: bottlesPerCase,
       abv: selectedTank?.current_abv || 0,
       available_volume: selectedTank?.current_volume || 0,
       recipe: selectedRecipe || null,
+      product_id: selectedRecipe?.product_id || null,
       staff: staffNames,
     });
     setShowNewRun(false);
@@ -189,6 +186,7 @@ export default function BottlingFloor() {
         lals_per_bottle: parseFloat(lalPerBottle.toFixed(5)),
         status: 'completed',
         notes: `Staff: ${activeRun.staff.join(', ')} | Cases: ${cases} | Extra bottles: ${extraBottles} | Tasting: ${tastingBottles}`,
+        recipe_id: activeRun.recipe?.id || undefined,
       });
 
       // 2. Deduct from source tank
@@ -231,6 +229,7 @@ export default function BottlingFloor() {
           await db.FinishedGood.update(fg.id, {
             quantity_bottles: (fg.quantity_bottles || 0) + totalBottles,
             total_lals: (fg.total_lals || 0) + parseFloat(lals.toFixed(4)),
+            product_id: fg.product_id || activeRun.product_id || undefined,
           });
         } else {
           await db.FinishedGood.create({
@@ -240,6 +239,7 @@ export default function BottlingFloor() {
             abv_percent: abv,
             quantity_bottles: totalBottles,
             total_lals: parseFloat(lals.toFixed(4)),
+            product_id: activeRun.product_id || undefined,
           });
         }
       }
@@ -556,6 +556,12 @@ export default function BottlingFloor() {
                     : [];
                   // Auto-select tank if only one matches
                   setSelectedTankId(batchTankList.length === 1 ? batchTankList[0].id : '');
+                  // Auto-select packaging recipe if the new batch narrows it to exactly one
+                  const spiritRecipe = batch ? recipes.find(r => r.recipe_type === 'spirit' && r.name === batch.product_name) : null;
+                  const allPackaging = recipes.filter(r => r.recipe_type === 'packaging');
+                  const matching = spiritRecipe ? allPackaging.filter(r => r.base_recipe_id === spiritRecipe.id) : [];
+                  const candidates = matching.length > 0 ? matching : allPackaging;
+                  setSelectedPackagingRecipeId(candidates.length === 1 ? candidates[0].id : '');
                 }}
               >
                 <SelectTrigger><SelectValue placeholder="Select a batch ready to bottle" /></SelectTrigger>
@@ -607,37 +613,32 @@ export default function BottlingFloor() {
               </div>
             )}
 
-            {/* Bottle size */}
+            {/* Packaging recipe — picking one sets bottle size, bottles/case,
+                packaging materials, and the finished-good Product together */}
             <div>
-              <Label>Bottle Size (ml)</Label>
-              <Select value={bottleSizeMl} onValueChange={v => { setBottleSizeMl(v); setSelectedRecipeId(''); }}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Label>Packaging Recipe</Label>
+              <Select value={selectedPackagingRecipeId} onValueChange={setSelectedPackagingRecipeId}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select packaging recipe…" /></SelectTrigger>
                 <SelectContent>
-                  {BOTTLE_SIZES.map(size => (
-                    <SelectItem key={size} value={size.toString()}>{size}ml</SelectItem>
+                  {availablePackagingRecipes.length === 0 && (
+                    <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                      No packaging recipes yet — add one under Settings → Packaging Recipes
+                    </div>
+                  )}
+                  {availablePackagingRecipes.map(r => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name}{r.bottle_size_ml ? ` — ${r.bottle_size_ml}ml` : ''}{r.bottles_per_case ? ` — ${r.bottles_per_case} btls/case` : ''}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-
-            {/* Packaging recipe — auto-matched from bottle size, manual fallback */}
-            <div>
-              <Label>Packaging Recipe</Label>
-              {autoMatchedRecipe ? (
-                <div className="mt-1 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-green-800">{autoMatchedRecipe.name}</p>
-                      <p className="text-xs text-green-700 mt-0.5">
-                        Auto-matched · {autoMatchedRecipe.bottles_per_case || 6} bottles per case
-                      </p>
-                    </div>
-                    <Badge className="bg-green-100 text-green-700 border-green-300 text-xs">Auto</Badge>
-                  </div>
-                  {autoMatchedRecipe.packaging?.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-green-200 space-y-0.5">
-                      {autoMatchedRecipe.packaging.map((p, i) => (
-                        <div key={i} className="flex justify-between text-xs text-green-700">
+              {selectedRecipe && (
+                <div className="mt-2 rounded-lg border border-border px-4 py-3">
+                  <p className="text-xs text-muted-foreground">{selectedRecipe.bottle_size_ml}ml · {selectedRecipe.bottles_per_case || 6} bottles per case</p>
+                  {selectedRecipe.packaging?.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-border space-y-0.5">
+                      {selectedRecipe.packaging.map((p, i) => (
+                        <div key={i} className="flex justify-between text-xs text-muted-foreground">
                           <span>{p.name}</span>
                           <span>{p.quantity} {p.unit}</span>
                         </div>
@@ -645,25 +646,6 @@ export default function BottlingFloor() {
                     </div>
                   )}
                 </div>
-              ) : (
-                <>
-                  <Select value={selectedRecipeId} onValueChange={setSelectedRecipeId}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="No recipe matched — select manually" /></SelectTrigger>
-                    <SelectContent>
-                      {packagingRecipes.length === 0 && (
-                        <div className="px-3 py-4 text-sm text-muted-foreground text-center">No packaging recipes found</div>
-                      )}
-                      {packagingRecipes.map(r => (
-                        <SelectItem key={r.id} value={r.id}>
-                          {r.name}{r.bottles_per_case ? ` — ${r.bottles_per_case} btls/case` : ''}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {selectedRecipe && (
-                    <p className="text-xs text-muted-foreground mt-1">{selectedRecipe.bottles_per_case} bottles per case</p>
-                  )}
-                </>
               )}
             </div>
 

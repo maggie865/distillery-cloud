@@ -11,80 +11,30 @@ import { Plus, Trash2, Pencil, X, FlaskConical } from 'lucide-react';
 import { toast } from 'sonner';
 
 const EMPTY_INGREDIENT = { name: '', quantity: '', unit: 'g', notes: '' };
-const EMPTY_PACKAGING = { name: '', quantity: 1, unit: 'units', type: 'bottle' };
-
-// Fetch packaging items from RawMaterial stock for dropdown selection
-function usePackagingStock() {
-  const { data: rawMaterials = [] } = useQuery({
-    queryKey: ['rawMaterials'],
-    queryFn: () => base44.entities.RawMaterial.list('name', 5000),
-  });
-  return rawMaterials.filter(m => m.type === 'packaging' || m.type === 'Packaging');
-}
 const EMPTY_SPIRIT_FORM = {
   recipe_type: 'spirit',
   name: '', description: '', base_ethanol_volume: '', base_ethanol_abv: '',
   bottles_per_case: '',
   ingredients: [{ ...EMPTY_INGREDIENT }],
-  packaging: [],
   notes: ''
 };
 
-function PackagingSelect({ value, onChange }) {
-  const packagingStock = usePackagingStock();
-  const [custom, setCustom] = useState(false);
-
-  // If current value isn't in stock, show custom input
-  const inStock = packagingStock.some(m => m.name === value);
-
-  if (custom || (value && !inStock)) {
-    return (
-      <div className="flex gap-1">
-        <Input
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder="Type packaging name"
-          className="flex-1"
-        />
-        {packagingStock.length > 0 && (
-          <button type="button" onClick={() => setCustom(false)} className="text-xs text-primary underline whitespace-nowrap">
-            Pick from stock
-          </button>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex gap-1">
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="flex-1 border border-border rounded-md px-2 py-1 text-sm bg-background"
-      >
-        <option value="">— Select packaging item —</option>
-        {packagingStock.map(m => (
-          <option key={m.id} value={m.name}>
-            {m.name} ({m.quantity || 0} {m.unit || 'units'} in stock)
-          </option>
-        ))}
-      </select>
-      <button type="button" onClick={() => setCustom(true)} className="text-xs text-muted-foreground underline whitespace-nowrap">
-        Custom
-      </button>
-    </div>
-  );
-}
+// Bottle-size-specific packaging (bottle/closure/label/carton) lives on its
+// own recipe_type:'packaging' rows now, managed under Settings ->
+// Packaging Recipes (src/components/settings/PackagingRecipeManager.jsx) —
+// a spirit recipe here is botanicals/base-ethanol only.
 
 export default function RecipeManager() {
   const queryClient = useQueryClient();
   const [recipeForm, setRecipeForm] = useState(EMPTY_SPIRIT_FORM);
   const [editingId, setEditingId] = useState(null);
 
-  const { data: recipes = [], isLoading: loadingRecipes } = useQuery({
+  const { data: allRecipes = [], isLoading: loadingRecipes } = useQuery({
     queryKey: ['recipes'],
     queryFn: () => base44.entities.Recipe.list('name', 50),
   });
+  // Packaging-type rows are managed under Settings -> Packaging Recipes.
+  const recipes = allRecipes.filter(r => r.recipe_type !== 'packaging');
 
   const { data: rawMaterials = [] } = useQuery({
     queryKey: ['rawMaterials'],
@@ -105,9 +55,6 @@ export default function RecipeManager() {
     ingredients: data.ingredients
       .filter(i => i.name && i.name.trim())
       .map(i => ({ ...i, quantity: parseFloat(i.quantity) || 0 })),
-    packaging: (data.packaging || [])
-      .filter(p => p.name && p.name.trim())
-      .map(p => ({ ...p, quantity: parseFloat(p.quantity) || 0 })),
   });
 
   const createMutation = useMutation({
@@ -151,20 +98,6 @@ export default function RecipeManager() {
     });
   };
 
-  const handleAddPackaging = () => {
-    setRecipeForm(prev => ({ ...prev, packaging: [...(prev.packaging || []), { ...EMPTY_PACKAGING }] }));
-  };
-  const handleRemovePackaging = (index) => {
-    setRecipeForm(prev => ({ ...prev, packaging: prev.packaging.filter((_, i) => i !== index) }));
-  };
-  const handleSetPackaging = (index, field, value) => {
-    setRecipeForm(prev => {
-      const packaging = [...prev.packaging];
-      packaging[index] = { ...packaging[index], [field]: value };
-      return { ...prev, packaging };
-    });
-  };
-
   const handleEdit = (recipe) => {
     setEditingId(recipe.id);
     setRecipeForm({
@@ -177,9 +110,6 @@ export default function RecipeManager() {
       ingredients: (recipe.ingredients?.length ? recipe.ingredients : [{ ...EMPTY_INGREDIENT }]).map(i => ({
         name: i.name || '', quantity: i.quantity?.toString() || '', unit: i.unit || 'g', notes: i.notes || ''
       })),
-      packaging: recipe.packaging?.length ? recipe.packaging.map(p => ({
-        name: p.name || '', quantity: p.quantity?.toString() || '', unit: p.unit || 'units', type: p.type || 'bottle'
-      })) : [],
       notes: recipe.notes || '',
     });
     // Scroll to form
@@ -318,51 +248,6 @@ export default function RecipeManager() {
                     size="icon"
                     className="h-9 w-9 text-destructive hover:text-destructive"
                     onClick={() => handleRemoveIngredient(i)}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-
-            <div className="rounded-lg border border-border p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Packaging (per bottle)</p>
-                <Button type="button" variant="outline" size="sm" onClick={handleAddPackaging}>
-                  <Plus className="w-3 h-3 mr-1" />Add
-                </Button>
-              </div>
-              {(recipeForm.packaging || []).map((p, i) => (
-                <div key={i} className="grid grid-cols-[1fr_70px_80px_auto] gap-2 items-end">
-                  <PackagingSelect
-                    value={p.name}
-                    onChange={(val) => handleSetPackaging(i, 'name', val)}
-                  />
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={p.quantity}
-                    onChange={(e) => handleSetPackaging(i, 'quantity', e.target.value)}
-                    placeholder="1"
-                  />
-                  <Select value={p.type} onValueChange={(val) => handleSetPackaging(i, 'type', val)}>
-                    <SelectTrigger className="h-9 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="bottle">Bottle</SelectItem>
-                      <SelectItem value="closure">Closure</SelectItem>
-                      <SelectItem value="label">Label</SelectItem>
-                      <SelectItem value="carton">Carton</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9 text-destructive hover:text-destructive"
-                    onClick={() => handleRemovePackaging(i)}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>

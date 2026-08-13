@@ -109,6 +109,7 @@ export const db = {
   Dilution:          makeEntity('Dilution'),
   Dispatch:          makeEntity('Dispatch'),
   DistillationRun:   makeEntity('DistillationRun'),
+  DistillationRunLotUsage: makeEntity('DistillationRunLotUsage'),
   FinishedGood:      makeEntity('FinishedGood'),
   FoodRecall:        makeEntity('FoodRecall'),
   MaintenanceRecord: makeEntity('MaintenanceRecord'),
