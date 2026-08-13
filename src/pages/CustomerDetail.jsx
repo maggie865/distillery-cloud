@@ -23,6 +23,7 @@ import CustomerStockTable from '@/components/customers/CustomerStockTable';
 import StockHistoryTimeline from '@/components/customers/StockHistoryTimeline';
 import CustomerOrderHistoryTable from '@/components/customers/CustomerOrderHistoryTable';
 import CustomerStockAlertsList from '@/components/customers/CustomerStockAlertsList';
+import CustomerGroupTagEditor from '@/components/customers/CustomerGroupTagEditor';
 import { useCustomerStock } from '@/hooks/useCustomerStock';
 import { useCustomerOrders } from '@/hooks/useCustomerOrders';
 import { computeCustomerStats, daysSince, visitFrequencyLabel } from '@/lib/customerHealth';
@@ -105,6 +106,10 @@ export default function CustomerDetail() {
         <Button variant="outline" className="gap-1.5 shrink-0" onClick={() => setEditOpen(true)}>
           <Pencil className="w-4 h-4" /> Edit Customer
         </Button>
+      </div>
+
+      <div className="mb-6">
+        <CustomerGroupTagEditor customerId={customerId} />
       </div>
 
       {/* Quick actions */}

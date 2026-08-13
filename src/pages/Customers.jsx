@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCustomersWithStats } from '@/hooks/useCustomersWithStats';
+import { useCustomerGroups } from '@/hooks/useCustomerGroups';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -14,6 +15,7 @@ import CustomerHealthBadge from '@/components/customers/CustomerHealthBadge';
 import CustomerFormDialog, { CUSTOMER_TYPES, CUSTOMER_STATUSES } from '@/components/customers/CustomerFormDialog';
 import DuplicateCustomersPanel from '@/components/customers/DuplicateCustomersPanel';
 import CustomerMapPanel from '@/components/customers/CustomerMapPanel';
+import CustomerGroupsPanel from '@/components/customers/CustomerGroupsPanel';
 import NeedsAttentionList from '@/components/customers/NeedsAttentionList';
 import CustomerVisitReport from '@/components/customers/CustomerVisitReport';
 import { daysSince } from '@/lib/customerHealth';
@@ -30,12 +32,15 @@ function relativeDays(dateStr) {
 export default function Customers() {
   const navigate = useNavigate();
   const { rows, isLoading } = useCustomersWithStats();
+  const { groups, groupsByCustomerId } = useCustomerGroups();
 
+  const [activeTab, setActiveTab] = useState('all');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [managerFilter, setManagerFilter] = useState('all');
+  const [groupFilter, setGroupFilter] = useState('all');
   const [visitOverdueOnly, setVisitOverdueOnly] = useState(false);
   const [followUpOverdueOnly, setFollowUpOverdueOnly] = useState(false);
   const [openRequestOnly, setOpenRequestOnly] = useState(false);
@@ -54,10 +59,11 @@ export default function Customers() {
     const matchRegion = regionFilter === 'all' || c.region === regionFilter;
     const matchStatus = statusFilter === 'all' || c.status === statusFilter;
     const matchManager = managerFilter === 'all' || c.account_manager === managerFilter;
+    const matchGroup = groupFilter === 'all' || (groupsByCustomerId.get(c.id) || []).some((g) => g.id === groupFilter);
     const matchVisitOverdue = !visitOverdueOnly || r.visitOverdue;
     const matchFollowUp = !followUpOverdueOnly || r.followUp?.overdue;
     const matchRequest = !openRequestOnly || r.openRequests.length > 0;
-    return matchSearch && matchType && matchRegion && matchStatus && matchManager && matchVisitOverdue && matchFollowUp && matchRequest;
+    return matchSearch && matchType && matchRegion && matchStatus && matchManager && matchGroup && matchVisitOverdue && matchFollowUp && matchRequest;
   });
   const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
 
@@ -69,12 +75,13 @@ export default function Customers() {
         </Button>
       </PageHeader>
 
-      <Tabs defaultValue="all">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-5">
           <TabsTrigger value="all">All Customers</TabsTrigger>
           <TabsTrigger value="attention">Needs Attention</TabsTrigger>
           <TabsTrigger value="visit-report">Visit Report</TabsTrigger>
           <TabsTrigger value="map">Map</TabsTrigger>
+          <TabsTrigger value="groups">Groups</TabsTrigger>
           <TabsTrigger value="duplicates">Duplicates</TabsTrigger>
         </TabsList>
 
@@ -113,7 +120,21 @@ export default function Customers() {
                   {managers.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
                 </SelectContent>
               </Select>
+              <Select value={groupFilter} onValueChange={(v) => { setGroupFilter(v); setPage(1); }}>
+                <SelectTrigger className="w-full lg:w-40"><SelectValue placeholder="Group" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Groups</SelectItem>
+                  {groups.map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
+            {groupFilter !== 'all' && (
+              <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border text-sm">
+                <span className="text-muted-foreground">Showing group:</span>
+                <span className="font-medium">{groups.find((g) => g.id === groupFilter)?.name}</span>
+                <button onClick={() => { setGroupFilter('all'); setPage(1); }} className="text-xs text-primary hover:underline">Clear</button>
+              </div>
+            )}
             <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-border">
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input type="checkbox" checked={visitOverdueOnly} onChange={(e) => { setVisitOverdueOnly(e.target.checked); setPage(1); }} /> Visit overdue
@@ -180,6 +201,10 @@ export default function Customers() {
 
         <TabsContent value="map">
           <CustomerMapPanel customers={filtered.map((r) => r.customer)} />
+        </TabsContent>
+
+        <TabsContent value="groups">
+          <CustomerGroupsPanel onSelectGroup={(groupId) => { setGroupFilter(groupId); setPage(1); setActiveTab('all'); }} />
         </TabsContent>
 
         <TabsContent value="duplicates">

@@ -101,6 +101,8 @@ export const db = {
   BottlingRun:       makeEntity('BottlingRun'),
   Customer:          makeEntity('Customer'),
   CustomerActivity:  makeEntity('CustomerActivity'),
+  CustomerGroup:     makeEntity('CustomerGroup'),
+  CustomerGroupMember: makeEntity('CustomerGroupMember'),
   CustomerOrder:     makeEntity('CustomerOrder'),
   CustomerParLevel:  makeEntity('CustomerParLevel'),
   CustomerRequest:   makeEntity('CustomerRequest'),
