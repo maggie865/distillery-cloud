@@ -8,6 +8,7 @@ import StatCard from '@/components/shared/StatCard';
 import {
   ArrowLeft, Pencil, MapPin, Phone, Mail, Plus, ClipboardList,
   Store as StoreIcon, MessageCircle, CalendarClock, TrendingUp,
+  ClipboardCheck, ShoppingCart, Package,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import CustomerHealthBadge from '@/components/customers/CustomerHealthBadge';
@@ -16,6 +17,14 @@ import LogVisitDialog from '@/components/customers/LogVisitDialog';
 import LogContactDialog from '@/components/customers/LogContactDialog';
 import RequestDialog, { REQUEST_TYPES, REQUEST_STATUSES } from '@/components/customers/RequestDialog';
 import CustomerFormDialog from '@/components/customers/CustomerFormDialog';
+import StockCheckDialog from '@/components/customers/StockCheckDialog';
+import QuickOrderModal from '@/components/customers/QuickOrderModal';
+import CustomerStockTable from '@/components/customers/CustomerStockTable';
+import StockHistoryTimeline from '@/components/customers/StockHistoryTimeline';
+import CustomerOrderHistoryTable from '@/components/customers/CustomerOrderHistoryTable';
+import CustomerStockAlertsList from '@/components/customers/CustomerStockAlertsList';
+import { useCustomerStock } from '@/hooks/useCustomerStock';
+import { useCustomerOrders } from '@/hooks/useCustomerOrders';
 import { computeCustomerStats, daysSince, visitFrequencyLabel } from '@/lib/customerHealth';
 
 function StatusPill({ status }) {
@@ -32,6 +41,9 @@ export default function CustomerDetail() {
   const [logContactOpen, setLogContactOpen] = useState(false);
   const [requestDialog, setRequestDialog] = useState(null); // 'new' | request object | null
   const [editOpen, setEditOpen] = useState(false);
+  const [stockCheckOpen, setStockCheckOpen] = useState(false);
+  const [quickOrderOpen, setQuickOrderOpen] = useState(false);
+  const [quickOrderPrefill, setQuickOrderPrefill] = useState(null);
 
   const customersQuery = useQuery({ queryKey: ['customers'], queryFn: () => db.Customer.list('business_name', 5000) });
   const customer = customersQuery.data?.find((c) => c.id === customerId);
@@ -43,6 +55,12 @@ export default function CustomerDetail() {
   const activities = (activitiesQuery.data || []).filter((a) => a.customer_id === customerId);
   const requests = (requestsQuery.data || []).filter((r) => r.customer_id === customerId);
   const dispatches = dispatchesQuery.data || [];
+
+  const customerStock = useCustomerStock(customerId);
+  const customerOrdersData = useCustomerOrders(customerId);
+  const stockAlerts = customerStock.rows.filter((r) => r.belowPar).map((r) => ({ product: r.product, currentStock: r.currentStock, parLevel: r.parLevel, suggestedOrderQty: r.suggestedOrderQty }));
+
+  const openQuickOrder = (prefill = null) => { setQuickOrderPrefill(prefill); setQuickOrderOpen(true); };
 
   if (customersQuery.isLoading) {
     return (
@@ -90,12 +108,14 @@ export default function CustomerDetail() {
       </div>
 
       {/* Quick actions */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
         {[
           { label: 'Log Visit', icon: StoreIcon, tone: 'bg-primary/10 text-primary', onClick: () => setLogVisitOpen(true) },
+          { label: 'Stock Check', icon: ClipboardCheck, tone: 'bg-info/10 text-info', onClick: () => setStockCheckOpen(true) },
+          { label: 'Quick Order', icon: ShoppingCart, tone: 'bg-primary/10 text-primary', onClick: () => openQuickOrder() },
           { label: 'Log Contact', icon: MessageCircle, tone: 'bg-info/10 text-info', onClick: () => setLogContactOpen(true) },
           { label: 'Create Follow-up', icon: CalendarClock, tone: 'bg-warning/10 text-warning', onClick: () => setRequestDialog('new') },
-          { label: 'View Orders', icon: TrendingUp, tone: 'bg-success/10 text-success', onClick: () => navigate('/dispatch') },
+          { label: 'View Orders', icon: TrendingUp, tone: 'bg-success/10 text-success', onClick: () => document.getElementById('order-history')?.scrollIntoView({ behavior: 'smooth' }) },
         ].map((a) => (
           <button key={a.label} onClick={a.onClick} className="text-left">
             <Card className="p-4 flex flex-col items-center text-center gap-2 cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
@@ -107,16 +127,25 @@ export default function CustomerDetail() {
       </div>
 
       {/* Overview */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <Card className="p-4 flex flex-col items-center justify-center text-center">
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1.5">Health</p>
           <CustomerHealthBadge health={stats.health} reason={stats.healthReason} />
         </Card>
+        <StatCard title="Current Stock" value={customerStock.totalCurrentStock} subtitle="bottles on hand" icon={Package} tone="primary" />
+        <StatCard title="Pending Orders" value={customerOrdersData.pendingCount} subtitle="not yet dispatched" icon={ShoppingCart} tone="warning" />
+        <StatCard title="Last Order" value={stats.lastOrder ? `${daysSince(stats.lastOrder)}d ago` : '—'} subtitle={stats.lastOrder ? format(parseISO(stats.lastOrder), 'd MMM yyyy') : 'No orders recorded'} icon={TrendingUp} tone="info" />
         <StatCard title="Last Visit" value={stats.lastVisit ? `${daysSince(stats.lastVisit)}d ago` : '—'} subtitle={stats.lastVisit ? format(parseISO(stats.lastVisit), 'd MMM yyyy') : 'No visits recorded'} icon={StoreIcon} tone="primary" />
         <StatCard title="Last Contact" value={stats.lastContact ? `${daysSince(stats.lastContact)}d ago` : '—'} subtitle={stats.lastContact ? format(parseISO(stats.lastContact), 'd MMM yyyy') : 'No contact recorded'} icon={MessageCircle} tone="info" />
-        <StatCard title="Last Order" value={stats.lastOrder ? `${daysSince(stats.lastOrder)}d ago` : '—'} subtitle={stats.lastOrder ? format(parseISO(stats.lastOrder), 'd MMM yyyy') : 'No orders recorded'} icon={TrendingUp} tone="warning" />
+        <StatCard title="Stock Check" value={customerStock.lastStockCheckDate ? `${daysSince(customerStock.lastStockCheckDate)}d ago` : '—'} subtitle={customerStock.lastStockCheckDate ? format(parseISO(customerStock.lastStockCheckDate), 'd MMM yyyy') : 'Never checked'} icon={ClipboardCheck} tone="warning" />
         <StatCard title="Orders" value={stats.totalOrders} subtitle="from dispatch records" icon={ClipboardList} tone="primary" />
       </div>
+
+      {stockAlerts.length > 0 && (
+        <div className="mb-6">
+          <CustomerStockAlertsList alerts={stockAlerts} onQuickOrder={(a) => openQuickOrder({ productId: a.product.id, suggestedQty: a.suggestedOrderQty })} />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
         {/* Contact card */}
@@ -176,6 +205,14 @@ export default function CustomerDetail() {
         </Card>
       </div>
 
+      <div className="space-y-5 mb-6">
+        <CustomerStockTable rows={customerStock.rows} isLoading={customerStock.isLoading} />
+        <StockHistoryTimeline history={customerStock.history} products={customerStock.products} />
+        <div id="order-history">
+          <CustomerOrderHistoryTable customerId={customerId} orders={customerOrdersData.orders} isLoading={customerOrdersData.isLoading} />
+        </div>
+      </div>
+
       <CustomerActivityTimeline activities={activities} orders={orders} />
 
       <LogVisitDialog customer={customer} open={logVisitOpen} onOpenChange={setLogVisitOpen} />
@@ -187,6 +224,8 @@ export default function CustomerDetail() {
         onOpenChange={(v) => !v && setRequestDialog(null)}
       />
       <CustomerFormDialog customer={customer} open={editOpen} onOpenChange={setEditOpen} />
+      <StockCheckDialog customer={customer} products={customerStock.products} open={stockCheckOpen} onOpenChange={setStockCheckOpen} />
+      <QuickOrderModal customer={customer} open={quickOrderOpen} onOpenChange={setQuickOrderOpen} prefill={quickOrderPrefill} />
     </div>
   );
 }

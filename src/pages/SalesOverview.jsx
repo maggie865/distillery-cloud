@@ -1,15 +1,21 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { db } from '@/api/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
 import { useCustomersWithStats } from '@/hooks/useCustomersWithStats';
+import { useCustomerStockAlerts } from '@/hooks/useCustomerStock';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import PageHeader from '@/components/shared/PageHeader';
 import LogVisitDialog from '@/components/customers/LogVisitDialog';
 import LogContactDialog from '@/components/customers/LogContactDialog';
-import { Store, MessageCircle, ArrowRight } from 'lucide-react';
+import CustomerStockAlertsList from '@/components/customers/CustomerStockAlertsList';
+import { Store, MessageCircle, ArrowRight, PackageCheck, AlertTriangle, MailWarning } from 'lucide-react';
 import { format, startOfMonth, formatDistanceToNow } from 'date-fns';
 import { daysSince } from '@/lib/customerHealth';
+
+const RESERVING_STATUSES = new Set(['pending', 'picking', 'ready']);
 
 function greetingForNow() {
   const h = new Date().getHours();
@@ -22,8 +28,15 @@ export default function SalesOverview() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { rows, activities, requests, isLoading } = useCustomersWithStats();
+  const { alerts: stockAlerts } = useCustomerStockAlerts();
+  const { data: dispatches = [] } = useQuery({ queryKey: ['dispatches-all'], queryFn: () => db.Dispatch.list('-dispatch_date', 5000) });
+  const { data: customerOrders = [] } = useQuery({ queryKey: ['customerOrders'], queryFn: () => db.CustomerOrder.list('-order_date', 5000) });
   const [logVisitFor, setLogVisitFor] = useState(null);
   const [logContactFor, setLogContactFor] = useState(null);
+
+  const pendingDispatchCount = dispatches.filter((d) => RESERVING_STATUSES.has(d.status)).length;
+  const lowStockCustomerCount = new Set(stockAlerts.map((a) => a.customer.id)).size;
+  const ordersNeedingEmailResendCount = customerOrders.filter((o) => o.email_status === 'failed').length;
 
   const priority = useMemo(() => {
     const withReason = rows.map((r) => {
@@ -82,6 +95,34 @@ export default function SalesOverview() {
             ))}
           </div>
         </Card>
+      )}
+
+      <div className="mb-6">
+        <h2 className="text-sm font-semibold text-foreground mb-3">Orders Requiring Action</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <button onClick={() => navigate('/dispatch')} className="text-left">
+            <Card className="p-4 flex items-center gap-3 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center bg-warning/10 text-warning shrink-0"><PackageCheck className="w-5 h-5" /></div>
+              <div><p className="text-2xl font-semibold text-foreground">{pendingDispatchCount}</p><p className="text-xs text-muted-foreground">Pending Dispatches</p></div>
+            </Card>
+          </button>
+          <button onClick={() => document.getElementById('stock-alerts')?.scrollIntoView({ behavior: 'smooth' })} className="text-left">
+            <Card className="p-4 flex items-center gap-3 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center bg-destructive/10 text-destructive shrink-0"><AlertTriangle className="w-5 h-5" /></div>
+              <div><p className="text-2xl font-semibold text-foreground">{lowStockCustomerCount}</p><p className="text-xs text-muted-foreground">Low Stock Customers</p></div>
+            </Card>
+          </button>
+          <Card className="p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center bg-info/10 text-info shrink-0"><MailWarning className="w-5 h-5" /></div>
+            <div><p className="text-2xl font-semibold text-foreground">{ordersNeedingEmailResendCount}</p><p className="text-xs text-muted-foreground">Orders Needing Email Resend</p></div>
+          </Card>
+        </div>
+      </div>
+
+      {stockAlerts.length > 0 && (
+        <div id="stock-alerts" className="mb-6">
+          <CustomerStockAlertsList alerts={stockAlerts} showCustomer />
+        </div>
       )}
 
       <div>

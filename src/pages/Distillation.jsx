@@ -357,7 +357,15 @@ export default function Distillation() {
   const createMutation = useMutation({
     mutationFn: async (data) => {
       const payload = buildPayload(data);
-      await base44.entities.DistillationRun.create(payload);
+      const newRun = await base44.entities.DistillationRun.create(payload);
+
+      // Structured per-ingredient lot consumption, collected alongside the
+      // existing FIFO depletion below and persisted once at the end (see
+      // distillation_run_lot_usage) — same rigor ethanol's lot code already
+      // had, extended to every ingredient including ethanol's own
+      // multi-lot FIFO split, which the single ethanol_lot_code column
+      // never captured.
+      const lotUsageRows = [];
 
       // Create SubBatch record if a master batch and sub-batch code are set
       if (data.batch_number && data.sub_batch_code) {
@@ -431,6 +439,16 @@ export default function Distillation() {
               if (remaining <= 0) return lot;
               const take = Math.min(remaining, lot.quantity_remaining || 0);
               remaining -= take;
+              if (take > 0) {
+                lotUsageRows.push({
+                  raw_material_id: ethanolRecord.id,
+                  raw_material_name: ethanolRecord.name,
+                  ingredient_role: 'ethanol',
+                  lot_number: lot.lot_number || null,
+                  quantity_consumed: take,
+                  unit: ethanolRecord.unit || 'litres',
+                });
+              }
               return { ...lot, quantity_remaining: parseFloat(Math.max(0, (lot.quantity_remaining || 0) - take).toFixed(4)) };
             });
             const newQty = Math.max(0, (ethanolRecord.quantity || 0) - inputVolUsed);
@@ -442,6 +460,16 @@ export default function Distillation() {
             });
           } else {
             // No lots — just deduct from total
+            if (inputVolUsed > 0) {
+              lotUsageRows.push({
+                raw_material_id: ethanolRecord.id,
+                raw_material_name: ethanolRecord.name,
+                ingredient_role: 'ethanol',
+                lot_number: null,
+                quantity_consumed: inputVolUsed,
+                unit: ethanolRecord.unit || 'litres',
+              });
+            }
             await base44.entities.RawMaterial.update(ethanolRecord.id, {
               quantity: parseFloat(Math.max(0, (ethanolRecord.quantity || 0) - inputVolUsed).toFixed(4)),
               lals: parseFloat(Math.max(0, (ethanolRecord.lals || 0) - lalsUsed).toFixed(4)),
@@ -483,6 +511,14 @@ export default function Distillation() {
 
           if (lot.lot_number) usedBotanicalLots.add(`${ing.name} (${lot.lot_number})`);
           else usedBotanicalLots.add(ing.name);
+          lotUsageRows.push({
+            raw_material_id: lot._rmId || null,
+            raw_material_name: ing.name,
+            ingredient_role: 'botanical',
+            lot_number: lot.lot_number || null,
+            quantity_consumed: deduct,
+            unit: ing.unit || null,
+          });
           remaining -= deduct;
         }
       }
@@ -518,6 +554,22 @@ export default function Distillation() {
           await base44.entities.SubBatch.update(subBatchList[0].id, {
             botanical_lots: [...usedBotanicalLots].join(', '),
           });
+        }
+      }
+
+      // Persist the structured lot-usage rows collected above. Deliberately
+      // isolated in its own try/catch: the run and every stock deduction
+      // above have already succeeded by this point, and a failure here
+      // must never roll back or appear to fail the whole save — it would
+      // only leave this run's lot detail incomplete, not corrupt anything.
+      if (newRun?.id && lotUsageRows.length > 0) {
+        try {
+          for (const row of lotUsageRows) {
+            await base44.entities.DistillationRunLotUsage.create({ ...row, distillation_run_id: newRun.id });
+          }
+        } catch (err) {
+          console.error('Failed to record structured lot usage for distillation run', newRun.id, err);
+          toast.error('Run saved, but lot detail logging failed — check console');
         }
       }
 
