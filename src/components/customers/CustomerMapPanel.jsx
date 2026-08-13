@@ -66,10 +66,13 @@ export default function CustomerMapPanel({ customers = [] }) {
 
     await Promise.all(withAddress.map(async (customer) => {
       try {
-        // Without a country restriction, ambiguous NZ place names (Hamilton,
-        // Richmond, Nelson, Palmerston, etc.) can resolve to a same-named
-        // location in another country instead.
-        const { results } = await geocoder.geocode({ address: customer.delivery_address, componentRestrictions: { country: 'nz' } });
+        // `region` BIASES ambiguous matches toward NZ (fixes short/imported
+        // addresses like "123 Main St, Hamilton" with no country on them)
+        // without excluding other countries outright — genuine overseas
+        // customers with a fully-specified address still resolve correctly.
+        // componentRestrictions would hard-exclude every other country,
+        // which breaks real export customers entirely.
+        const { results } = await geocoder.geocode({ address: customer.delivery_address, region: 'nz' });
         const loc = results[0]?.geometry?.location;
         if (!loc) return;
         const position = { lat: loc.lat(), lng: loc.lng() };

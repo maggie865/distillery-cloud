@@ -41,10 +41,12 @@ export default function DeliveryMap({ dispatches, customers, distilleryOrigin })
 
   const geocodeOne = async (geocoder, address) => {
     try {
-      // Without a country restriction, ambiguous NZ place names (Hamilton,
-      // Richmond, Nelson, Palmerston, etc.) can resolve to a same-named
-      // location in another country instead.
-      const { results } = await geocoder.geocode({ address, componentRestrictions: { country: 'nz' } });
+      // `region` BIASES ambiguous matches toward NZ (fixes short/imported
+      // addresses with no country on them) without excluding other
+      // countries outright — export dispatches to a fully-specified
+      // overseas address still resolve correctly. componentRestrictions
+      // would hard-exclude every other country, breaking real exports.
+      const { results } = await geocoder.geocode({ address, region: 'nz' });
       const loc = results[0]?.geometry?.location;
       if (!loc) return null;
       return { lat: loc.lat(), lng: loc.lng() };
