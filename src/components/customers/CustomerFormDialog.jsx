@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import AddressAutocomplete from '@/components/shared/AddressAutocomplete';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import { VISIT_FREQUENCIES } from '@/lib/customerHealth';
 
@@ -23,7 +24,7 @@ const blankForm = () => ({
   business_name: '', trading_name: '', customer_type: '', delivery_address: '', postal_address: '',
   city: '', region: '', country: 'New Zealand', website: '', phone: '', email: '',
   primary_contact: '', contact_role: '', notes: '', status: 'active', account_manager: '',
-  customer_since: '', visit_frequency: '',
+  customer_since: '', visit_frequency: '', follow_up_tracking_enabled: true,
 });
 
 export default function CustomerFormDialog({ customer, open, onOpenChange }) {
@@ -51,6 +52,7 @@ export default function CustomerFormDialog({ customer, open, onOpenChange }) {
         account_manager: customer.account_manager || '',
         customer_since: customer.customer_since || '',
         visit_frequency: customer.visit_frequency || '',
+        follow_up_tracking_enabled: customer.follow_up_tracking_enabled !== false,
       });
     } else if (open) {
       setForm(blankForm());
@@ -196,6 +198,19 @@ export default function CustomerFormDialog({ customer, open, onOpenChange }) {
                     {VISIT_FREQUENCIES.map((f) => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="col-span-2 flex items-start gap-2 rounded-lg border border-border p-3">
+                <Checkbox
+                  checked={form.follow_up_tracking_enabled}
+                  onCheckedChange={(v) => set('follow_up_tracking_enabled', v === true)}
+                  className="mt-0.5"
+                />
+                <div>
+                  <Label className="cursor-pointer" onClick={() => set('follow_up_tracking_enabled', !form.follow_up_tracking_enabled)}>Track for visits &amp; follow-ups</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Turn off for one-time purchasers or inconsistent buyers — stops them appearing in Needs Attention for overdue visits/contact. Open requests and manually scheduled follow-ups still show.
+                  </p>
+                </div>
               </div>
             </div>
           </div>

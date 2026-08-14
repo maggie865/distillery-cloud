@@ -92,8 +92,13 @@ export function computeCustomerStats(customer, { activities = [], requests = [],
   const totalOrders = matchingDispatches.length;
   const followUp = nextFollowUp(activities);
   const openReqs = openRequests(requests);
-  const visitOverdue = isVisitOverdue(customer, lastVisit);
-  const contactOverdue = isContactOverdue(lastContact);
+  // One-time purchasers / inconsistent buyers can opt out of the automatic
+  // visit/contact cadence checks (customer.follow_up_tracking_enabled,
+  // default true) without hiding things someone deliberately logged for
+  // them — an overdue follow-up task or an open request still surfaces.
+  const trackingEnabled = customer.follow_up_tracking_enabled !== false;
+  const visitOverdue = trackingEnabled && isVisitOverdue(customer, lastVisit);
+  const contactOverdue = trackingEnabled && isContactOverdue(lastContact);
   const overdueFollowUp = !!followUp?.overdue;
 
   let health = 'healthy';
