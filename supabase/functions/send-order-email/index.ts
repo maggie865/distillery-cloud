@@ -18,7 +18,7 @@
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
 const ORDER_TO_EMAIL = 'info@bluffdistillery.com';
-const ORDER_FROM_EMAIL = Deno.env.get('ORDER_FROM_EMAIL') || 'orders@bluffdistillery.com';
+const ORDER_FROM_EMAIL = Deno.env.get('ORDER_FROM_EMAIL') || 'sales@bluffdistillery.com';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
