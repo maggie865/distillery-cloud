@@ -41,7 +41,12 @@ export default function DeliveryMap({ dispatches, customers, distilleryOrigin })
 
   const geocodeOne = async (geocoder, address) => {
     try {
-      const { results } = await geocoder.geocode({ address });
+      // `region` BIASES ambiguous matches toward NZ (fixes short/imported
+      // addresses with no country on them) without excluding other
+      // countries outright — export dispatches to a fully-specified
+      // overseas address still resolve correctly. componentRestrictions
+      // would hard-exclude every other country, breaking real exports.
+      const { results } = await geocoder.geocode({ address, region: 'nz' });
       const loc = results[0]?.geometry?.location;
       if (!loc) return null;
       return { lat: loc.lat(), lng: loc.lng() };

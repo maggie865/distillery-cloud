@@ -17,8 +17,16 @@
 // Edge Function secrets, never as a client-exposed VITE_ env var.
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
-const ORDER_TO_EMAIL = 'info@bluffdistillery.com';
-const ORDER_FROM_EMAIL = Deno.env.get('ORDER_FROM_EMAIL') || 'orders@bluffdistillery.com';
+// Sending from Resend's shared, unverified-domain address only allows
+// delivery to the Resend account's own registered email -- it rejects any
+// other recipient (confirmed: a real send to info@bluffdistillery.com was
+// bounced with "You can only send testing emails to your own email
+// address"). Temporary until bluffdistillery.com is verified in Resend --
+// once it is, set both ORDER_TO_EMAIL back to info@bluffdistillery.com and
+// ORDER_FROM_EMAIL to a real @bluffdistillery.com address, as Edge Function
+// secrets (no code change needed).
+const ORDER_TO_EMAIL = Deno.env.get('ORDER_TO_EMAIL') || 'maggie@bluffdistillery.com';
+const ORDER_FROM_EMAIL = Deno.env.get('ORDER_FROM_EMAIL') || 'onboarding@resend.dev';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -92,6 +100,7 @@ Deno.serve(async (req: Request) => {
 
     if (!resendRes.ok) {
       const errBody = await resendRes.text();
+      console.error(`Resend API error (${resendRes.status}) from=${ORDER_FROM_EMAIL}:`, errBody);
       return new Response(JSON.stringify({ success: false, error: `Resend API error (${resendRes.status}): ${errBody}` }), { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
