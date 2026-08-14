@@ -18,7 +18,10 @@
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
 const ORDER_TO_EMAIL = 'info@bluffdistillery.com';
-const ORDER_FROM_EMAIL = Deno.env.get('ORDER_FROM_EMAIL') || 'sales@bluffdistillery.com';
+// Resend's own shared sending address -- works without verifying a custom
+// domain. Once bluffdistillery.com is verified in Resend, set ORDER_FROM_EMAIL
+// as an Edge Function secret to switch to a real @bluffdistillery.com address.
+const ORDER_FROM_EMAIL = Deno.env.get('ORDER_FROM_EMAIL') || 'onboarding@resend.dev';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
