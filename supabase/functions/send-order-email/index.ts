@@ -92,6 +92,7 @@ Deno.serve(async (req: Request) => {
 
     if (!resendRes.ok) {
       const errBody = await resendRes.text();
+      console.error(`Resend API error (${resendRes.status}) from=${ORDER_FROM_EMAIL}:`, errBody);
       return new Response(JSON.stringify({ success: false, error: `Resend API error (${resendRes.status}): ${errBody}` }), { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
