@@ -17,10 +17,15 @@
 // Edge Function secrets, never as a client-exposed VITE_ env var.
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
-const ORDER_TO_EMAIL = 'info@bluffdistillery.com';
-// Resend's own shared sending address -- works without verifying a custom
-// domain. Once bluffdistillery.com is verified in Resend, set ORDER_FROM_EMAIL
-// as an Edge Function secret to switch to a real @bluffdistillery.com address.
+// Sending from Resend's shared, unverified-domain address only allows
+// delivery to the Resend account's own registered email -- it rejects any
+// other recipient (confirmed: a real send to info@bluffdistillery.com was
+// bounced with "You can only send testing emails to your own email
+// address"). Temporary until bluffdistillery.com is verified in Resend --
+// once it is, set both ORDER_TO_EMAIL back to info@bluffdistillery.com and
+// ORDER_FROM_EMAIL to a real @bluffdistillery.com address, as Edge Function
+// secrets (no code change needed).
+const ORDER_TO_EMAIL = Deno.env.get('ORDER_TO_EMAIL') || 'maggie@bluffdistillery.com';
 const ORDER_FROM_EMAIL = Deno.env.get('ORDER_FROM_EMAIL') || 'onboarding@resend.dev';
 
 const corsHeaders = {
