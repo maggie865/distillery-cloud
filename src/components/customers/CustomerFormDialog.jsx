@@ -104,7 +104,7 @@ export default function CustomerFormDialog({ customer, open, onOpenChange }) {
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2 sm:col-span-1">
                 <Label>Customer Name</Label>
-                <Input value={form.business_name} onChange={(e) => set('business_name', e.target.value)} placeholder="e.g. Coastal Liquor" required />
+                <Input value={form.business_name} onChange={(e) => set('business_name', e.target.value)} placeholder="e.g. Coastal Liquor" />
               </div>
               <div className="col-span-2 sm:col-span-1">
                 <Label>Trading Name</Label>
@@ -215,7 +215,7 @@ export default function CustomerFormDialog({ customer, open, onOpenChange }) {
             </div>
           </div>
 
-          <Button type="submit" className="w-full" disabled={mutation.isPending || !form.business_name || !form.delivery_address}>
+          <Button type="submit" className="w-full" disabled={mutation.isPending}>
             {mutation.isPending ? 'Saving…' : customer ? 'Save Changes' : 'Add Customer'}
           </Button>
         </form>
