@@ -19,6 +19,7 @@ import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import Pagination from '@/components/ui/Pagination';
 import DispatchForm from '@/components/dispatch/DispatchForm.jsx';
+import BatchPicker from '@/components/dispatch/BatchPicker.jsx';
 import DirectSalesForm from '@/components/dispatch/DirectSalesForm.jsx';
 import StockLocationDialog from '@/components/dispatch/StockLocationDialog.jsx';
 import TransferTo3PLDialog from '@/components/dispatch/TransferTo3PLDialog.jsx';
@@ -548,8 +549,23 @@ export default function DispatchHub() {
           <DialogHeader><DialogTitle className="font-display">Edit Dispatch</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
             <div className="grid grid-cols-2 gap-3">
-              <div><Label>Product Name</Label><Input value={editForm.product_name || ''} onChange={e => setEditForm(f => ({ ...f, product_name: e.target.value }))} className="mt-1" /></div>
-              <div><Label>Batch Number</Label><Input value={editForm.batch_number || ''} onChange={e => setEditForm(f => ({ ...f, batch_number: e.target.value }))} className="mt-1" /></div>
+              {(editForm.dispatched_from || 'Bluff') === 'Bluff' ? (
+                <BatchPicker
+                  finishedGoods={finishedGoods}
+                  productName={editForm.product_name}
+                  bottleSizeMl={editForm.bottle_size_ml}
+                  batchNumber={editForm.batch_number}
+                  quantityBottles={parseInt(editForm.quantity_bottles) || 0}
+                  distanceKm={parseFloat(editForm.transport_distance_km) || 0}
+                  transportMethod={editForm.transport_method}
+                  onAllocate={(result) => setEditForm(f => ({ ...f, ...result }))}
+                />
+              ) : (
+                <>
+                  <div><Label>Product Name</Label><Input value={editForm.product_name || ''} onChange={e => setEditForm(f => ({ ...f, product_name: e.target.value }))} className="mt-1" /></div>
+                  <div><Label>Batch Number</Label><Input value={editForm.batch_number || ''} onChange={e => setEditForm(f => ({ ...f, batch_number: e.target.value }))} className="mt-1" /></div>
+                </>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label>Quantity (bottles)</Label><Input type="number" min="0" value={editForm.quantity_bottles || ''} onChange={e => {
