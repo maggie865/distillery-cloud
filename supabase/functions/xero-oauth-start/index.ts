@@ -23,7 +23,15 @@ const XERO_CLIENT_ID = Deno.env.get('XERO_CLIENT_ID');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const XERO_REDIRECT_URI = `${SUPABASE_URL}/functions/v1/xero-oauth-callback`;
-const XERO_SCOPES = 'accounting.transactions.read accounting.contacts.read offline_access';
+// accounting.invoices.read, not the older/broader accounting.transactions.read
+// — this Xero app's scope list only offers the newer split-out per-endpoint
+// scopes (accounting.invoices[.read], accounting.banktransactions[.read),
+// etc.), and Invoices is the only endpoint xero-sync-invoices calls.
+// accounting.contacts.read is deliberately NOT requested either — the
+// customer name comes bundled in each invoice's Contact.Name field from
+// GET /Invoices; that scope is only needed for the standalone /Contacts
+// endpoint, which nothing here calls.
+const XERO_SCOPES = 'accounting.invoices.read offline_access';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

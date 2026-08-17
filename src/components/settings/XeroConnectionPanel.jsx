@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/api/supabaseClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { RefreshCw, Link2, Unlink, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -14,6 +17,7 @@ import { toast } from 'sonner';
 // ever touch the locked-down xero_connection table.
 export default function XeroConnectionPanel() {
   const queryClient = useQueryClient();
+  const [syncFromDate, setSyncFromDate] = useState('');
 
   const { data: status, isLoading } = useQuery({
     queryKey: ['xeroConnectionStatus'],
@@ -56,7 +60,7 @@ export default function XeroConnectionPanel() {
 
   const syncMutation = useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('xero-sync-invoices', { body: {} });
+      const { data, error } = await supabase.functions.invoke('xero-sync-invoices', { body: syncFromDate ? { since_date: syncFromDate } : {} });
       if (error) throw error;
       if (!data?.success) throw new Error(data?.error || 'Sync failed');
       return data;
@@ -98,6 +102,15 @@ export default function XeroConnectionPanel() {
             <p className="text-xs text-muted-foreground">
               Last synced: {status.last_synced_at ? format(new Date(status.last_synced_at), 'd MMM yyyy, h:mm a') : 'Never'}
             </p>
+            <div className="max-w-xs">
+              <Label className="text-xs">Sync from date (optional)</Label>
+              <Input type="date" value={syncFromDate} onChange={(e) => setSyncFromDate(e.target.value)} className="mt-1" />
+              <p className="text-xs text-muted-foreground mt-1">
+                {syncFromDate
+                  ? `Next sync pulls every authorised invoice dated ${format(new Date(syncFromDate), 'd MMM yyyy')} or later, regardless of when it was last checked.`
+                  : 'Leave blank for a normal sync — only invoices changed since the last sync (or the last 30 days, on the very first sync).'}
+              </p>
+            </div>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" className="gap-1.5" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
                 <RefreshCw className={`w-4 h-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} /> {syncMutation.isPending ? 'Syncing…' : 'Sync Now'}

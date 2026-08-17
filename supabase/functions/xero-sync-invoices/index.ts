@@ -56,6 +56,12 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: false, error: 'Xero is not configured (XERO_CLIENT_ID/XERO_CLIENT_SECRET missing)' }, 500);
     }
 
+    // Optional explicit backfill window from XeroConnectionPanel.jsx's
+    // "Sync from date" field — a one-off "pull everything from this date
+    // forward" request, distinct from the normal incremental sync below.
+    const body = await req.json().catch(() => ({}));
+    const sinceDateParam = typeof body?.since_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.since_date) ? body.since_date : null;
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const { data: connection, error: connError } = await supabase
@@ -122,12 +128,28 @@ Deno.serve(async (req: Request) => {
       'Xero-tenant-id': connection.tenant_id as string,
       Accept: 'application/json',
     };
-    if (connection.last_synced_at) {
+
+    let whereClause = 'Type=="ACCREC" AND Status=="AUTHORISED"';
+    if (sinceDateParam) {
+      // Explicit backfill window — filter by the invoice's own Date, not
+      // modification time, and skip If-Modified-Since entirely: the user is
+      // asking for a specific historical range, not "what changed since I
+      // last checked". Safe to re-run — the dispatch upsert below is
+      // idempotent on xero_line_item_id either way.
+      const [y, m, d] = sinceDateParam.split('-').map(Number);
+      whereClause += ` AND Date >= DateTime(${y},${m},${d})`;
+    } else if (connection.last_synced_at) {
       invoiceHeaders['If-Modified-Since'] = new Date(connection.last_synced_at as string).toUTCString();
+    } else {
+      // First-ever sync with no explicit date chosen — bound it to the last
+      // 30 days rather than pulling the org's entire invoice history into
+      // Dispatch Hub as pending rows in one go.
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      whereClause += ` AND Date >= DateTime(${thirtyDaysAgo.getUTCFullYear()},${thirtyDaysAgo.getUTCMonth() + 1},${thirtyDaysAgo.getUTCDate()})`;
     }
 
     const invoicesUrl = new URL('https://api.xero.com/api.xro/2.0/Invoices');
-    invoicesUrl.searchParams.set('where', 'Type=="ACCREC" AND Status=="AUTHORISED"');
+    invoicesUrl.searchParams.set('where', whereClause);
 
     const invoicesRes = await fetch(invoicesUrl.toString(), { headers: invoiceHeaders });
     // Xero returns 304 Not Modified (no body) when nothing changed since
@@ -150,6 +172,13 @@ Deno.serve(async (req: Request) => {
     for (const invoice of invoices) {
       const dispatchDate = invoice.DateString ? invoice.DateString.slice(0, 10) : new Date().toISOString().slice(0, 10);
       const customerName = invoice.Contact?.Name || 'Unknown Xero Contact';
+      // The Xero contact named "Shopify" represents cellar-door/online POS
+      // sales rung through Shopify, not an actual wholesale customer — the
+      // dispatch table already has a distinct 'shopify' sales_channel
+      // (rendered as its own badge, excluded from wholesale filtering) for
+      // exactly this; Xero doesn't tell us which of cellar door vs. online
+      // any individual sale came from, so both land under the one channel.
+      const salesChannel = customerName.trim().toLowerCase() === 'shopify' ? 'shopify' : null;
 
       for (const line of invoice.LineItems ?? []) {
         if (!line.LineItemID) continue; // can't dedupe without it — skip rather than risk a duplicate on re-sync
@@ -162,6 +191,7 @@ Deno.serve(async (req: Request) => {
         const base = {
           dispatch_date: dispatchDate,
           customer_name: customerName,
+          sales_channel: salesChannel,
           order_reference: invoice.InvoiceNumber || null,
           xero_invoice_id: invoice.InvoiceID,
           xero_line_item_id: line.LineItemID,
