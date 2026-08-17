@@ -155,6 +155,11 @@ Deno.serve(async (req: Request) => {
 
     const invoicesUrl = new URL('https://api.xero.com/api.xro/2.0/Invoices');
     invoicesUrl.searchParams.set('where', whereClause);
+    // Without this, Xero's list endpoint returns "summarized" invoices with
+    // LineItems stripped out entirely (confirmed: invoices_processed came
+    // back >0 but every invoice's LineItems array was empty) — full detail
+    // has to be requested explicitly.
+    invoicesUrl.searchParams.set('SummaryOnly', 'false');
 
     const invoicesRes = await fetch(invoicesUrl.toString(), { headers: invoiceHeaders });
     // Xero returns 304 Not Modified (no body) when nothing changed since
