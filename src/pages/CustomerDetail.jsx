@@ -136,6 +136,9 @@ export default function CustomerDetail() {
         <Card className="p-4 flex flex-col items-center justify-center text-center">
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1.5">Health</p>
           <CustomerHealthBadge health={stats.health} reason={stats.healthReason} />
+          {customer.follow_up_tracking_enabled === false && (
+            <p className="text-[11px] text-muted-foreground mt-1.5">Not tracked for follow-ups</p>
+          )}
         </Card>
         <StatCard title="Current Stock" value={customerStock.totalCurrentStock} subtitle="bottles on hand" icon={Package} tone="primary" />
         <StatCard title="Pending Orders" value={customerOrdersData.pendingCount} subtitle="not yet dispatched" icon={ShoppingCart} tone="warning" />
@@ -181,6 +184,7 @@ export default function CustomerDetail() {
             <div className="mt-4 pt-4 border-t border-border text-xs text-muted-foreground">
               Visit frequency: <span className="font-medium text-foreground">{visitFrequencyLabel(customer.visit_frequency)}</span>
               {stats.visitOverdue && <span className="text-destructive font-medium"> · Overdue</span>}
+              {customer.follow_up_tracking_enabled === false && <span> · Not tracked for follow-ups</span>}
             </div>
           )}
         </Card>
