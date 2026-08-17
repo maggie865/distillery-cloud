@@ -129,7 +129,12 @@ Deno.serve(async (req: Request) => {
       Accept: 'application/json',
     };
 
-    let whereClause = 'Type=="ACCREC" AND Status=="AUTHORISED"';
+    // Status=="AUTHORISED" alone misses anything already paid — Xero moves a
+    // paid invoice to its own PAID status rather than leaving it AUTHORISED,
+    // so a quick-settling channel (Shopify, cellar door) would silently
+    // never match. Either status means "finalized, not draft/voided" — the
+    // only thing that matters for turning it into a dispatch to approve.
+    let whereClause = 'Type=="ACCREC" AND (Status=="AUTHORISED" OR Status=="PAID")';
     if (sinceDateParam) {
       // Explicit backfill window — filter by the invoice's own Date, not
       // modification time, and skip If-Modified-Since entirely: the user is
