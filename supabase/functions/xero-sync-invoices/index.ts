@@ -176,6 +176,15 @@ Deno.serve(async (req: Request) => {
     const invoicesBody = await invoicesRes.json();
     const invoices: XeroInvoice[] = invoicesBody?.Invoices ?? [];
 
+    // TODO(temporary debug): remove once the 0-lines-created issue is
+    // confirmed fixed — captures the raw shape of the first invoice Xero
+    // actually returned, since SummaryOnly=false alone didn't change the
+    // outcome (still 0 lines from 30 invoices) and there's no way to see
+    // server logs on this project.
+    const debugSample = invoices[0]
+      ? { topLevelKeys: Object.keys(invoices[0]), lineItemsIsArray: Array.isArray((invoices[0] as Record<string, unknown>).LineItems), lineItemsLength: (invoices[0] as Record<string, unknown>).LineItems ? (((invoices[0] as Record<string, unknown>).LineItems) as unknown[]).length : null, rawLineItemsValue: (invoices[0] as Record<string, unknown>).LineItems ?? 'MISSING_KEY' }
+      : 'NO_INVOICES';
+
     const rows: Record<string, unknown>[] = [];
     let unmatchedCount = 0;
 
@@ -255,6 +264,7 @@ Deno.serve(async (req: Request) => {
       lines_unmatched: unmatchedCount,
       debug_where: whereClause,
       debug_if_modified_since: invoiceHeaders['If-Modified-Since'] ?? null,
+      debug_sample: debugSample,
     });
   } catch (err) {
     console.error('xero-sync-invoices error:', err);
