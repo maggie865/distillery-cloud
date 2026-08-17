@@ -53,16 +53,24 @@ export default function DashboardLinkManager() {
       return;
     }
     const sortOrder = links.length;
-    await base44.entities.DashboardLink.create({ label, path, icon, sort_order: sortOrder });
-    toast.success('Quick link added');
-    setSelectedPath('');
-    setCustomLabel('');
-    setCustomPath('');
+    try {
+      await base44.entities.DashboardLink.create({ label, path, icon, sort_order: sortOrder });
+      toast.success('Quick link added');
+      setSelectedPath('');
+      setCustomLabel('');
+      setCustomPath('');
+    } catch (e) {
+      toast.error(e.message || 'Failed to add quick link');
+    }
   };
 
   const handleRemove = async (id) => {
-    await base44.entities.DashboardLink.delete(id);
-    toast.success('Quick link removed');
+    try {
+      await base44.entities.DashboardLink.delete(id);
+      toast.success('Quick link removed');
+    } catch (e) {
+      toast.error(e.message || 'Failed to remove quick link');
+    }
   };
 
   const handleNavigate = (path) => {

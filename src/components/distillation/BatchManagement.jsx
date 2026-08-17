@@ -55,6 +55,10 @@ function EditBatchDialog({ batch, open, onOpenChange }) {
   const mutation = useMutation({
     mutationFn: (data) => db.MasterBatch.update(batch.id, {
       ...data,
+      // date_started is a NOT NULL `date` column with no default — the
+      // input has no `required` attribute so it can be cleared to '',
+      // which fails Postgres's cast to date and 400s the update.
+      date_started: data.date_started || undefined,
       target_volume: data.target_volume !== '' ? parseFloat(data.target_volume) : undefined,
       target_abv: data.target_abv !== '' ? parseFloat(data.target_abv) : undefined,
     }),
@@ -63,6 +67,7 @@ function EditBatchDialog({ batch, open, onOpenChange }) {
       toast.success('Batch updated');
       onOpenChange(false);
     },
+    onError: (err) => toast.error(err.message || 'Failed to update batch'),
   });
 
   return (

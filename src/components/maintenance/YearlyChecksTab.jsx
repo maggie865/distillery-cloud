@@ -49,9 +49,13 @@ function EmergencyExitsCard({ records, onSave, saving }) {
     if (!form.signage_condition) issues.push('Signage in poor condition');
     const notesParts = [`Exits marked: ${form.exits_marked ? 'Yes' : 'No'}`, `Signs illuminated: ${form.signs_illuminated ? 'Yes' : 'No'}`, `Paths clear: ${form.paths_clear ? 'Yes' : 'No'}`, `Signage condition: ${form.signage_condition ? 'Good' : 'Poor'}`];
     if (form.notes) notesParts.push(`Notes: ${form.notes}`);
-    await onSave([{ maintenance_type: 'yearly_check', check_item_name: 'Emergency Exits & Signage', equipment_name: 'Emergency Exits', date: form.date, result: allGood ? 'pass' : 'needs_attention', notes: notesParts.join(' | '), performed_by: form.performed_by.trim(), requires_followup: !allGood, status: 'completed', next_due_date: format(addYears(now, 1), 'yyyy-MM-dd') }]);
-    toast.success('Emergency exits check saved');
-    setShowForm(false);
+    try {
+      await onSave([{ maintenance_type: 'yearly_check', check_item_name: 'Emergency Exits & Signage', equipment_name: 'Emergency Exits', date: form.date, result: allGood ? 'pass' : 'needs_attention', notes: notesParts.join(' | '), performed_by: form.performed_by.trim(), requires_followup: !allGood, status: 'completed', next_due_date: format(addYears(now, 1), 'yyyy-MM-dd') }]);
+      toast.success('Emergency exits check saved');
+      setShowForm(false);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save emergency exits check');
+    }
   };
 
   return (
@@ -132,10 +136,14 @@ function PalletJackCard({ records, onSave, saving }) {
     const result = removeFromService ? 'fail' : form.overall === 'monitor' ? 'needs_attention' : 'pass';
     const notesParts = [`Forks: ${form.forks}`, `Hydraulic: ${form.hydraulic === 'working' ? 'Working' : 'Not Working'}`, `Wheels: ${form.wheels}`, `Markings: ${form.markings === 'yes' ? 'Visible' : 'Not Visible'}`, `Overall: ${form.overall}`];
     if (form.notes) notesParts.push(`Notes: ${form.notes}`);
-    await onSave([{ maintenance_type: 'yearly_check', check_item_name: 'Pallet Jack Inspection', equipment_name: 'Pallet Jack', date: form.date, result, notes: notesParts.join(' | '), performed_by: form.performed_by.trim(), requires_followup: removeFromService, status: 'completed', next_due_date: format(addYears(now, 1), 'yyyy-MM-dd') }]);
-    if (removeFromService) toast.error('Pallet jack removed from service — follow-up required');
-    else toast.success('Pallet jack inspection saved');
-    setShowForm(false);
+    try {
+      await onSave([{ maintenance_type: 'yearly_check', check_item_name: 'Pallet Jack Inspection', equipment_name: 'Pallet Jack', date: form.date, result, notes: notesParts.join(' | '), performed_by: form.performed_by.trim(), requires_followup: removeFromService, status: 'completed', next_due_date: format(addYears(now, 1), 'yyyy-MM-dd') }]);
+      if (removeFromService) toast.error('Pallet jack removed from service — follow-up required');
+      else toast.success('Pallet jack inspection saved');
+      setShowForm(false);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save pallet jack inspection');
+    }
   };
 
   return (
@@ -285,14 +293,18 @@ function AuditCard({ title, icon, checkItemName, internalItems, records, onSave,
       performed_by: auditType === 'internal' ? form.performed_by : form.auditor,
       next_due_date: form.next_due || undefined, status: 'completed',
     };
-    if (editRecord) {
-      await onUpdate(editRecord.id, payload);
-      toast.success('Audit record updated');
-    } else {
-      await onSave([payload]);
-      toast.success('Audit record saved');
+    try {
+      if (editRecord) {
+        await onUpdate(editRecord.id, payload);
+        toast.success('Audit record updated');
+      } else {
+        await onSave([payload]);
+        toast.success('Audit record saved');
+      }
+      closeForm();
+    } catch (err) {
+      toast.error(err.message || 'Failed to save audit record');
     }
-    closeForm();
   };
 
   const toggleItem = (item) => {

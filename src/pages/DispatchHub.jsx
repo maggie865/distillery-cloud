@@ -309,6 +309,7 @@ export default function DispatchHub() {
       await db.Dispatch.update(dispatch.id, { status: 'pending', notes: (dispatch.notes ? dispatch.notes + ' [RETURNED]' : '[RETURNED]') });
     },
     onSuccess: () => { invalidateAll(); setReturningDispatch(null); toast.success('Stock returned'); },
+    onError: (err) => toast.error(err.message || 'Failed to return stock'),
   });
 
   const deleteMutation = useMutation({
@@ -317,6 +318,7 @@ export default function DispatchHub() {
       await db.Dispatch.delete(dispatch.id);
     },
     onSuccess: () => { invalidateAll(); setDeletingDispatch(null); toast.success('Dispatch deleted and stock restored'); },
+    onError: (err) => toast.error(err.message || 'Failed to delete dispatch'),
   });
 
   const recalcMutation = useMutation({

@@ -92,6 +92,7 @@ function AdjustDialog({ item, entity, onClose, queryKey }) {
         duration: 10000,
       });
     },
+    onError: (err) => toast.error(err.message || 'Failed to adjust stock'),
   });
 
   return (
@@ -194,6 +195,7 @@ function EditDialog({ item, entity, fields, onClose, queryKey }) {
         duration: 10000,
       });
     },
+    onError: (err) => toast.error(err.message || 'Failed to save record'),
   });
 
   return (
@@ -264,6 +266,7 @@ function DeleteConfirm({ item, entity, label, onClose, queryKey }) {
         duration: 10000,
       });
     },
+    onError: (err) => toast.error(err.message || 'Failed to delete record'),
   });
   return (
     <AlertDialog open onOpenChange={onClose}>
@@ -447,6 +450,7 @@ function LowStockAlerts({ rawMaterials, thresholds }) {
       }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['stockThresholds'] }),
+    onError: (err) => toast.error(err.message || 'Failed to save stock threshold'),
   });
 
   const alertItems = rawMaterials

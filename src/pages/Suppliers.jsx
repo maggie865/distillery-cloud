@@ -73,6 +73,7 @@ export default function Suppliers() {
       setForm(BLANK_FORM);
       toast.success('Supplier added');
     },
+    onError: (err) => toast.error(err.message || 'Failed to add supplier'),
   });
 
   const updateMutation = useMutation({
@@ -86,6 +87,7 @@ export default function Suppliers() {
       setForm(BLANK_FORM);
       toast.success('Supplier updated');
     },
+    onError: (err) => toast.error(err.message || 'Failed to update supplier'),
   });
 
   const deleteMutation = useMutation({
@@ -96,6 +98,7 @@ export default function Suppliers() {
       queryClient.invalidateQueries({ queryKey: ['suppliers'] });
       toast.success('Supplier deleted');
     },
+    onError: (err) => toast.error(err.message || 'Failed to delete supplier'),
   });
 
   const syncMutation = useMutation({

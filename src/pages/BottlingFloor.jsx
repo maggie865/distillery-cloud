@@ -378,13 +378,17 @@ export default function BottlingFloor() {
       resetForm();
       toast.success('Run complete — stock updated!');
     },
+    onError: (err) => toast.error(err.message || 'Failed to complete bottling run'),
   });
 
   // Edit run — updates only safe metadata fields (date, notes, status)
   const editRunMutation = useMutation({
     mutationFn: async (data) => {
       await db.BottlingRun.update(editingRun.id, {
-        date: data.date,
+        // date is a NOT NULL `date` column with no default — this input has
+        // no `required` attribute so it can be cleared to '', which fails
+        // Postgres's cast to date and 400s the update.
+        date: data.date || undefined,
         notes: data.notes,
         status: data.status,
       });
@@ -394,6 +398,7 @@ export default function BottlingFloor() {
       setEditingRun(null);
       toast.success('Run updated');
     },
+    onError: (err) => toast.error(err.message || 'Failed to update run'),
   });
 
   // Delete run — reverses all inventory impacts
@@ -502,6 +507,7 @@ export default function BottlingFloor() {
       setDeletingRun(null);
       toast.success('Run deleted and inventory reversed');
     },
+    onError: (err) => toast.error(err.message || 'Failed to delete run'),
   });
 
   const filteredHistory = bottlingRuns.filter(run => {

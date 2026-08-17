@@ -46,6 +46,7 @@ export default function LocationSettings() {
       qc.invalidateQueries({ queryKey: ['appSettings'] });
       toast.success('Location settings saved');
     },
+    onError: (e) => toast.error(e.message || 'Failed to save location settings'),
   });
 
   return (

@@ -135,6 +135,7 @@ export default function PackagingRecipeManager() {
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       toast.success('Packaging recipe deleted');
     },
+    onError: (e) => toast.error(e.message || 'Failed to delete packaging recipe'),
   });
 
   const handleAddPackaging = () => setForm(prev => ({ ...prev, packaging: [...(prev.packaging || []), { ...EMPTY_PACKAGING_ITEM }] }));

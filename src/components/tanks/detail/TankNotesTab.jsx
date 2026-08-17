@@ -58,6 +58,7 @@ export default function TankNotesTab({ tank, movements, userName, isAdmin }) {
       invalidate();
       toast.success('Note deleted');
     },
+    onError: (e) => toast.error('Failed to delete: ' + e.message),
   });
 
   const canManage = (note) => isAdmin || (userName && note.operator === userName);

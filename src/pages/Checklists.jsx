@@ -40,6 +40,7 @@ function useTemplates() {
       }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['checklist-templates'] }),
+    onError: (e) => toast.error(e.message || 'Failed to save checklist'),
   });
 
   return { templates, saveTemplates: saveTemplates.mutateAsync, saving: saveTemplates.isPending };
@@ -276,9 +277,13 @@ export default function Checklists() {
       date: new Date().toISOString(),
       checked,
     };
-    await saveRuns([...runs, run]);
-    setActiveSession(null);
-    toast.success(`${activeSession.template.name} signed off by ${completedBy}`);
+    try {
+      await saveRuns([...runs, run]);
+      setActiveSession(null);
+      toast.success(`${activeSession.template.name} signed off by ${completedBy}`);
+    } catch (e) {
+      toast.error(e.message || 'Failed to save checklist sign-off');
+    }
   };
 
   const recentRuns = useMemo(() =>

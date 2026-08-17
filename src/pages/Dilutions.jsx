@@ -222,6 +222,7 @@ export default function Dilutions() {
       setEthanolForm(BLANK_ETHANOL);
       toast.success('Ethanol dilution recorded');
     },
+    onError: (err) => toast.error(err.message || 'Failed to record ethanol dilution'),
   });
 
   const heartsMutation = useMutation({
@@ -320,15 +321,21 @@ export default function Dilutions() {
       setHeartsForm(BLANK_HEARTS);
       toast.success(action === 'transfer' ? 'Hearts dilution complete — product transferred' : 'Progress saved — product remains in source tank');
     },
+    onError: (err) => toast.error(err.message || 'Failed to save hearts dilution'),
   });
 
   const editMutation = useMutation({
     mutationFn: async (data) => {
+      // input_ethanol_volume/input_abv are NOT NULL numeric columns with no
+      // default and these edit inputs have no `required` attribute, so they
+      // can be cleared to '' — parseFloat('') is NaN, which JSON.stringify
+      // turns into an explicit null in the request body and 400s the
+      // update. Fall back to undefined (leave column unchanged) instead.
       await db.Dilution.update(data.id, {
         batch_number: data.batch_number,
         date: data.date,
-        input_ethanol_volume: parseFloat(data.input_ethanol_volume),
-        input_abv: parseFloat(data.input_abv),
+        input_ethanol_volume: data.input_ethanol_volume !== '' ? parseFloat(data.input_ethanol_volume) : undefined,
+        input_abv: data.input_abv !== '' ? parseFloat(data.input_abv) : undefined,
         input_lals: parseFloat(data.input_ethanol_volume) * parseFloat(data.input_abv) / 100,
         water_added: parseFloat(data.water_added) || 0,
         output_volume: parseFloat(data.output_volume),
@@ -343,6 +350,7 @@ export default function Dilutions() {
       setEditingDilution(null);
       toast.success('Dilution updated');
     },
+    onError: (err) => toast.error(err.message || 'Failed to update dilution'),
   });
 
   const deleteMutation = useMutation({

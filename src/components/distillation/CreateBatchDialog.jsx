@@ -35,6 +35,7 @@ export default function CreateBatchDialog({ open, onOpenChange, onCreated }) {
       onOpenChange(false);
       setForm(BLANK);
     },
+    onError: (err) => toast.error(err.message || 'Failed to create batch'),
   });
 
   return (
