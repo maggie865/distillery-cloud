@@ -165,6 +165,7 @@ export default function SNSDistillation() {
       setDeletingRun(null);
       toast.success('SNS run deleted and tank changes reversed');
     },
+    onError: (err) => toast.error(err.message || 'Failed to delete SNS run'),
   });
 
   const pagedSnsRuns = snsRuns.slice((page - 1) * pageSize, page * pageSize);
@@ -244,101 +245,105 @@ export default function SNSDistillation() {
       return;
     }
 
-    const payload = {
-      date: form.date,
-      source_tank_id: form.source_tank_id,
-      input_volume: parseFloat(form.input_volume),
-      input_abv: parseFloat(form.input_abv),
-      hearts_volume: parseFloat(form.hearts_volume),
-      hearts_abv: parseFloat(form.hearts_abv),
-      hearts_lals: parseFloat(form.hearts_volume) * parseFloat(form.hearts_abv) / 100,
-      dumped_volume: form.dumped_volume ? parseFloat(form.dumped_volume) : 0,
-      dumped_abv: form.dumped_abv ? parseFloat(form.dumped_abv) : 0,
-      dumped_lals: form.dumped_volume && form.dumped_abv ? parseFloat(form.dumped_volume) * parseFloat(form.dumped_abv) / 100 : 0,
-      dumped_notes: form.dumped_notes,
-      status: form.status,
-      notes: form.notes,
-    };
-
-    if (editingId) {
-      await db.SNSRun.update(editingId, payload);
-      toast.success('SNS run updated');
-    } else {
-      const finalPayload = {
-        ...payload,
-        destination_tank_ids: form.destination_tank_ids,
+    try {
+      const payload = {
+        date: form.date,
+        source_tank_id: form.source_tank_id,
+        input_volume: parseFloat(form.input_volume),
+        input_abv: parseFloat(form.input_abv),
+        hearts_volume: parseFloat(form.hearts_volume),
+        hearts_abv: parseFloat(form.hearts_abv),
+        hearts_lals: parseFloat(form.hearts_volume) * parseFloat(form.hearts_abv) / 100,
+        dumped_volume: form.dumped_volume ? parseFloat(form.dumped_volume) : 0,
+        dumped_abv: form.dumped_abv ? parseFloat(form.dumped_abv) : 0,
+        dumped_lals: form.dumped_volume && form.dumped_abv ? parseFloat(form.dumped_volume) * parseFloat(form.dumped_abv) / 100 : 0,
+        dumped_notes: form.dumped_notes,
+        status: form.status,
+        notes: form.notes,
       };
-      
-      const createdRun = await db.SNSRun.create(finalPayload);
 
-      // Create WastageRecord for dumped material (mass balance: input LALs − hearts LALs)
-      if (finalPayload.dumped_volume > 0) {
-        const inputLals = (parseFloat(finalPayload.input_volume) * parseFloat(finalPayload.input_abv)) / 100 || 0;
-        const heartsLals = finalPayload.hearts_lals || 0;
-        const dumpedLals = Math.max(0, inputLals - heartsLals);
-        const dumpedAbv = finalPayload.dumped_volume > 0
-          ? (dumpedLals / finalPayload.dumped_volume) * 100
-          : 0;
+      if (editingId) {
+        await db.SNSRun.update(editingId, payload);
+        toast.success('SNS run updated');
+      } else {
+        const finalPayload = {
+          ...payload,
+          destination_tank_ids: form.destination_tank_ids,
+        };
 
-        await db.WastageRecord.create({
-          date: finalPayload.date,
-          batch_number: finalPayload.batch_number || '',
-          product_name: finalPayload.product_name || 'SNS Run',
-          volume: finalPayload.dumped_volume,
-          abv: parseFloat(dumpedAbv.toFixed(2)),
-          lals: parseFloat(dumpedLals.toFixed(4)),
-          reason: finalPayload.dumped_notes || 'SNS still waste',
-          source: 'sns_distillation',
-          run_id: createdRun.id,
-        });
-      }
+        const createdRun = await db.SNSRun.create(finalPayload);
 
-      // Distribute hearts across destination tanks with overflow
-      if (form.destination_tank_ids && form.destination_tank_ids.length > 0) {
-        let remainingVolume = parseFloat(form.hearts_volume);
-        
-        for (const tankId of form.destination_tank_ids) {
-          if (remainingVolume <= 0) break;
-          
-          const destTank = tanks.find(t => t.id === tankId);
-          if (destTank) {
-            const availableSpace = destTank.capacity_litres - (destTank.current_volume || 0);
-            const volumeToAdd = Math.min(availableSpace, remainingVolume);
-            
-            if (volumeToAdd > 0) {
-              const newVolume = (destTank.current_volume || 0) + volumeToAdd;
-              await db.StorageTank.update(tankId, {
-                current_volume: newVolume,
-                current_abv: parseFloat(form.hearts_abv),
-                current_product: 'High ABV Ethanol (SNS)',
-                status: 'in_use',
-              });
-              remainingVolume -= volumeToAdd;
+        // Create WastageRecord for dumped material (mass balance: input LALs − hearts LALs)
+        if (finalPayload.dumped_volume > 0) {
+          const inputLals = (parseFloat(finalPayload.input_volume) * parseFloat(finalPayload.input_abv)) / 100 || 0;
+          const heartsLals = finalPayload.hearts_lals || 0;
+          const dumpedLals = Math.max(0, inputLals - heartsLals);
+          const dumpedAbv = finalPayload.dumped_volume > 0
+            ? (dumpedLals / finalPayload.dumped_volume) * 100
+            : 0;
+
+          await db.WastageRecord.create({
+            date: finalPayload.date,
+            batch_number: finalPayload.batch_number || '',
+            product_name: finalPayload.product_name || 'SNS Run',
+            volume: finalPayload.dumped_volume,
+            abv: parseFloat(dumpedAbv.toFixed(2)),
+            lals: parseFloat(dumpedLals.toFixed(4)),
+            reason: finalPayload.dumped_notes || 'SNS still waste',
+            source: 'sns_distillation',
+            run_id: createdRun.id,
+          });
+        }
+
+        // Distribute hearts across destination tanks with overflow
+        if (form.destination_tank_ids && form.destination_tank_ids.length > 0) {
+          let remainingVolume = parseFloat(form.hearts_volume);
+
+          for (const tankId of form.destination_tank_ids) {
+            if (remainingVolume <= 0) break;
+
+            const destTank = tanks.find(t => t.id === tankId);
+            if (destTank) {
+              const availableSpace = destTank.capacity_litres - (destTank.current_volume || 0);
+              const volumeToAdd = Math.min(availableSpace, remainingVolume);
+
+              if (volumeToAdd > 0) {
+                const newVolume = (destTank.current_volume || 0) + volumeToAdd;
+                await db.StorageTank.update(tankId, {
+                  current_volume: newVolume,
+                  current_abv: parseFloat(form.hearts_abv),
+                  current_product: 'High ABV Ethanol (SNS)',
+                  status: 'in_use',
+                });
+                remainingVolume -= volumeToAdd;
+              }
             }
           }
         }
-      }
-      
-      // Subtract only the used volume from the source tank
-      if (selectedTank) {
-        const usedVolume = parseFloat(form.input_volume) || 0;
-        const remainingVolume = Math.max(0, (selectedTank.current_volume || 0) - usedVolume);
-        await db.StorageTank.update(form.source_tank_id, {
-          current_volume: remainingVolume,
-          current_abv: remainingVolume > 0 ? (selectedTank.current_abv || 0) : 0,
-          current_product: remainingVolume > 0 ? (selectedTank.current_product || '') : '',
-          status: remainingVolume > 0 ? 'in_use' : 'empty',
-        });
-      }
-      
-      toast.success('SNS run recorded and hearts distributed');
-    }
 
-    queryClient.invalidateQueries({ queryKey: ['snsRuns'] });
-    queryClient.invalidateQueries({ queryKey: ['storageTanks'] });
-    queryClient.invalidateQueries({ queryKey: ['wastage'] });
-    setOpen(false);
-    setForm(BLANK_FORM);
+        // Subtract only the used volume from the source tank
+        if (selectedTank) {
+          const usedVolume = parseFloat(form.input_volume) || 0;
+          const remainingVolume = Math.max(0, (selectedTank.current_volume || 0) - usedVolume);
+          await db.StorageTank.update(form.source_tank_id, {
+            current_volume: remainingVolume,
+            current_abv: remainingVolume > 0 ? (selectedTank.current_abv || 0) : 0,
+            current_product: remainingVolume > 0 ? (selectedTank.current_product || '') : '',
+            status: remainingVolume > 0 ? 'in_use' : 'empty',
+          });
+        }
+
+        toast.success('SNS run recorded and hearts distributed');
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['snsRuns'] });
+      queryClient.invalidateQueries({ queryKey: ['storageTanks'] });
+      queryClient.invalidateQueries({ queryKey: ['wastage'] });
+      setOpen(false);
+      setForm(BLANK_FORM);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save SNS run');
+    }
   };
 
   return (

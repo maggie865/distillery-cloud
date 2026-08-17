@@ -235,6 +235,7 @@ export default function WasteTracker() {
       await saveRecords(records.filter(r => r.id !== id));
     },
     onSuccess: () => { toast.success('Deleted'); },
+    onError: (e) => toast.error('Failed: ' + e.message),
   });
 
   // Filter records

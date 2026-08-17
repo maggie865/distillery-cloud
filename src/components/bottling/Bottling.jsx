@@ -93,6 +93,7 @@ export default function Bottling() {
       });
       toast.success('Bottling run recorded');
     },
+    onError: (err) => toast.error(err.message || 'Failed to save bottling run'),
   });
 
   const handleSubmit = (e) => {

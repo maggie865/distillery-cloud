@@ -101,6 +101,7 @@ export default function CompleteDistillationDialog({ run, open, onOpenChange, on
       onOpenChange(false);
       onCompleted?.();
     },
+    onError: (err) => toast.error(err.message || 'Failed to complete distillation run'),
   });
 
   if (!run) return null;

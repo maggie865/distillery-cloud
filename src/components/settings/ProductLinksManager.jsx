@@ -58,6 +58,7 @@ export default function ProductLinksManager() {
       qc.invalidateQueries({ queryKey: ['productAliases'] });
       toast.success('Alias removed');
     },
+    onError: (e) => toast.error(e.message || 'Failed to remove alias'),
   });
 
   const handleAdd = (e) => {

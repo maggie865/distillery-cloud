@@ -40,15 +40,23 @@ export default function ChecklistManager() {
 
   const handleSave = async (tmpl) => {
     const existing = templates.find(t => t.id === tmpl.id);
-    await saveTemplates(existing ? templates.map(t => t.id === tmpl.id ? tmpl : t) : [...templates, tmpl]);
-    setEditTemplate(null);
-    toast.success(existing ? 'Checklist updated' : 'Checklist created');
+    try {
+      await saveTemplates(existing ? templates.map(t => t.id === tmpl.id ? tmpl : t) : [...templates, tmpl]);
+      setEditTemplate(null);
+      toast.success(existing ? 'Checklist updated' : 'Checklist created');
+    } catch (e) {
+      toast.error(e.message || 'Failed to save checklist');
+    }
   };
 
   const handleDelete = async (id) => {
     if (!confirm('Delete this checklist?')) return;
-    await saveTemplates(templates.filter(t => t.id !== id));
-    toast.success('Checklist deleted');
+    try {
+      await saveTemplates(templates.filter(t => t.id !== id));
+      toast.success('Checklist deleted');
+    } catch (e) {
+      toast.error(e.message || 'Failed to delete checklist');
+    }
   };
 
   const grouped = useMemo(() => {

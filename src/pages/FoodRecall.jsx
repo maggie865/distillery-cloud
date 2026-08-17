@@ -552,6 +552,7 @@ export default function FoodRecallManager() {
   const deleteMockMutation = useMutation({
     mutationFn: (id) => base44.entities.MockRecall.delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['mockRecalls'] }),
+    onError: (e) => toast.error(e.message || 'Failed to delete mock recall'),
   });
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));

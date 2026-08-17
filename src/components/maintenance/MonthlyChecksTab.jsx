@@ -88,9 +88,13 @@ function StillCheck({ records, now, selectedMonth, onSave, saving }) {
     const allGood = form.seals && form.bolts && form.gauges;
     const notesParts = [`Seals: ${form.seals ? 'Good' : 'Issue Found'}`, `Bolts: ${form.bolts ? 'Good' : 'Issue Found'}`, `Gauges: ${form.gauges ? 'Good' : 'Issue Found'}`];
     if (form.notes) notesParts.push(`Notes: ${form.notes}`);
-    await onSave([{ maintenance_type: 'monthly_check', check_item_name: 'Still Condition Inspection', equipment_name: 'Still', date: form.date, result: allGood ? 'pass' : 'needs_attention', notes: notesParts.join(' | '), performed_by: form.performed_by.trim(), requires_followup: !allGood, status: 'completed' }]);
-    toast.success('Still inspection saved');
-    setSubmitted(true);
+    try {
+      await onSave([{ maintenance_type: 'monthly_check', check_item_name: 'Still Condition Inspection', equipment_name: 'Still', date: form.date, result: allGood ? 'pass' : 'needs_attention', notes: notesParts.join(' | '), performed_by: form.performed_by.trim(), requires_followup: !allGood, status: 'completed' }]);
+      toast.success('Still inspection saved');
+      setSubmitted(true);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save still inspection');
+    }
   };
 
   return (
@@ -144,9 +148,13 @@ function CondenserCheck({ records, now, selectedMonth, onSave, saving }) {
     const result = requiresFollowup ? 'fail' : form.condenser === 'needs_attention' ? 'needs_attention' : 'pass';
     const notesParts = [`Flow Meter: ${form.flow_meter ? 'Operational' : 'NOT OPERATIONAL'}`, `Condenser: ${form.condenser === 'good' ? 'Good' : form.condenser === 'needs_attention' ? 'Needs Attention' : 'Poor'}`, `Parrot Head: ${form.parrot === 'cleaned' ? 'Cleaned Today' : 'Not Required'}`];
     if (form.notes) notesParts.push(`Notes: ${form.notes}`);
-    await onSave([{ maintenance_type: 'monthly_check', check_item_name: 'Condenser Check', equipment_name: 'Condenser', date: form.date, result, notes: notesParts.join(' | '), performed_by: form.performed_by.trim(), requires_followup: requiresFollowup, status: 'completed' }]);
-    toast.success('Condenser check saved');
-    setSubmitted(true);
+    try {
+      await onSave([{ maintenance_type: 'monthly_check', check_item_name: 'Condenser Check', equipment_name: 'Condenser', date: form.date, result, notes: notesParts.join(' | '), performed_by: form.performed_by.trim(), requires_followup: requiresFollowup, status: 'completed' }]);
+      toast.success('Condenser check saved');
+      setSubmitted(true);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save condenser check');
+    }
   };
 
   return (
@@ -218,7 +226,12 @@ function FirstAidCheck({ records, now, selectedMonth, onSave, saving }) {
     if (!performedBy.trim()) { toast.error('Please enter your name'); return; }
     const result = missingItems.length === 0 ? 'pass' : 'needs_attention';
     const notes = missingItems.length === 0 ? 'All items present' : `Missing: ${missingItems.map(i => i.label).join(', ')}`;
-    await onSave([{ maintenance_type: 'monthly_check', check_item_name: 'First Aid Kit Check', equipment_name: 'First Aid Kit', date, result, notes, performed_by: performedBy.trim(), requires_followup: missingItems.length > 0, status: 'completed' }]);
+    try {
+      await onSave([{ maintenance_type: 'monthly_check', check_item_name: 'First Aid Kit Check', equipment_name: 'First Aid Kit', date, result, notes, performed_by: performedBy.trim(), requires_followup: missingItems.length > 0, status: 'completed' }]);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save first aid check');
+      return;
+    }
     if (missingItems.length > 0) {
       try {
         await base44.functions.invoke('sendMaintenanceAlert', { event: { type: 'create' }, data: { equipment_name: 'First Aid Kit', maintenance_type: 'monthly_check', check_item_name: 'First Aid Kit Check', date, performed_by: performedBy.trim(), result, notes, requires_followup: true, description: `Missing items: ${missingItems.map(i => i.label).join(', ')}` } });
@@ -290,10 +303,14 @@ function FireExtinguisherLog({ records, onSave, saving }) {
 
   const handleSave = async () => {
     if (!form.company.trim()) { toast.error('Please enter the service company name'); return; }
-    await onSave([{ maintenance_type: 'fire_extinguisher_service', check_item_name: 'Fire Extinguisher Service', equipment_name: 'Fire Extinguisher', date: form.date, result: 'pass', certifier_company: form.company.trim(), inspector_name: form.technician || undefined, certificate_number: form.invoice_number || undefined, notes: [form.company, form.technician && `Technician: ${form.technician}`, form.invoice_number && `Invoice/Slip: ${form.invoice_number}`, form.notes].filter(Boolean).join(' | '), status: 'completed' }]);
-    toast.success('Fire extinguisher service record saved');
-    setShowForm(false);
-    setForm({ date: format(now, 'yyyy-MM-dd'), company: '', technician: '', invoice_number: '', notes: '' });
+    try {
+      await onSave([{ maintenance_type: 'fire_extinguisher_service', check_item_name: 'Fire Extinguisher Service', equipment_name: 'Fire Extinguisher', date: form.date, result: 'pass', certifier_company: form.company.trim(), inspector_name: form.technician || undefined, certificate_number: form.invoice_number || undefined, notes: [form.company, form.technician && `Technician: ${form.technician}`, form.invoice_number && `Invoice/Slip: ${form.invoice_number}`, form.notes].filter(Boolean).join(' | '), status: 'completed' }]);
+      toast.success('Fire extinguisher service record saved');
+      setShowForm(false);
+      setForm({ date: format(now, 'yyyy-MM-dd'), company: '', technician: '', invoice_number: '', notes: '' });
+    } catch (err) {
+      toast.error(err.message || 'Failed to save fire extinguisher service record');
+    }
   };
 
   return (

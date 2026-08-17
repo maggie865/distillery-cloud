@@ -64,6 +64,7 @@ export default function RecipeManager() {
       setRecipeForm(EMPTY_SPIRIT_FORM);
       toast.success('Recipe created');
     },
+    onError: (e) => toast.error(e.message || 'Failed to create recipe'),
   });
 
   const updateMutation = useMutation({
@@ -74,6 +75,7 @@ export default function RecipeManager() {
       setEditingId(null);
       toast.success('Recipe updated');
     },
+    onError: (e) => toast.error(e.message || 'Failed to update recipe'),
   });
 
   const deleteMutation = useMutation({
@@ -82,6 +84,7 @@ export default function RecipeManager() {
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       toast.success('Recipe deleted');
     },
+    onError: (e) => toast.error(e.message || 'Failed to delete recipe'),
   });
 
   const handleAddIngredient = () => {

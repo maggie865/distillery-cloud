@@ -126,6 +126,7 @@ export default function StockTakes() {
       setActiveStockTake(stockTake.id);
       toast.success('Stock take created — enter your counted quantities');
     },
+    onError: (err) => toast.error(err.message || 'Failed to create stock take'),
   });
 
   const updateLineMutation = useMutation({
@@ -137,6 +138,7 @@ export default function StockTakes() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stockTakeLines'] });
     },
+    onError: (err) => toast.error(err.message || 'Failed to save counted quantity'),
   });
 
   const completeMutation = useMutation({
@@ -146,6 +148,7 @@ export default function StockTakes() {
       setActiveStockTake(null);
       toast.success('Stock take completed and saved');
     },
+    onError: (err) => toast.error(err.message || 'Failed to complete stock take'),
   });
 
   const applyVariancesMutation = useMutation({
@@ -189,6 +192,7 @@ export default function StockTakes() {
       setActiveStockTake(null);
       toast.success('Variances applied — inventory updated to counted quantities');
     },
+    onError: (err) => toast.error(err.message || 'Failed to apply variances'),
   });
 
   const deleteMutation = useMutation({
@@ -203,6 +207,7 @@ export default function StockTakes() {
       setDeletingId(null);
       toast.success('Stock take deleted');
     },
+    onError: (err) => toast.error(err.message || 'Failed to delete stock take'),
   });
 
   const getLinesForTake = (id) => allLines.filter(l => l.stock_take_id === id);

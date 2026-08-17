@@ -71,6 +71,7 @@ export default function PestControl() {
       setTrapOpen(false); setEditingTrapId(null); setTrapForm(BLANK_TRAP);
       toast.success('Trap saved');
     },
+    onError: (e) => toast.error(e.message || 'Failed to save trap'),
   });
 
   const saveLogMutation = useMutation({
@@ -88,16 +89,19 @@ export default function PestControl() {
       setLogOpen(false); setLogForm(BLANK_LOG);
       toast.success('Inspections logged');
     },
+    onError: (e) => toast.error(e.message || 'Failed to log inspection'),
   });
 
   const deleteTrapMutation = useMutation({
     mutationFn: (id) => base44.entities.PestControlTrap.delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pestTraps'] }),
+    onError: (e) => toast.error(e.message || 'Failed to remove trap'),
   });
 
   const updatePositionMutation = useMutation({
     mutationFn: ({ id, x, y }) => base44.entities.PestControlTrap.update(id, { location_x: x, location_y: y }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pestTraps'] }),
+    onError: (e) => toast.error(e.message || 'Failed to update trap position'),
   });
 
   // Map drag handlers

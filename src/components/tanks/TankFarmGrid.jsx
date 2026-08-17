@@ -73,6 +73,7 @@ export default function TankFarmGrid({ allowDelete = false }) {
       setNewTank(BLANK_TANK);
       toast.success('Tank added — it will now appear in all relevant dropdowns');
     },
+    onError: (err) => toast.error(err.message || 'Failed to add tank'),
   });
 
   const editMutation = useMutation({
@@ -88,6 +89,7 @@ export default function TankFarmGrid({ allowDelete = false }) {
       setEditTank(null);
       toast.success('Tank updated');
     },
+    onError: (err) => toast.error(err.message || 'Failed to update tank'),
   });
 
   const deleteMutation = useMutation({

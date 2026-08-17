@@ -592,6 +592,7 @@ export default function Receiving() {
       setEditForm(BLANK_EDIT_FORM);
       toast.success('Receiving record updated');
     },
+    onError: (err) => toast.error(err.message || 'Failed to update receiving record'),
   });
 
   const handleCreateSubmit = (e) => {
@@ -632,6 +633,7 @@ export default function Receiving() {
       queryClient.invalidateQueries({ queryKey: ['rawMaterials'] });
       toast.success('Record deleted and inventory updated');
     },
+    onError: (err) => toast.error(err.message || 'Failed to delete receiving record'),
   });
 
   const [search, setSearch] = useState('');
