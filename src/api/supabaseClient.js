@@ -138,6 +138,7 @@ export const db = {
   WarehouseStock:    makeEntity('WarehouseStock'),
   WastageRecord:     makeEntity('WastageRecord'),
   WhiskeyBarrel:     makeEntity('WhiskeyBarrel'),
+  XeroItemMapping:   makeEntity('XeroItemMapping'),
 };
 
 // ── Named exports matching current import style ───────────────────────────────

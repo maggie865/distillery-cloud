@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -18,6 +19,25 @@ export default function Settings() {
 
   const handleSelect = (categoryKey, itemKey) => setSelected({ categoryKey, itemKey });
   const resolved = selected ? findSettingsItem(selected.categoryKey, selected.itemKey) : null;
+
+  // xero-oauth-callback (an Edge Function that runs with no app state of its
+  // own) redirects back here with ?xero=connected|error after the OAuth
+  // round-trip. Checked at this top level — not inside XeroConnectionPanel
+  // itself — so the confirmation shows even if that panel isn't the one
+  // selected yet (a fresh page load always lands on the landing page first).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const xeroStatus = params.get('xero');
+    if (!xeroStatus) return;
+    if (xeroStatus === 'connected') {
+      toast.success('Connected to Xero');
+    } else {
+      const message = params.get('xero_message');
+      toast.error(message ? `Xero connection failed (${message})` : 'Xero connection failed');
+    }
+    setSelected({ categoryKey: 'sales', itemKey: 'xero-integration' });
+    window.history.replaceState({}, '', window.location.pathname);
+  }, []);
 
   return (
     <div className="pb-20 md:pb-0">

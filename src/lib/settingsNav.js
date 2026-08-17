@@ -19,7 +19,7 @@
 import {
   User, Building2, Users, Cylinder, FlaskConical, Link2, Boxes, Truck, Upload,
   CheckSquare, Wrench, MapPin, ShieldCheck, LayoutDashboard, Database, Factory,
-  Package, PackagePlus, ClipboardList, Lock, Activity,
+  Package, PackagePlus, ClipboardList, Lock, Activity, RefreshCw,
 } from 'lucide-react';
 
 import MyProfilePanel from '@/components/settings/MyProfilePanel';
@@ -36,6 +36,8 @@ import ComplianceSettings from '@/components/settings/ComplianceSettings';
 import DashboardLinkManager from '@/components/settings/DashboardLinkManager';
 import DataExportPanel from '@/components/settings/DataExportPanel';
 import CustomerImportPanel from '@/components/customers/CustomerImportPanel';
+import XeroConnectionPanel from '@/components/settings/XeroConnectionPanel';
+import XeroMappingManager from '@/components/settings/XeroMappingManager';
 
 export const SETTINGS_NAV = [
   {
@@ -76,6 +78,8 @@ export const SETTINGS_NAV = [
     icon: Activity,
     items: [
       { key: 'customers', label: 'Customers', description: 'Import customers from a Xero CSV export or other contact list.', icon: Users, kind: 'embed', component: CustomerImportPanel },
+      { key: 'xero-integration', label: 'Xero Integration', description: 'Connect Xero and sync sales invoices in as draft dispatches for review.', icon: RefreshCw, kind: 'embed', component: XeroConnectionPanel },
+      { key: 'xero-mapping', label: 'Xero Product Mapping', description: 'Map Xero invoice line items (cases, bottles, duty-free, samples) to your real products.', icon: Link2, kind: 'embed', component: XeroMappingManager },
     ],
   },
   {
