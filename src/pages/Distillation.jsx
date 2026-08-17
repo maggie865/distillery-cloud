@@ -276,6 +276,10 @@ export default function Distillation() {
     const payload = { ...data };
     // source_tank_allocations persisted below
     payload.destination_tank_id = data.destination_tank_id || undefined;
+    // maceration_date is a `date` column — an empty string (the default when
+    // this optional field is left blank) fails Postgres's cast to date and
+    // the insert/update rejects with a 400, so it must become undefined too.
+    payload.maceration_date = data.maceration_date || undefined;
     numericFields.forEach(f => { payload[f] = data[f] !== '' ? parseFloat(data[f]) : undefined; });
     payload.input_lals = inputLALs ? parseFloat(inputLALs.toFixed(4)) : undefined;
     payload.heads_lals = headsLALs ? parseFloat(headsLALs.toFixed(4)) : undefined;
@@ -585,6 +589,7 @@ export default function Distillation() {
       setOpen(false);
       toast.success('Distillation run recorded');
     },
+    onError: (err) => toast.error(err.message || 'Failed to save distillation run'),
   });
 
   const updateMutation = useMutation({
@@ -602,6 +607,7 @@ export default function Distillation() {
       setOpen(false);
       toast.success('Distillation run updated');
     },
+    onError: (err) => toast.error(err.message || 'Failed to update distillation run'),
   });
 
   const deleteRunMutation = useMutation({
