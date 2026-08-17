@@ -297,7 +297,13 @@ export default function Distillation() {
       volume: parseFloat(a.volume) || undefined,
       abv: parseFloat(a.abv) || undefined,
     }));
-    if (payload.source_tank_allocations.length === 0) payload.source_tank_allocations = undefined;
+    // Left as [] rather than undefined when empty, deliberately — both
+    // columns are NOT NULL with a `[]`::jsonb default, but Supabase's
+    // client still lists every payload key it was given regardless of
+    // value, so an undefined value here still gets sent through as an
+    // explicit NULL instead of falling back to that default, and NULL
+    // fails the constraint. This was the actual cause of the distillation
+    // form's save silently 400ing on a run with no ABV readings logged yet.
     // Persist ABV readings with numeric values
     payload.abv_readings = (data.abv_readings || []).map(r => ({
       time: r.time || undefined,
@@ -305,7 +311,6 @@ export default function Distillation() {
       temp: r.temp !== '' ? parseFloat(r.temp) : undefined,
       notes: r.notes || undefined,
     }));
-    if (payload.abv_readings.length === 0) payload.abv_readings = undefined;
     // Timeline string fields — empty becomes undefined
     ['run_start_time','run_end_time','heads_start_time','heads_end_time','hearts_end_time','tails_end_time'].forEach(f => {
       payload[f] = payload[f] || undefined;
