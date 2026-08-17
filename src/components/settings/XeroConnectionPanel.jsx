@@ -69,10 +69,16 @@ export default function XeroConnectionPanel() {
       queryClient.invalidateQueries({ queryKey: ['xeroConnectionStatus'] });
       queryClient.invalidateQueries({ queryKey: ['dispatches'] });
       queryClient.invalidateQueries({ queryKey: ['dispatches-all'] });
+      // TODO(temporary): drop debug_where/debug_if_modified_since from the
+      // response and this console.log once Xero sync is confirmed working
+      // end-to-end — added only to diagnose a 0-invoices-found report
+      // without needing server-side function logs.
+      console.log('Xero sync result:', data);
       const parts = [`${data.invoices_processed} invoice${data.invoices_processed === 1 ? '' : 's'} checked`];
       if (data.lines_created > 0) parts.push(`${data.lines_created} new draft dispatch${data.lines_created === 1 ? '' : 'es'} added`);
       if (data.lines_unmatched > 0) parts.push(`${data.lines_unmatched} unmatched — needs a product mapping or manual completion`);
-      toast.success(parts.join(' · '));
+      if (data.invoices_processed === 0) parts.push(`where: ${data.debug_where}${data.debug_if_modified_since ? ` · If-Modified-Since: ${data.debug_if_modified_since}` : ''}`);
+      toast.success(parts.join(' · '), data.invoices_processed === 0 ? { duration: 20000 } : undefined);
     },
     onError: (e) => toast.error(e.message || 'Sync failed'),
   });

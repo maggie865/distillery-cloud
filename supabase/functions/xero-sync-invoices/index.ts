@@ -161,12 +161,12 @@ Deno.serve(async (req: Request) => {
     // If-Modified-Since — that's success, not an error.
     if (invoicesRes.status === 304) {
       await supabase.from('xero_connection').update({ last_synced_at: new Date().toISOString() }).eq('id', connection.id);
-      return jsonResponse({ success: true, invoices_processed: 0, lines_created: 0, lines_unmatched: 0 });
+      return jsonResponse({ success: true, invoices_processed: 0, lines_created: 0, lines_unmatched: 0, debug_where: whereClause, debug_if_modified_since: invoiceHeaders['If-Modified-Since'] ?? null, debug_xero_status: 304 });
     }
     if (!invoicesRes.ok) {
       const errText = await invoicesRes.text();
       console.error('Xero Invoices API error:', invoicesRes.status, errText);
-      return jsonResponse({ success: false, error: `Xero Invoices API error (${invoicesRes.status})` }, 502);
+      return jsonResponse({ success: false, error: `Xero Invoices API error (${invoicesRes.status}): ${errText.slice(0, 300)}`, debug_where: whereClause }, 502);
     }
     const invoicesBody = await invoicesRes.json();
     const invoices: XeroInvoice[] = invoicesBody?.Invoices ?? [];
@@ -248,6 +248,8 @@ Deno.serve(async (req: Request) => {
       invoices_processed: invoices.length,
       lines_created: linesCreated,
       lines_unmatched: unmatchedCount,
+      debug_where: whereClause,
+      debug_if_modified_since: invoiceHeaders['If-Modified-Since'] ?? null,
     });
   } catch (err) {
     console.error('xero-sync-invoices error:', err);
