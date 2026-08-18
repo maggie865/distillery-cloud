@@ -77,8 +77,17 @@ export default function XeroConnectionPanel() {
       const parts = [`${data.invoices_processed} invoice${data.invoices_processed === 1 ? '' : 's'} checked`];
       if (data.lines_created > 0) parts.push(`${data.lines_created} new draft dispatch${data.lines_created === 1 ? '' : 'es'} added`);
       if (data.lines_unmatched > 0) parts.push(`${data.lines_unmatched} unmatched — needs a product mapping or manual completion`);
-      if (data.invoices_processed === 0) parts.push(`where: ${data.debug_where}${data.debug_if_modified_since ? ` · If-Modified-Since: ${data.debug_if_modified_since}` : ''}`);
-      toast.success(parts.join(' · '), data.invoices_processed === 0 ? { duration: 20000 } : undefined);
+      // Surface debug info any time nothing got created, not just when Xero
+      // returned zero invoices — invoices_processed > 0 with 0 lines created
+      // AND 0 unmatched (the case this was actually needed for) means every
+      // invoice came back with no usable line items, which is just as worth
+      // seeing without needing DevTools.
+      const nothingCreated = data.lines_created === 0 && data.lines_unmatched === 0;
+      if (nothingCreated) {
+        parts.push(`where: ${data.debug_where}${data.debug_if_modified_since ? ` · If-Modified-Since: ${data.debug_if_modified_since}` : ''}`);
+        if (data.debug_sample) parts.push(`sample: ${JSON.stringify(data.debug_sample)}`);
+      }
+      toast.success(parts.join(' · '), nothingCreated ? { duration: 30000 } : undefined);
     },
     onError: (e) => toast.error(e.message || 'Sync failed'),
   });
