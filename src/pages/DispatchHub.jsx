@@ -558,7 +558,14 @@ export default function DispatchHub() {
           <div className="space-y-4 mt-2">
             <div>
               <Label>Dispatched From</Label>
-              <Select value={editForm.dispatched_from || 'Bluff'} onValueChange={v => setEditForm(f => ({ ...f, dispatched_from: v }))}>
+              <Select value={editForm.dispatched_from || 'Bluff'} onValueChange={v => setEditForm(f => (
+                // A previously-picked batch was sourced from a completely
+                // different stock pool (Bluff finished_good vs. one 3PL
+                // warehouse's warehouse_stock) — clearing it forces
+                // BatchPicker to re-resolve against the newly-selected
+                // location instead of showing a stale batch as "settled".
+                { ...f, dispatched_from: v, batch_number: '' }
+              ))}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Bluff">Bluff Distillery</SelectItem>
@@ -571,23 +578,18 @@ export default function DispatchHub() {
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              {(editForm.dispatched_from || 'Bluff') === 'Bluff' ? (
-                <BatchPicker
-                  finishedGoods={finishedGoods}
-                  productName={editForm.product_name}
-                  bottleSizeMl={editForm.bottle_size_ml}
-                  batchNumber={editForm.batch_number}
-                  quantityBottles={parseInt(editForm.quantity_bottles) || 0}
-                  distanceKm={parseFloat(editForm.transport_distance_km) || 0}
-                  transportMethod={editForm.transport_method}
-                  onAllocate={(result) => setEditForm(f => ({ ...f, ...result }))}
-                />
-              ) : (
-                <>
-                  <div><Label>Product Name</Label><Input value={editForm.product_name || ''} onChange={e => setEditForm(f => ({ ...f, product_name: e.target.value }))} className="mt-1" /></div>
-                  <div><Label>Batch Number</Label><Input value={editForm.batch_number || ''} onChange={e => setEditForm(f => ({ ...f, batch_number: e.target.value }))} className="mt-1" /></div>
-                </>
-              )}
+              <BatchPicker
+                finishedGoods={finishedGoods}
+                warehouseStock={warehouseStock}
+                dispatchedFrom={editForm.dispatched_from || 'Bluff'}
+                productName={editForm.product_name}
+                bottleSizeMl={editForm.bottle_size_ml}
+                batchNumber={editForm.batch_number}
+                quantityBottles={parseInt(editForm.quantity_bottles) || 0}
+                distanceKm={parseFloat(editForm.transport_distance_km) || 0}
+                transportMethod={editForm.transport_method}
+                onAllocate={(result) => setEditForm(f => ({ ...f, ...result }))}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label>Quantity (bottles)</Label><Input type="number" min="0" value={editForm.quantity_bottles || ''} onChange={e => {
