@@ -406,8 +406,16 @@ export default function Receiving() {
       // for an array of lines.
       setExtracting(true);
       try {
+        // Give the model your actual product/alias names so it can map
+        // supplier wording ("Neutral Grain Spirit 96") straight onto what
+        // you already track ("Wheat ENA 96%") instead of inventing a new one.
+        const knownItemNames = [...new Set([
+          ...rawMaterials.map(rm => rm.name),
+          ...aliases.map(a => a.alias_name),
+        ].filter(Boolean))];
+
         const { data: result, error } = await supabase.functions.invoke('extract-packing-slip', {
-          body: { file_url: publicUrl },
+          body: { file_url: publicUrl, known_items: knownItemNames },
         });
         if (error) throw error;
         if (!result?.success) throw new Error(result?.error || 'Extraction failed');
@@ -439,14 +447,34 @@ export default function Receiving() {
         const aliasByLowerName = new Map(aliases.map(a => [(a.alias_name || '').toLowerCase().trim(), a]));
         const rawMaterialById = new Map(rawMaterials.map(rm => [rm.id, rm]));
 
+        // Exact match first (the model was asked to echo a known name back
+        // verbatim when there's a clear match). Fall back to a substring
+        // match either direction, same leniency MaterialAutocomplete's own
+        // suggestion dropdown uses, in case the model paraphrased slightly.
+        const findMatch = (typedName) => {
+          if (!typedName) return null;
+          const alias = aliasByLowerName.get(typedName);
+          if (alias) return rawMaterialById.get(alias.raw_material_id) || null;
+          const exactRM = rawMaterials.find(rm => rm.name.toLowerCase().trim() === typedName);
+          if (exactRM) return exactRM;
+          for (const a of aliases) {
+            const an = (a.alias_name || '').toLowerCase().trim();
+            if (an && (an.includes(typedName) || typedName.includes(an))) {
+              const rm = rawMaterialById.get(a.raw_material_id);
+              if (rm) return rm;
+            }
+          }
+          return rawMaterials.find(rm => {
+            const rn = rm.name.toLowerCase().trim();
+            return rn && (rn.includes(typedName) || typedName.includes(rn));
+          }) || null;
+        };
+
         const items = Array.isArray(d.items) ? d.items.filter(it => it.material_name) : [];
         if (items.length > 0) {
           setLines(items.map((it) => {
             const typedName = (it.material_name || '').toLowerCase().trim();
-            const alias = aliasByLowerName.get(typedName);
-            const matchedRM = alias
-              ? rawMaterialById.get(alias.raw_material_id)
-              : rawMaterials.find(rm => rm.name.toLowerCase().trim() === typedName);
+            const matchedRM = findMatch(typedName);
             return {
               _key: `line-${Date.now()}-${Math.random().toString(36).slice(2)}`,
               material_name: matchedRM?.name || it.material_name || '',
