@@ -1,14 +1,17 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Link2, Package } from 'lucide-react';
+import { Link2, Package, Plus } from 'lucide-react';
 
 /**
- * Free-text material name input with autocomplete over existing RawMaterial
- * stock items and configured ProductAlias rows. Typing (or pasting, e.g. from
- * an OCR-scanned packing slip) text that exactly matches a known alias
- * auto-resolves to the alias's canonical stock item. Typing text that
- * matches neither offers a one-click "Link to an existing item" flow that
+ * Material name input that opens a browsable dropdown of existing RawMaterial
+ * stock items on focus (not just once you start typing), so you can pick a
+ * product you already have instead of having to know its exact spelling.
+ * Typing filters that list, and typed/pasted text (e.g. from an OCR-scanned
+ * packing slip) that exactly matches a known ProductAlias auto-resolves to
+ * the alias's canonical stock item. Text that matches nothing offers either
+ * "Create new material" (accepts the typed name as-is, a new RawMaterial is
+ * created when the line saves) or "Link to an existing item" — the latter
  * creates a new alias on the spot, so the next packing slip using that same
  * supplier wording auto-applies too.
  *
@@ -55,15 +58,22 @@ export default function MaterialAutocomplete({ value, onChange, rawMaterials = [
   }, [value, aliasByLowerName, rawMaterialById]);
 
   const term = (value || '').toLowerCase().trim();
+  // With nothing typed yet, browse the full existing stock list rather than
+  // showing an empty dropdown — that's the "choose from products I already
+  // have" path. Typing narrows it down.
+  const sortedMaterials = useMemo(
+    () => [...rawMaterials].sort((a, b) => a.name.localeCompare(b.name)),
+    [rawMaterials]
+  );
   const matchingMaterials = term
-    ? rawMaterials.filter(rm => rm.name.toLowerCase().includes(term))
-    : [];
+    ? sortedMaterials.filter(rm => rm.name.toLowerCase().includes(term))
+    : sortedMaterials;
   const matchingAliases = term
     ? aliases.filter(a => (a.alias_name || '').toLowerCase().includes(term))
     : [];
 
   const exactMatch = term && rawMaterials.some(rm => rm.name.toLowerCase().trim() === term);
-  const showUnmatchedHint = term.length > 1 && !exactMatch && matchingMaterials.length === 0 && matchingAliases.length === 0;
+  const showCreateNewHint = term.length > 1 && !exactMatch;
 
   const linkCandidates = rawMaterials.filter(rm =>
     !linkSearch || rm.name.toLowerCase().includes(linkSearch.toLowerCase())
@@ -89,8 +99,13 @@ export default function MaterialAutocomplete({ value, onChange, rawMaterials = [
         placeholder="e.g. Wheat ENA 96%"
         required
       />
-      {isOpen && !showLinkPicker && term && (matchingMaterials.length > 0 || matchingAliases.length > 0 || showUnmatchedHint) && (
+      {isOpen && !showLinkPicker && (matchingMaterials.length > 0 || matchingAliases.length > 0 || showCreateNewHint) && (
         <div className="absolute top-full left-0 right-0 bg-card border border-input rounded-md shadow-lg z-50 mt-1 max-h-56 overflow-y-auto">
+          {!term && matchingMaterials.length > 0 && (
+            <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted/40">
+              Existing stock items
+            </p>
+          )}
           {matchingMaterials.map(rm => (
             <button
               key={rm.id}
@@ -119,15 +134,25 @@ export default function MaterialAutocomplete({ value, onChange, rawMaterials = [
                 </button>
               );
             })}
-          {showUnmatchedHint && (
-            <button
-              type="button"
-              onClick={() => { setShowLinkPicker(true); setLinkSearch(''); }}
-              className="w-full text-left px-3 py-2.5 hover:bg-accent border-t transition-colors flex items-center gap-2 text-primary"
-            >
-              <Link2 className="w-4 h-4" />
-              <span className="text-sm font-medium">Link "{value}" to an existing item</span>
-            </button>
+          {showCreateNewHint && (
+            <>
+              <button
+                type="button"
+                onClick={() => { onChange(value, null); setIsOpen(false); }}
+                className="w-full text-left px-3 py-2.5 hover:bg-accent border-t transition-colors flex items-center gap-2 text-primary"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="text-sm font-medium">Create new material "{value}"</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowLinkPicker(true); setLinkSearch(value); }}
+                className="w-full text-left px-3 py-2.5 hover:bg-accent border-t transition-colors flex items-center gap-2 text-primary"
+              >
+                <Link2 className="w-4 h-4" />
+                <span className="text-sm font-medium">Link "{value}" to an existing item instead</span>
+              </button>
+            </>
           )}
         </div>
       )}
