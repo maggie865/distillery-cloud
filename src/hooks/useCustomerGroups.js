@@ -80,6 +80,34 @@ export function useCustomerGroups() {
     invalidate();
   };
 
+  // Bulk-select action from the Customers table — adds every given customer
+  // to one group (creating it first if it's new), silently skipping anyone
+  // already a member rather than erroring the whole batch on the first
+  // duplicate, then reports one summary toast.
+  const bulkAddToGroup = async (customerIds, groupNameOrId) => {
+    if (customerIds.length === 0) return;
+    let group = allGroups.find((g) => g.id === groupNameOrId);
+    if (!group) {
+      const trimmed = groupNameOrId.trim();
+      if (!trimmed) return;
+      group = allGroups.find((g) => g.name.toLowerCase() === trimmed.toLowerCase());
+      if (!group) group = await db.CustomerGroup.create({ name: trimmed });
+    }
+    let added = 0;
+    for (const customerId of customerIds) {
+      const alreadyMember = members.some((m) => m.customer_id === customerId && m.group_id === group.id);
+      if (alreadyMember) continue;
+      try {
+        await db.CustomerGroupMember.create({ customer_id: customerId, group_id: group.id });
+        added += 1;
+      } catch {
+        // duplicate (race with the in-memory check above) — fine, skip it
+      }
+    }
+    invalidate();
+    toast.success(added > 0 ? `Added ${added} customer${added === 1 ? '' : 's'} to ${group.name}` : `Already all in ${group.name}`);
+  };
+
   return {
     groups,
     groupsByCustomerId,
@@ -89,5 +117,6 @@ export function useCustomerGroups() {
     addMember: addMemberMutation.mutate,
     removeMember: removeMemberMutation.mutate,
     addCustomerToGroupByName,
+    bulkAddToGroup,
   };
 }
