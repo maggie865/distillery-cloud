@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { supabase } from '@/api/supabaseClient';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -364,15 +365,15 @@ export default function Receiving() {
     if (!supplierAddress) return;
     setCalcingDistance(true);
     try {
-      const { base44 } = await import('@/api/base44Client');
-      const res = await base44.functions.invoke('getDistanceMatrix', {
-        origin: supplierAddress,
-        destination: DISTILLERY_ADDRESS,
+      const { data, error } = await supabase.functions.invoke('get-distance-matrix', {
+        body: { origin: supplierAddress, destination: DISTILLERY_ADDRESS },
       });
-      if (res.data?.distance_km) {
-        applyTo(f => ({ ...f, transport_distance_km: String(res.data.distance_km) }));
-        toast.success(`Distance: ${res.data.distance_km} km`);
-      }
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Failed to calculate distance');
+      applyTo(f => ({ ...f, transport_distance_km: String(data.distance_km) }));
+      toast.success(`Distance: ${data.distance_km} km`);
+    } catch (err) {
+      toast.error(err.message || 'Could not calculate distance — enter manually');
     } finally {
       setCalcingDistance(false);
     }
