@@ -550,6 +550,20 @@ export default function DispatchHub() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="font-display">Edit Dispatch</DialogTitle></DialogHeader>
           <div className="space-y-4 mt-2">
+            <div>
+              <Label>Dispatched From</Label>
+              <Select value={editForm.dispatched_from || 'Bluff'} onValueChange={v => setEditForm(f => ({ ...f, dispatched_from: v }))}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Bluff">Bluff Distillery</SelectItem>
+                  <SelectItem value="Auckland 3PL">Auckland 3PL Warehouse</SelectItem>
+                  <SelectItem value="UK Bonded">UK Bonded Warehouse</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Xero invoices don't say which warehouse fulfilled the sale — correct this before approving if it wasn't dispatched from Bluff.
+              </p>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               {(editForm.dispatched_from || 'Bluff') === 'Bluff' ? (
                 <BatchPicker
