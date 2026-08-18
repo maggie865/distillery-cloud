@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { db } from '@/api/supabaseClient';
+import { db, supabase } from '@/api/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -272,9 +272,11 @@ export default function DispatchHub() {
     setEditCalcingDistance(true);
     try {
       const origin = editForm.dispatched_from === 'Auckland 3PL' ? WAREHOUSE_ADDRESS : (editForm.dispatched_from === 'UK Bonded' ? 'United Kingdom' : DISTILLERY_ORIGIN);
-      const res = await base44.functions.invoke('getDistanceMatrix', { origin, destination: address });
-      if (res.data?.distance_km) setEditForm(f => ({ ...f, transport_distance_km: String(res.data.distance_km) }));
-    } catch { toast.error('Could not calculate distance'); } finally { setEditCalcingDistance(false); }
+      const { data, error } = await supabase.functions.invoke('get-distance-matrix', { body: { origin, destination: address } });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Failed to calculate distance');
+      setEditForm(f => ({ ...f, transport_distance_km: String(data.distance_km) }));
+    } catch (err) { toast.error(err.message || 'Could not calculate distance'); } finally { setEditCalcingDistance(false); }
   };
 
   const restoreStock = async (dispatch) => {

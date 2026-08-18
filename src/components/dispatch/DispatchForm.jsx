@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { db } from '@/api/supabaseClient';
+import { db, supabase } from '@/api/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -228,13 +228,13 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
     if (!customerAddress) return;
     setCalcingDistance(true);
     try {
-      const res = await base44.functions.invoke('getDistanceMatrix', { origin: originAddress, destination: customerAddress });
-      if (res.data?.distance_km) {
-        setForm(f => ({ ...f, transport_distance_km: String(res.data.distance_km) }));
-        toast.success(`Distance: ${res.data.distance_km} km (${res.data.duration_text})`);
-      }
-    } catch {
-      toast.error('Could not calculate distance — enter manually');
+      const { data, error } = await supabase.functions.invoke('get-distance-matrix', { body: { origin: originAddress, destination: customerAddress } });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Failed to calculate distance');
+      setForm(f => ({ ...f, transport_distance_km: String(data.distance_km) }));
+      toast.success(`Distance: ${data.distance_km} km (${data.duration_text})`);
+    } catch (err) {
+      toast.error(err.message || 'Could not calculate distance — enter manually');
     } finally {
       setCalcingDistance(false);
     }

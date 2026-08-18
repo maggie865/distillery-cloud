@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { db } from '@/api/supabaseClient';
+import { db, supabase } from '@/api/supabaseClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,7 +8,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { X, Plus, PackageCheck, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
-import { base44 } from '@/api/base44Client';
 
 const DISTILLERY_ORIGIN = '250 Ocean Beach Road, Bluff, New Zealand';
 
@@ -170,13 +169,13 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
     if (!postcode) return;
     setCalcingDistance(true);
     try {
-      const res = await base44.functions.invoke('getDistanceMatrix', { origin: DISTILLERY_ORIGIN, destination: `${postcode}, New Zealand` });
-      if (res.data?.distance_km) {
-        setForm(f => ({ ...f, transport_distance_km: String(res.data.distance_km) }));
-        toast.success(`Distance: ${res.data.distance_km} km`);
-      }
-    } catch {
-      toast.error('Could not calculate distance — enter manually');
+      const { data, error } = await supabase.functions.invoke('get-distance-matrix', { body: { origin: DISTILLERY_ORIGIN, destination: `${postcode}, New Zealand` } });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Failed to calculate distance');
+      setForm(f => ({ ...f, transport_distance_km: String(data.distance_km) }));
+      toast.success(`Distance: ${data.distance_km} km`);
+    } catch (err) {
+      toast.error(err.message || 'Could not calculate distance — enter manually');
     } finally {
       setCalcingDistance(false);
     }
