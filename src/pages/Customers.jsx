@@ -1,14 +1,18 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { db } from '@/api/supabaseClient';
 import { useCustomersWithStats } from '@/hooks/useCustomersWithStats';
 import { useCustomerGroups } from '@/hooks/useCustomerGroups';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Plus, Search } from 'lucide-react';
+import { Plus, Search, X, Eye, EyeOff, Tag } from 'lucide-react';
+import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 import Pagination from '@/components/ui/Pagination';
 import CustomerHealthBadge from '@/components/customers/CustomerHealthBadge';
@@ -31,8 +35,9 @@ function relativeDays(dateStr) {
 
 export default function Customers() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { rows, isLoading } = useCustomersWithStats();
-  const { groups, groupsByCustomerId } = useCustomerGroups();
+  const { groups, groupsByCustomerId, bulkAddToGroup } = useCustomerGroups();
 
   const [activeTab, setActiveTab] = useState('all');
   const [search, setSearch] = useState('');
@@ -47,6 +52,9 @@ export default function Customers() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [showForm, setShowForm] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkGroupChoice, setBulkGroupChoice] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const regions = useMemo(() => [...new Set(rows.map((r) => r.customer.region).filter(Boolean))].sort(), [rows]);
   const managers = useMemo(() => [...new Set(rows.map((r) => r.customer.account_manager).filter(Boolean))].sort(), [rows]);
@@ -66,6 +74,44 @@ export default function Customers() {
     return matchSearch && matchType && matchRegion && matchStatus && matchManager && matchGroup && matchVisitOverdue && matchFollowUp && matchRequest;
   });
   const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  const pagedAllSelected = paged.length > 0 && paged.every((r) => selectedIds.has(r.customer.id));
+  const toggleRow = (id) => setSelectedIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleAllOnPage = () => setSelectedIds((prev) => {
+    const next = new Set(prev);
+    if (pagedAllSelected) paged.forEach((r) => next.delete(r.customer.id));
+    else paged.forEach((r) => next.add(r.customer.id));
+    return next;
+  });
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const handleBulkAddToGroup = async () => {
+    if (!bulkGroupChoice) return;
+    setBulkBusy(true);
+    try {
+      await bulkAddToGroup([...selectedIds], bulkGroupChoice);
+      setBulkGroupChoice('');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const handleBulkSetTracking = async (enabled) => {
+    setBulkBusy(true);
+    try {
+      await db.Customer.bulkUpdate([...selectedIds].map((id) => ({ id, follow_up_tracking_enabled: enabled })));
+      await queryClient.invalidateQueries({ queryKey: ['customers'] });
+      toast.success(`Visit tracking ${enabled ? 'enabled' : 'disabled'} for ${selectedIds.size} customer${selectedIds.size === 1 ? '' : 's'}`);
+    } catch (err) {
+      toast.error(err.message || 'Failed to update visit tracking');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   return (
     <div className="pb-20 md:pb-0">
@@ -148,11 +194,40 @@ export default function Customers() {
             </div>
           </Card>
 
+          {selectedIds.size > 0 && (
+            <Card className="p-3 mb-4 flex flex-wrap items-center gap-3 bg-accent/40 border-primary/20">
+              <span className="text-sm font-medium">{selectedIds.size} selected</span>
+              <div className="flex items-center gap-1.5">
+                <Select value={bulkGroupChoice} onValueChange={setBulkGroupChoice} disabled={bulkBusy || groups.length === 0}>
+                  <SelectTrigger className="w-44 h-8 text-xs"><SelectValue placeholder="Add to group…" /></SelectTrigger>
+                  <SelectContent>
+                    {groups.map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={bulkBusy || !bulkGroupChoice} onClick={handleBulkAddToGroup}>
+                  <Tag className="w-3.5 h-3.5" /> Add
+                </Button>
+              </div>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={bulkBusy} onClick={() => handleBulkSetTracking(true)}>
+                <Eye className="w-3.5 h-3.5" /> Enable visit tracking
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={bulkBusy} onClick={() => handleBulkSetTracking(false)}>
+                <EyeOff className="w-3.5 h-3.5" /> Disable visit tracking
+              </Button>
+              <Button size="sm" variant="ghost" className="h-8 gap-1.5 ml-auto text-muted-foreground" onClick={clearSelection}>
+                <X className="w-3.5 h-3.5" /> Clear
+              </Button>
+            </Card>
+          )}
+
           <Card className="overflow-hidden">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-10">
+                      <Checkbox checked={pagedAllSelected} onCheckedChange={toggleAllOnPage} aria-label="Select all on page" />
+                    </TableHead>
                     <TableHead>Customer</TableHead>
                     <TableHead>Location</TableHead>
                     <TableHead>Status</TableHead>
@@ -166,11 +241,14 @@ export default function Customers() {
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
-                    <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
                   ) : paged.length === 0 ? (
-                    <TableRow><TableCell colSpan={9} className="text-center py-10 text-muted-foreground">No customers match these filters</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={10} className="text-center py-10 text-muted-foreground">No customers match these filters</TableCell></TableRow>
                   ) : paged.map((r) => (
                     <TableRow key={r.customer.id} className="cursor-pointer" onClick={() => navigate(`/customers/${r.customer.id}`)}>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox checked={selectedIds.has(r.customer.id)} onCheckedChange={() => toggleRow(r.customer.id)} aria-label={`Select ${r.customer.business_name}`} />
+                      </TableCell>
                       <TableCell className="font-semibold">{r.customer.business_name}</TableCell>
                       <TableCell className="text-muted-foreground">{r.customer.city || r.customer.region || '—'}</TableCell>
                       <TableCell className="capitalize">{(r.customer.status || 'active').replace('_', ' ')}</TableCell>
