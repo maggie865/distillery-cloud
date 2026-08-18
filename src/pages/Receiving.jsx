@@ -734,7 +734,21 @@ export default function Receiving() {
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
                 <Label>Material Name</Label>
-                <Input value={editForm.material_name} onChange={e => setEdit('material_name', e.target.value)} required />
+                <MaterialAutocomplete
+                  value={editForm.material_name}
+                  onChange={(name, rm) => {
+                    if (!rm) { setEdit('material_name', name); return; }
+                    setEditForm(prev => ({
+                      ...prev,
+                      material_name: rm.name,
+                      material_type: INVERSE_TYPE_MAP[(rm.type || '').toLowerCase()] || prev.material_type,
+                      unit: rm.unit || prev.unit,
+                    }));
+                  }}
+                  rawMaterials={rawMaterials}
+                  aliases={aliases}
+                  onCreateAlias={(aliasName, rawMaterialId) => createAliasMutation.mutateAsync({ aliasName, rawMaterialId })}
+                />
               </div>
               <div>
                 <Label>Type</Label>
