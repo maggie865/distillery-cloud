@@ -43,7 +43,7 @@ const EXTRACT_TOOL = {
         items: {
           type: 'object',
           properties: {
-            material_name: { type: 'string', description: 'Name of the material or product received' },
+            material_name: { type: 'string', description: 'Name of the material or product received. If a "known item names" list was provided and one of those names clearly refers to the same product (even if the slip uses different wording), use that exact known name verbatim. Otherwise use the name as printed on the document.' },
             material_type: { type: 'string', description: 'One of: ethanol, botanical, grain, sugar, water, flavoring, packaging, other' },
             quantity: { type: 'number', description: 'Quantity received' },
             unit: { type: 'string', description: 'One of: litres, kg, units' },
@@ -67,7 +67,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: false, error: 'ANTHROPIC_API_KEY is not configured' }, 500);
     }
 
-    const { file_url } = await req.json().catch(() => ({}));
+    const { file_url, known_items } = await req.json().catch(() => ({}));
     if (!file_url) {
       return jsonResponse({ success: false, error: 'file_url is required' }, 400);
     }
@@ -87,6 +87,11 @@ Deno.serve(async (req: Request) => {
       ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
       : { type: 'image', source: { type: 'base64', media_type: contentType.startsWith('image/') ? contentType : 'image/jpeg', data: base64 } };
 
+    const knownItemsList = Array.isArray(known_items) ? known_items.filter((s: unknown) => typeof s === 'string' && s.trim()) : [];
+    const knownItemsText = knownItemsList.length > 0
+      ? `\n\nKnown item names already tracked in stock (match to these when a line clearly refers to the same product, even under different supplier wording — use the exact string from this list, don't paraphrase it):\n${knownItemsList.map((s: string) => `- ${s}`).join('\n')}`
+      : '';
+
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -103,7 +108,7 @@ Deno.serve(async (req: Request) => {
           role: 'user',
           content: [
             docBlock,
-            { type: 'text', text: 'Extract the details of this packing slip / delivery note using the extract_packing_slip tool.' },
+            { type: 'text', text: `Extract the details of this packing slip / delivery note using the extract_packing_slip tool.${knownItemsText}` },
           ],
         }],
       }),
