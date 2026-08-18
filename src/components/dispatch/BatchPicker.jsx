@@ -34,24 +34,38 @@ export default function BatchPicker({ finishedGoods = [], productName, bottleSiz
 
   const bluffProductOptions = useMemo(() => buildBluffProductOptions(finishedGoods), [finishedGoods]);
 
+  // The product catalog (Settings → Products) names each size variant with
+  // the size baked into the string — e.g. "London Dry Gin 200ml" — while
+  // finished_good (actual physical stock) stores the base name and size as
+  // separate fields — "London Dry Gin" + bottle_size_ml: 200. A literal
+  // string match between the two never succeeds, so names are compared with
+  // any trailing "<N>ml" stripped; bottle_size_ml is still matched exactly.
+  const stripSizeSuffix = (name) => (name || '').replace(/\s*\d+\s*ml\s*$/i, '').trim().toLowerCase();
+
   const matchedOption = useMemo(() => {
+    const normalized = stripSizeSuffix(productName);
     if (bottleSizeMl) {
-      return bluffProductOptions.find(o => o.product_name === productName && Number(o.bottle_size_ml) === Number(bottleSizeMl)) || null;
+      return bluffProductOptions.find(o => stripSizeSuffix(o.product_name) === normalized && Number(o.bottle_size_ml) === Number(bottleSizeMl)) || null;
     }
-    const candidates = bluffProductOptions.filter(o => o.product_name === productName);
+    const candidates = bluffProductOptions.filter(o => stripSizeSuffix(o.product_name) === normalized);
     return candidates.length === 1 ? candidates[0] : null;
   }, [bluffProductOptions, productName, bottleSizeMl]);
 
   const manualProduct = products.find(p => p.id === manualProductId);
-  const effectiveProductName = matchedOption ? productName : (manualProduct?.name || null);
   const effectiveOption = matchedOption
-    || (manualProduct ? bluffProductOptions.find(o => o.product_name === manualProduct.name && Number(o.bottle_size_ml) === Number(manualProduct.bottle_size_ml)) : null);
+    || (manualProduct ? bluffProductOptions.find(o => stripSizeSuffix(o.product_name) === stripSizeSuffix(manualProduct.name) && Number(o.bottle_size_ml) === Number(manualProduct.bottle_size_ml)) : null);
 
   const showPicker = reassigning || !batchNumber;
 
   const allocate = (batchId) => {
-    if (!effectiveProductName || !effectiveOption) return;
-    const key = `${effectiveProductName}||${effectiveOption.bottle_size_ml}`;
+    if (!effectiveOption) return;
+    // Use effectiveOption's own product_name/bottle_size_ml, not the raw
+    // Xero/catalog name that resolved it — that's the finished_good naming
+    // convention, and everything downstream (stock deduction on dispatch,
+    // returns, deletes) matches dispatch rows to finished_good by exact
+    // product_name string, so this has to be the value that's actually
+    // saved back.
+    const key = `${effectiveOption.product_name}||${effectiveOption.bottle_size_ml}`;
     try {
       const [first, ...rest] = allocateBluffLineItems(
         [{ productKey: key, quantity: quantityBottles, batchId: batchId || undefined }],
@@ -63,7 +77,7 @@ export default function BatchPicker({ finishedGoods = [], productName, bottleSiz
         toast.warning(`Only ${first.take} of ${quantityBottles} bottles available in batch ${first.batch.batch_number} — quantity adjusted. Create a separate dispatch for the remainder.`);
       }
       onAllocate({
-        product_name: effectiveProductName,
+        product_name: effectiveOption.product_name,
         bottle_size_ml: first.batch.bottle_size_ml || effectiveOption.bottle_size_ml || null,
         batch_number: first.batch.batch_number,
         quantity_bottles: first.take,
