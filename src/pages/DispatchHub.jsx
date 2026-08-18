@@ -110,13 +110,19 @@ export default function DispatchHub() {
     const lals = dispatch.total_lals || 0;
     if (is3PL) {
       const loc = from === 'UK Bonded' ? 'UK Bonded' : 'Auckland 3PL';
+      // .find() returns a single row (or undefined), not an array — was
+      // being checked with .length/[0] as if it were one, which threw
+      // whenever no matching row existed (e.g. a freshly-approved Xero
+      // dispatch whose manually-typed product/batch doesn't exactly match
+      // any real warehouse_stock row) and crashed the whole save silently.
       const existing = (await db.WarehouseStock.filter({ product_name: dispatch.product_name, batch_number: dispatch.batch_number }))
         .find(w => (w.warehouse_location || 'Auckland 3PL') === loc);
-      if (existing.length > 0) {
-        const ws = existing[0];
-        const newQty = Math.max(0, (ws.quantity_bottles || 0) - qty);
-        const newLals = parseFloat(((ws.total_lals || 0) - lals).toFixed(4));
-        await db.WarehouseStock.update(ws.id, { quantity_bottles: newQty, total_lals: newLals });
+      if (existing) {
+        const newQty = Math.max(0, (existing.quantity_bottles || 0) - qty);
+        const newLals = parseFloat(((existing.total_lals || 0) - lals).toFixed(4));
+        await db.WarehouseStock.update(existing.id, { quantity_bottles: newQty, total_lals: newLals });
+      } else {
+        toast.warning(`No matching 3PL stock found for ${dispatch.product_name} batch ${dispatch.batch_number} at ${loc} — dispatch saved, but no warehouse quantity was decremented.`);
       }
     } else {
       const allFG = await db.FinishedGood.list('product_name', 5000);

@@ -40,13 +40,34 @@ type XeroLineItem = {
   Description?: string;
   Quantity: number;
 };
+type XeroAddress = {
+  AddressType?: string;
+  AddressLine1?: string;
+  AddressLine2?: string;
+  City?: string;
+  Region?: string;
+  PostalCode?: string;
+  Country?: string;
+};
 type XeroInvoice = {
   InvoiceID: string;
   InvoiceNumber?: string;
   DateString?: string;
-  Contact?: { Name?: string };
+  Contact?: { Name?: string; Addresses?: XeroAddress[] };
   LineItems?: XeroLineItem[];
 };
+
+// Xero doesn't support a separate per-invoice delivery address — the
+// invoice's address is whatever's on the contact record. Individual invoice
+// fetches (unlike the list endpoint) embed the full contact including
+// Addresses, so no extra API call/scope is needed. Prefers a STREET address
+// (delivery-appropriate) over POBOX.
+function formatContactAddress(addresses: XeroAddress[] | undefined): string | null {
+  if (!addresses?.length) return null;
+  const addr = addresses.find(a => a.AddressType === 'STREET') || addresses[0];
+  const parts = [addr.AddressLine1, addr.AddressLine2, addr.City, addr.Region, addr.PostalCode, addr.Country].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : null;
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -123,6 +144,20 @@ Deno.serve(async (req: Request) => {
       else if (m.xero_description) byDescription.set(m.xero_description.toLowerCase(), m);
     }
 
+    // Most Xero contacts already exist as customers here (imported from a
+    // Xero CSV export) with a real delivery_address — prefer that over
+    // whatever address Xero's own Contact record carries, which may be a
+    // billing address or missing/stale. Only falls back to Xero's own data
+    // for contacts that were never imported (e.g. new since the CSV import).
+    const { data: customers, error: customersError } = await supabase
+      .from('customer')
+      .select('business_name, delivery_address');
+    if (customersError) return jsonResponse({ success: false, error: customersError.message }, 500);
+    const customersByName = new Map<string, string | null>();
+    for (const c of customers ?? []) {
+      if (c.business_name) customersByName.set(c.business_name.trim().toLowerCase(), c.delivery_address || null);
+    }
+
     const invoiceHeaders: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
       'Xero-tenant-id': connection.tenant_id as string,
@@ -196,8 +231,12 @@ Deno.serve(async (req: Request) => {
       if (full) invoices.push(full);
     }
 
+    // Now investigating whether Contact.Addresses is actually present on a
+    // full per-invoice fetch (customer_address was never being set at all
+    // before this — this checks whether the new formatContactAddress() call
+    // above actually has anything to work with).
     const debugSample = invoices[0]
-      ? { topLevelKeys: Object.keys(invoices[0]), lineItemsIsArray: Array.isArray((invoices[0] as Record<string, unknown>).LineItems), lineItemsLength: (invoices[0] as Record<string, unknown>).LineItems ? (((invoices[0] as Record<string, unknown>).LineItems) as unknown[]).length : null, rawLineItemsValue: (invoices[0] as Record<string, unknown>).LineItems ?? 'MISSING_KEY' }
+      ? { rawContact: (invoices[0] as Record<string, unknown>).Contact ?? 'MISSING_KEY' }
       : 'NO_INVOICES';
 
     const rows: Record<string, unknown>[] = [];
@@ -206,6 +245,8 @@ Deno.serve(async (req: Request) => {
     for (const invoice of invoices) {
       const dispatchDate = invoice.DateString ? invoice.DateString.slice(0, 10) : new Date().toISOString().slice(0, 10);
       const customerName = invoice.Contact?.Name || 'Unknown Xero Contact';
+      const knownCustomerAddress = customersByName.get(customerName.trim().toLowerCase());
+      const customerAddress = knownCustomerAddress || formatContactAddress(invoice.Contact?.Addresses);
       // The Xero contact named "Shopify" represents cellar-door/online POS
       // sales rung through Shopify, not an actual wholesale customer — the
       // dispatch table already has a distinct 'shopify' sales_channel
@@ -225,6 +266,7 @@ Deno.serve(async (req: Request) => {
         const base = {
           dispatch_date: dispatchDate,
           customer_name: customerName,
+          customer_address: customerAddress,
           sales_channel: salesChannel,
           order_reference: invoice.InvoiceNumber || null,
           xero_invoice_id: invoice.InvoiceID,
