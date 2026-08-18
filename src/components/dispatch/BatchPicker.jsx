@@ -6,12 +6,15 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
-import { buildBluffProductOptions, allocateBluffLineItems } from '@/lib/dispatchAllocation';
+import { buildBluffProductOptions, build3PLProductOptions, allocateBluffLineItems } from '@/lib/dispatchAllocation';
 
-// Product/batch picker for approving a Bluff-sourced dispatch row in
-// DispatchHub's Edit dialog — built on the same FIFO allocator DispatchForm
-// uses at creation time (buildBluffProductOptions/allocateBluffLineItems),
-// so there's one allocation implementation, not a third copy.
+// Product/batch picker for approving a dispatch row in DispatchHub's Edit
+// dialog — built on the same allocator DispatchForm uses at creation time
+// (buildBluffProductOptions/build3PLProductOptions + allocateBluffLineItems),
+// so there's one allocation implementation, not a third copy. Works against
+// either real stock source depending on dispatchedFrom: Bluff's finished_good,
+// or a 3PL warehouse's warehouse_stock — same picker, same matching, same
+// allocation logic either way.
 //
 // Xero-synced rows reach this two ways: matched (product_name/bottle_size_ml
 // already line up with a real product via XeroMappingManager) or unmatched
@@ -21,7 +24,7 @@ import { buildBluffProductOptions, allocateBluffLineItems } from '@/lib/dispatch
 // shows as a summary instead of re-allocating on open — silently changing an
 // already-committed allocation just because current stock has since moved
 // would be wrong; reassigning is an explicit action.
-export default function BatchPicker({ finishedGoods = [], productName, bottleSizeMl, batchNumber, quantityBottles, distanceKm = 0, transportMethod, onAllocate }) {
+export default function BatchPicker({ finishedGoods = [], warehouseStock = [], dispatchedFrom = 'Bluff', productName, bottleSizeMl, batchNumber, quantityBottles, distanceKm = 0, transportMethod, onAllocate }) {
   const [manualProductId, setManualProductId] = useState('');
   const [allocationMode, setAllocationMode] = useState('fifo');
   const [manualBatchId, setManualBatchId] = useState('');
@@ -32,44 +35,49 @@ export default function BatchPicker({ finishedGoods = [], productName, bottleSiz
     queryFn: () => base44.entities.Product.list('sort_order', 1000),
   });
 
-  const bluffProductOptions = useMemo(() => buildBluffProductOptions(finishedGoods), [finishedGoods]);
+  const isBluff = dispatchedFrom === 'Bluff';
+  const productOptions = useMemo(
+    () => isBluff ? buildBluffProductOptions(finishedGoods) : build3PLProductOptions(warehouseStock, dispatchedFrom),
+    [isBluff, finishedGoods, warehouseStock, dispatchedFrom]
+  );
 
   // The product catalog (Settings → Products) names each size variant with
   // the size baked into the string — e.g. "London Dry Gin 200ml" — while
-  // finished_good (actual physical stock) stores the base name and size as
-  // separate fields — "London Dry Gin" + bottle_size_ml: 200. A literal
-  // string match between the two never succeeds, so names are compared with
-  // any trailing "<N>ml" stripped; bottle_size_ml is still matched exactly.
+  // finished_good/warehouse_stock (actual physical stock) store the base
+  // name and size as separate fields — "London Dry Gin" + bottle_size_ml:
+  // 200. A literal string match between the two never succeeds, so names
+  // are compared with any trailing "<N>ml" stripped; bottle_size_ml is
+  // still matched exactly.
   const stripSizeSuffix = (name) => (name || '').replace(/\s*\d+\s*ml\s*$/i, '').trim().toLowerCase();
 
   const matchedOption = useMemo(() => {
     const normalized = stripSizeSuffix(productName);
     if (bottleSizeMl) {
-      return bluffProductOptions.find(o => stripSizeSuffix(o.product_name) === normalized && Number(o.bottle_size_ml) === Number(bottleSizeMl)) || null;
+      return productOptions.find(o => stripSizeSuffix(o.product_name) === normalized && Number(o.bottle_size_ml) === Number(bottleSizeMl)) || null;
     }
-    const candidates = bluffProductOptions.filter(o => stripSizeSuffix(o.product_name) === normalized);
+    const candidates = productOptions.filter(o => stripSizeSuffix(o.product_name) === normalized);
     return candidates.length === 1 ? candidates[0] : null;
-  }, [bluffProductOptions, productName, bottleSizeMl]);
+  }, [productOptions, productName, bottleSizeMl]);
 
   const manualProduct = products.find(p => p.id === manualProductId);
   const effectiveOption = matchedOption
-    || (manualProduct ? bluffProductOptions.find(o => stripSizeSuffix(o.product_name) === stripSizeSuffix(manualProduct.name) && Number(o.bottle_size_ml) === Number(manualProduct.bottle_size_ml)) : null);
+    || (manualProduct ? productOptions.find(o => stripSizeSuffix(o.product_name) === stripSizeSuffix(manualProduct.name) && Number(o.bottle_size_ml) === Number(manualProduct.bottle_size_ml)) : null);
 
   const showPicker = reassigning || !batchNumber;
 
   const allocate = (batchId) => {
     if (!effectiveOption) return;
     // Use effectiveOption's own product_name/bottle_size_ml, not the raw
-    // Xero/catalog name that resolved it — that's the finished_good naming
-    // convention, and everything downstream (stock deduction on dispatch,
-    // returns, deletes) matches dispatch rows to finished_good by exact
-    // product_name string, so this has to be the value that's actually
-    // saved back.
+    // Xero/catalog name that resolved it — that's the finished_good/
+    // warehouse_stock naming convention, and everything downstream (stock
+    // deduction on dispatch, returns, deletes) matches dispatch rows to
+    // that source by exact product_name string, so this has to be the
+    // value that's actually saved back.
     const key = `${effectiveOption.product_name}||${effectiveOption.bottle_size_ml}`;
     try {
       const [first, ...rest] = allocateBluffLineItems(
         [{ productKey: key, quantity: quantityBottles, batchId: batchId || undefined }],
-        bluffProductOptions,
+        productOptions,
         { distanceKm, transportMethod }
       );
       if (!first) return;
@@ -128,7 +136,7 @@ export default function BatchPicker({ finishedGoods = [], productName, bottleSiz
           </Select>
         </div>
         {manualProduct && !effectiveOption && (
-          <p className="text-xs text-destructive">No stock available for {manualProduct.name}{manualProduct.bottle_size_ml ? ` (${manualProduct.bottle_size_ml}ml)` : ''}.</p>
+          <p className="text-xs text-destructive">No stock available for {manualProduct.name}{manualProduct.bottle_size_ml ? ` (${manualProduct.bottle_size_ml}ml)` : ''} at {dispatchedFrom}.</p>
         )}
         {manualProduct && effectiveOption && (
           <BatchSelector effectiveOption={effectiveOption} allocationMode={allocationMode} setAllocationMode={setAllocationMode} manualBatchId={manualBatchId} setManualBatchId={setManualBatchId} onPick={allocate} />
@@ -140,7 +148,7 @@ export default function BatchPicker({ finishedGoods = [], productName, bottleSiz
   if (!effectiveOption) {
     return (
       <div className="col-span-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
-        <p className="text-xs text-destructive flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> No stock available for {productName}{bottleSizeMl ? ` (${bottleSizeMl}ml)` : ''}.</p>
+        <p className="text-xs text-destructive flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> No stock available for {productName}{bottleSizeMl ? ` (${bottleSizeMl}ml)` : ''} at {dispatchedFrom}.</p>
       </div>
     );
   }

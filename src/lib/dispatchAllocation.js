@@ -1,9 +1,14 @@
-// FIFO batch allocation for dispatches sourced from Bluff Distillery stock
-// (finished_good). Originally lived inline in DispatchForm.jsx's
+// Batch allocation for dispatches, sourced from either Bluff Distillery
+// stock (finished_good, via buildBluffProductOptions) or a 3PL warehouse
+// (warehouse_stock, via build3PLProductOptions) — both build the same
+// { product_name, bottle_size_ml, batches, totalAvailable } shape, so
+// allocateBluffLineItems (despite the name) allocates against either one
+// identically. Originally lived inline in DispatchForm.jsx's
 // dispatchMutation; pulled out here because DispatchHub now needs the same
 // allocator when a Quick-Order-created dispatch (created with no
 // batch_number — Quick Order is product/qty, not batch-level) transitions
-// to status 'dispatched' and a real batch has to be picked for the first time.
+// to status 'dispatched' and a real batch has to be picked for the first
+// time, and again for BatchPicker.jsx approving a Xero-synced dispatch.
 
 export function calcWeightKg(bottleSizeMl, numBottles) {
   if (!numBottles) return 0;
@@ -32,6 +37,37 @@ export function buildBluffProductOptions(finishedGoods) {
   }
   return Object.values(map).map(opt => {
     const batchesWithAvail = opt.batches.map(fg => ({ ...fg, available: fg.quantity_bottles || 0 })).filter(b => b.available > 0);
+    batchesWithAvail.sort((a, b) => {
+      const an = (a.batch_number || '').match(/\d+/g)?.join('.') || '';
+      const bn = (b.batch_number || '').match(/\d+/g)?.join('.') || '';
+      if (an && bn) return an.localeCompare(bn, undefined, { numeric: true });
+      if (an) return -1;
+      if (bn) return 1;
+      return new Date(a.created_at) - new Date(b.created_at);
+    });
+    return { ...opt, batches: batchesWithAvail, totalAvailable: batchesWithAvail.reduce((s, b) => s + b.available, 0) };
+  }).filter(opt => opt.totalAvailable > 0);
+}
+
+// Same shape as buildBluffProductOptions, but grouping warehouse_stock rows
+// for one 3PL location instead of finished_good — each row there is already
+// a distinct batch (no separate lot-tracking layer the way Bluff's
+// finished_good needs grouping for), so allocateBluffLineItems can allocate
+// against either source identically without knowing which one it's given.
+export function build3PLProductOptions(warehouseStock, location) {
+  const loc = location === 'UK Bonded' ? 'UK Bonded' : 'Auckland 3PL';
+  const sellable = warehouseStock
+    .filter(ws => ws.status !== 'in_transit')
+    .filter(ws => (ws.warehouse_location || 'Auckland 3PL') === loc)
+    .filter(ws => (ws.quantity_bottles || 0) > 0);
+  const map = {};
+  for (const ws of sellable) {
+    const key = `${ws.product_name}||${ws.bottle_size_ml || ''}`;
+    if (!map[key]) map[key] = { product_name: ws.product_name, bottle_size_ml: ws.bottle_size_ml || '', batches: [] };
+    map[key].batches.push(ws);
+  }
+  return Object.values(map).map(opt => {
+    const batchesWithAvail = opt.batches.map(ws => ({ ...ws, available: ws.quantity_bottles || 0 })).filter(b => b.available > 0);
     batchesWithAvail.sort((a, b) => {
       const an = (a.batch_number || '').match(/\d+/g)?.join('.') || '';
       const bn = (b.batch_number || '').match(/\d+/g)?.join('.') || '';
