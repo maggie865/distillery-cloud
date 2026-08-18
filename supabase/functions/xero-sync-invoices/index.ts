@@ -174,13 +174,28 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ success: false, error: `Xero Invoices API error (${invoicesRes.status}): ${errText.slice(0, 300)}`, debug_where: whereClause }, 502);
     }
     const invoicesBody = await invoicesRes.json();
-    const invoices: XeroInvoice[] = invoicesBody?.Invoices ?? [];
+    const invoiceStubs: XeroInvoice[] = invoicesBody?.Invoices ?? [];
 
-    // TODO(temporary debug): remove once the 0-lines-created issue is
-    // confirmed fixed — captures the raw shape of the first invoice Xero
-    // actually returned, since SummaryOnly=false alone didn't change the
-    // outcome (still 0 lines from 30 invoices) and there's no way to see
-    // server logs on this project.
+    // Confirmed via debug output on a real sync: the list endpoint returns
+    // every invoice with LineItems: [] regardless of SummaryOnly=false (30+
+    // invoices checked, every one empty) — not the documented behavior, but
+    // real for this account/query. Xero's single-invoice GET always returns
+    // full detail, so fetch each invoice individually rather than trust the
+    // list response's line items.
+    const invoices: XeroInvoice[] = [];
+    for (const stub of invoiceStubs) {
+      const detailRes = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${stub.InvoiceID}`, {
+        headers: { Authorization: `Bearer ${accessToken}`, 'Xero-tenant-id': connection.tenant_id as string, Accept: 'application/json' },
+      });
+      if (!detailRes.ok) {
+        console.error(`Failed to fetch full detail for invoice ${stub.InvoiceID}:`, detailRes.status, await detailRes.text());
+        continue; // skip this one rather than fail the whole sync
+      }
+      const detailBody = await detailRes.json();
+      const full = detailBody?.Invoices?.[0];
+      if (full) invoices.push(full);
+    }
+
     const debugSample = invoices[0]
       ? { topLevelKeys: Object.keys(invoices[0]), lineItemsIsArray: Array.isArray((invoices[0] as Record<string, unknown>).LineItems), lineItemsLength: (invoices[0] as Record<string, unknown>).LineItems ? (((invoices[0] as Record<string, unknown>).LineItems) as unknown[]).length : null, rawLineItemsValue: (invoices[0] as Record<string, unknown>).LineItems ?? 'MISSING_KEY' }
       : 'NO_INVOICES';
