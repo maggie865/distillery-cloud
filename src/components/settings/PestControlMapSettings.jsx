@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { uploadFile } from '@/lib/uploadFile';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Upload, Loader2, MapPin } from 'lucide-react';
@@ -24,12 +25,7 @@ export default function PestControlMapSettings() {
     if (!file) return;
     setUploading(true);
     try {
-      const result = await base44.integrations.Core.UploadFile({ file });
-      const uploadedUrl = result?.file_url || result?.url || result?.data?.url
-        || result?.data?.file_url || (typeof result === 'string' ? result : null);
-      if (!uploadedUrl || typeof uploadedUrl !== 'string') {
-        throw new Error('Unexpected upload response: ' + JSON.stringify(result).slice(0, 200));
-      }
+      const uploadedUrl = await uploadFile(file, 'pest-control-map');
       // Save to shared AppSettings entity so all users see the floor plan
       if (mapSettingId) {
         await base44.entities.AppSettings.update(mapSettingId, { key: 'pest_map_image', value: uploadedUrl });

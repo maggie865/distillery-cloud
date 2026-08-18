@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { supabase } from '@/api/supabaseClient';
+import { uploadFile } from '@/lib/uploadFile';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -283,7 +284,6 @@ export default function Receiving() {
   const [header, setHeader] = useState(BLANK_HEADER);
   const [lines, setLines] = useState([blankLine()]);
 
-  const [extracting, setExtracting] = useState(false);
   const [uploadingSlip, setUploadingSlip] = useState(false);
   const [calcingDistance, setCalcingDistance] = useState(false);
   const [viewingSlip, setViewingSlip] = useState(null);
@@ -318,8 +318,6 @@ export default function Receiving() {
 
   const rawMaterials = rawMaterialsQuery.data || [];
   const aliases = aliasesQuery.data || [];
-  const rawMaterialById = useMemo(() => new Map(rawMaterials.map(rm => [rm.id, rm])), [rawMaterials]);
-  const aliasByLowerName = useMemo(() => new Map(aliases.map(a => [(a.alias_name || '').toLowerCase().trim(), a])), [aliases]);
 
   const createAliasMutation = useMutation({
     mutationFn: ({ aliasName, rawMaterialId }) => base44.entities.ProductAlias.create({ alias_name: aliasName.trim(), raw_material_id: rawMaterialId }),
@@ -379,10 +377,9 @@ export default function Receiving() {
     }
   };
 
-  // ── Upload packing slip via Base44 ──────────────────────────────────────────
+  // ── Upload packing slip to Supabase Storage ─────────────────────────────────
   const uploadPackingSlip = async (file) => {
-    const { file_url } = await base44.integrations.Core.UploadFile({ file });
-    return file_url;
+    return uploadFile(file, 'packing-slips');
   };
 
   // ── Handle packing slip file selection ────────────────────────────────────
@@ -403,98 +400,10 @@ export default function Receiving() {
       setHeader(prev => ({ ...prev, packing_slip_url: publicUrl }));
       toast.success('Packing slip uploaded');
 
-      // 2. Try to extract data using Base44 OCR — one packing slip can list
-      // several distinct items, so the schema asks for an array of lines.
-      setExtracting(true);
-      try {
-        const { base44 } = await import('@/api/base44Client');
-        const result = await base44.integrations.Core.ExtractDataFromUploadedFile({
-          file_url: publicUrl,
-          json_schema: {
-            type: 'object',
-            properties: {
-              supplier: { type: 'string', description: 'Supplier or vendor name' },
-              date_received: { type: 'string', description: 'Date received in YYYY-MM-DD format' },
-              packing_slip_number: { type: 'string', description: 'Packing slip, delivery note, or invoice number' },
-              notes: { type: 'string', description: 'Any other relevant notes from the document' },
-              items: {
-                type: 'array',
-                description: 'Every distinct material or product line listed on the packing slip',
-                items: {
-                  type: 'object',
-                  properties: {
-                    material_name: { type: 'string', description: 'Name of the material or product received' },
-                    material_type: { type: 'string', description: 'Type: ethanol, botanical, grain, sugar, water, flavoring, packaging, or other' },
-                    quantity: { type: 'number', description: 'Quantity received' },
-                    unit: { type: 'string', description: 'Unit of measurement: litres, kg, or units' },
-                    abv_percent: { type: 'number', description: 'ABV percentage if applicable' },
-                    cost_per_unit: { type: 'number', description: 'Cost per unit if listed' },
-                    batch_number: { type: 'string', description: 'Lot or batch number for this line, if listed' },
-                  },
-                },
-              },
-            },
-          },
-        });
-
-        if (result.status === 'success' && result.output) {
-          const d = Array.isArray(result.output) ? result.output[0] : result.output;
-          const VALID_UNITS = ['litres', 'kg', 'units'];
-
-          let matchedSupplier = null;
-          if (d.supplier && suppliersQuery.data) {
-            matchedSupplier = suppliersQuery.data.find(s =>
-              s.business_name.toLowerCase().includes(d.supplier.toLowerCase()) ||
-              d.supplier.toLowerCase().includes(s.business_name.toLowerCase())
-            );
-          }
-
-          setHeader(prev => ({
-            ...prev,
-            supplier_id: matchedSupplier?.id || prev.supplier_id,
-            supplier_name: matchedSupplier?.business_name || d.supplier || prev.supplier_name,
-            packing_slip_number: d.packing_slip_number || prev.packing_slip_number,
-            date_received: d.date_received || prev.date_received,
-            notes: d.notes || prev.notes,
-          }));
-
-          if (matchedSupplier?.address) {
-            setTimeout(() => calculateDistance(matchedSupplier.address, setHeader), 500);
-          }
-
-          const items = Array.isArray(d.items) ? d.items.filter(it => it.material_name) : [];
-          if (items.length > 0) {
-            setLines(items.map((it) => {
-              const typedName = (it.material_name || '').toLowerCase().trim();
-              const alias = aliasByLowerName.get(typedName);
-              const matchedRM = alias
-                ? rawMaterialById.get(alias.raw_material_id)
-                : rawMaterials.find(rm => rm.name.toLowerCase().trim() === typedName);
-              return {
-                _key: `line-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-                material_name: matchedRM?.name || it.material_name || '',
-                material_type: matchedRM
-                  ? (INVERSE_TYPE_MAP[(matchedRM.type || '').toLowerCase()] || '')
-                  : (MATERIAL_TYPES.find(t => t.toLowerCase().includes((it.material_type || '').toLowerCase())) || ''),
-                unit: matchedRM?.unit || (VALID_UNITS.includes(it.unit) ? it.unit : 'litres'),
-                quantity: it.quantity != null ? String(it.quantity) : '',
-                abv_percent: it.abv_percent != null ? String(it.abv_percent) : '',
-                weight_kg: '',
-                cost_per_unit: it.cost_per_unit != null ? String(it.cost_per_unit) : '',
-                batch_number: it.batch_number || '',
-                matchedRawMaterialId: matchedRM?.id || null,
-              };
-            }));
-          }
-
-          toast.success(`Packing slip scanned — ${items.length || 1} item${items.length !== 1 ? 's' : ''} found, please review before saving`);
-        }
-      } catch {
-        // OCR failed silently — slip is still uploaded and saved
-        toast.info('Slip uploaded — could not auto-extract fields, please fill in manually');
-      } finally {
-        setExtracting(false);
-      }
+      // Auto-extracting fields from the slip (OCR) isn't wired up to a real
+      // backend yet — the slip still uploads and attaches fine, it just needs
+      // manual entry below.
+      toast.info('Slip uploaded — please fill in the details below');
     } catch (err) {
       toast.error('Upload failed: ' + err.message);
     } finally {
@@ -664,10 +573,10 @@ export default function Receiving() {
 
       <PageHeader title="Receiving" subtitle="Log incoming raw materials and ethanol">
         <label className="cursor-pointer">
-          <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden" onChange={handlePackingSlip} disabled={uploadingSlip || extracting} />
-          <div className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-9 px-4 py-2 border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors ${(uploadingSlip || extracting) ? 'opacity-50 cursor-not-allowed' : ''}`}>
+          <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden" onChange={handlePackingSlip} disabled={uploadingSlip} />
+          <div className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-9 px-4 py-2 border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors ${uploadingSlip ? 'opacity-50 cursor-not-allowed' : ''}`}>
             {uploadingSlip ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            {uploadingSlip ? 'Uploading…' : extracting ? 'Scanning…' : 'Scan Packing Slip'}
+            {uploadingSlip ? 'Uploading…' : 'Attach Packing Slip'}
           </div>
         </label>
         <Button onClick={openNewReceive}><Plus className="w-4 h-4 mr-2" />Receive Material</Button>
@@ -680,21 +589,17 @@ export default function Receiving() {
             <DialogTitle className="font-display">Receive Material</DialogTitle>
           </DialogHeader>
 
-          {(uploadingSlip || extracting) && (
+          {uploadingSlip && (
             <div className="flex items-center gap-3 rounded-lg bg-primary/8 border border-primary/20 px-4 py-3 mb-2">
               <Loader2 className="w-4 h-4 text-primary animate-spin flex-shrink-0" />
               <div>
-                <p className="text-sm font-medium text-primary">
-                  {uploadingSlip ? 'Uploading packing slip…' : 'Scanning document…'}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {uploadingSlip ? 'Your file is being saved securely' : 'Extracting items from your document'}
-                </p>
+                <p className="text-sm font-medium text-primary">Uploading packing slip…</p>
+                <p className="text-xs text-muted-foreground">Your file is being saved securely</p>
               </div>
             </div>
           )}
 
-          {!uploadingSlip && !extracting && header.packing_slip_url && (
+          {!uploadingSlip && header.packing_slip_url && (
             <div
               className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-2.5 mb-2 cursor-pointer hover:bg-green-100 transition-colors"
               onClick={() => setViewingSlip(header.packing_slip_url)}
@@ -814,7 +719,7 @@ export default function Receiving() {
             <DialogTitle className="font-display">Edit Receiving Record</DialogTitle>
           </DialogHeader>
 
-          {!uploadingSlip && !extracting && editForm.packing_slip_url && (
+          {!uploadingSlip && editForm.packing_slip_url && (
             <div
               className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-4 py-2.5 mb-2 cursor-pointer hover:bg-green-100 transition-colors"
               onClick={() => setViewingSlip(editForm.packing_slip_url)}
