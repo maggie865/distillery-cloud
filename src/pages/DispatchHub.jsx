@@ -353,7 +353,7 @@ export default function DispatchHub() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         {[
-          { label: 'Total Dispatched', value: totalBottlesDispatched.toLocaleString(), sub: 'bottles', icon: PackageCheck, color: 'text-primary', bg: 'bg-accent border-accent-foreground/10' },
+          { label: 'Total Dispatched', value: totalBottlesDispatched.toLocaleString(), sub: 'bottles', icon: PackageCheck, color: 'text-accent-foreground', bg: 'bg-accent border-accent-foreground/10' },
           { label: 'Total LALs Sold', value: totalLalsDispatched.toFixed(2), sub: 'litres abs. alcohol', icon: Truck, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
           { label: 'Total CO2e', value: totalCO2e.toFixed(1), sub: 'kg emissions', icon: Truck, color: 'text-green-600', bg: 'bg-green-50 border-green-200' },
         ].map(({ label, value, sub, icon: Icon, color, bg }) => (
