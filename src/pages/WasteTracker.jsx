@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Card } from '@/components/ui/card';
@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Trash2, Plus, TrendingDown, Recycle, Package, Pencil } from 'lucide-react';
+import { Trash2, Plus, TrendingDown, Recycle, Package, Pencil, Leaf, Settings2 } from 'lucide-react';
 import { format, parseISO, subMonths, getMonth, getYear } from 'date-fns';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
@@ -25,6 +25,63 @@ const CATEGORIES = [
 ];
 
 const getCat = (id) => CATEGORIES.find(c => c.id === id) || CATEGORIES[CATEGORIES.length - 1];
+
+// ── Emission factors (kg CO2e per kg of waste) ───────────────────────────────
+// Indicative defaults only — general/organic assume landfill disposal
+// (methane-heavy), recycling/glass/cardboard assume processing/recovery
+// (much lower). These are editable per category via "Emission Factors"
+// below since actual factors depend on your disposal method and region —
+// adjust to match your organisation's official GHG inventory methodology
+// (e.g. NZ Ministry for the Environment factors) if you need audit-grade
+// precision. Same "hardcoded default, editable in place" approach as
+// ELECTRICITY_EF/WATER_EF in UtilityTracker.jsx, just per-category here
+// since waste disposal routes vary far more than a single power/water
+// connection does.
+export const DEFAULT_EMISSION_FACTORS = {
+  general: 0.58,
+  recycling: 0.021,
+  glass: 0.019,
+  cardboard: 0.023,
+  organic: 0.50,
+  hazardous: 0.15,
+  other: 0.40,
+};
+export const EMISSION_FACTORS_KEY = 'waste_emission_factors';
+// Also used by LifecycleReport.jsx to read the same underlying AppSettings
+// row WasteTracker itself reads — no dedicated waste table exists (see
+// Objectives.jsx/EMS step 3 for the same finding).
+export const WASTE_RECORDS_KEY = 'waste_records';
+
+function useEmissionFactors() {
+  const qc = useQueryClient();
+  const { data: settingsRow } = useQuery({
+    queryKey: ['wasteEmissionFactors'],
+    queryFn: async () => {
+      const rows = await base44.entities.AppSettings.list('key', 5000);
+      return rows.find(r => r.key === EMISSION_FACTORS_KEY) || null;
+    },
+  });
+
+  const factors = useMemo(() => {
+    if (!settingsRow?.value) return DEFAULT_EMISSION_FACTORS;
+    try { return { ...DEFAULT_EMISSION_FACTORS, ...JSON.parse(settingsRow.value) }; }
+    catch { return DEFAULT_EMISSION_FACTORS; }
+  }, [settingsRow]);
+
+  const saveFactors = async (newFactors) => {
+    const val = JSON.stringify(newFactors);
+    if (settingsRow) {
+      await base44.entities.AppSettings.update(settingsRow.id, { value: val });
+    } else {
+      await base44.entities.AppSettings.create({ key: EMISSION_FACTORS_KEY, value: val });
+    }
+    qc.invalidateQueries({ queryKey: ['wasteEmissionFactors'] });
+  };
+
+  return { factors, saveFactors };
+}
+
+export const co2eFor = (record, factors) => (record.kg || 0) * (factors[record.category] ?? factors.other ?? 0);
 
 // ── Standard bin sizes ────────────────────────────────────────────────────────
 const BIN_SIZES = [
@@ -176,6 +233,41 @@ function LogForm({ onSave, saving, initial }) {
   );
 }
 
+// ── Emission factors editor ───────────────────────────────────────────────────
+function EmissionFactorsDialog({ open, onOpenChange, factors, onSave, saving }) {
+  const [draft, setDraft] = useState(factors);
+  useEffect(() => { if (open) setDraft(factors); }, [open, factors]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle className="font-display">Emission Factors</DialogTitle></DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          kg CO₂e per kg of waste, by category. These are indicative defaults (general/organic
+          assume landfill, recycling/glass/cardboard assume processing) — adjust them to match
+          your actual disposal method or an official inventory methodology if you need
+          audit-grade precision.
+        </p>
+        <div className="space-y-2">
+          {CATEGORIES.map(c => (
+            <div key={c.id} className="flex items-center justify-between gap-3">
+              <Label className="text-sm flex items-center gap-1.5">{c.icon} {c.label}</Label>
+              <Input
+                type="number" step="0.001" min="0" className="w-28 text-right"
+                value={draft[c.id] ?? 0}
+                onChange={e => setDraft(d => ({ ...d, [c.id]: parseFloat(e.target.value) || 0 }))}
+              />
+            </div>
+          ))}
+        </div>
+        <Button className="w-full" disabled={saving} onClick={() => onSave(draft)}>
+          {saving ? 'Saving...' : 'Save Factors'}
+        </Button>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function WasteTracker() {
   const qc = useQueryClient();
@@ -186,15 +278,21 @@ export default function WasteTracker() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [showAll, setShowAll] = useState(false);
+  const [factorsOpen, setFactorsOpen] = useState(false);
+
+  const { factors, saveFactors } = useEmissionFactors();
+  const saveFactorsMutation = useMutation({
+    mutationFn: saveFactors,
+    onSuccess: () => { setFactorsOpen(false); toast.success('Emission factors updated'); },
+    onError: (e) => toast.error('Failed: ' + e.message),
+  });
 
   // Store waste records in AppSettings as JSON (no separate entity needed)
-  const WASTE_KEY = 'waste_records';
-
   const { data: settingsRow, isLoading } = useQuery({
     queryKey: ['wasteRecords'],
     queryFn: async () => {
       const rows = await base44.entities.AppSettings.list('key', 5000);
-      return rows.find(r => r.key === WASTE_KEY) || null;
+      return rows.find(r => r.key === WASTE_RECORDS_KEY) || null;
     },
   });
 
@@ -208,7 +306,7 @@ export default function WasteTracker() {
     if (settingsRow) {
       await base44.entities.AppSettings.update(settingsRow.id, { value: val });
     } else {
-      await base44.entities.AppSettings.create({ key: WASTE_KEY, value: val });
+      await base44.entities.AppSettings.create({ key: WASTE_RECORDS_KEY, value: val });
     }
     qc.invalidateQueries({ queryKey: ['wasteRecords'] });
   };
@@ -262,40 +360,46 @@ export default function WasteTracker() {
         month: m, year: y,
         kg: monthRecs.reduce((s, r) => s + (r.kg || 0), 0),
         litres: monthRecs.reduce((s, r) => s + (r.litres || 0), 0),
+        co2e: monthRecs.reduce((s, r) => s + co2eFor(r, factors), 0),
         count: monthRecs.length,
       };
     });
-  }, [records]);
+  }, [records, factors]);
 
   // Summary for filtered period
   const summary = useMemo(() => {
     const byCategory = {};
     for (const r of filtered) {
-      if (!byCategory[r.category]) byCategory[r.category] = { kg: 0, litres: 0, count: 0 };
+      if (!byCategory[r.category]) byCategory[r.category] = { kg: 0, litres: 0, co2e: 0, count: 0 };
       byCategory[r.category].kg += (r.kg || 0);
       byCategory[r.category].litres += (r.litres || 0);
+      byCategory[r.category].co2e += co2eFor(r, factors);
       byCategory[r.category].count++;
     }
     return {
       totalKg: filtered.reduce((s, r) => s + (r.kg || 0), 0),
       totalLitres: filtered.reduce((s, r) => s + (r.litres || 0), 0),
+      totalCo2e: filtered.reduce((s, r) => s + co2eFor(r, factors), 0),
       byCategory,
       count: filtered.length,
     };
-  }, [filtered]);
+  }, [filtered, factors]);
 
   const maxMonthlyKg = Math.max(...monthlyTotals.map(m => m.kg), 1);
 
   return (
     <div className="pb-20 md:pb-0 space-y-5">
       <PageHeader title="Waste Tracker" subtitle="Log and monitor waste for BCorp reporting and KPIs">
+        <Button variant="outline" onClick={() => setFactorsOpen(true)} className="gap-2">
+          <Settings2 className="w-4 h-4" /> Emission Factors
+        </Button>
         <Button onClick={() => setShowForm(true)} className="gap-2">
           <Plus className="w-4 h-4" /> Log Waste
         </Button>
       </PageHeader>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <Card className="p-4">
           <p className="text-xs text-muted-foreground mb-1">This month — weight</p>
           <p className="text-2xl font-bold font-display">{summary.totalKg.toFixed(1)} kg</p>
@@ -303,6 +407,10 @@ export default function WasteTracker() {
         <Card className="p-4">
           <p className="text-xs text-muted-foreground mb-1">This month — volume</p>
           <p className="text-2xl font-bold font-display">{summary.totalLitres.toFixed(0)} L</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Leaf className="w-3 h-3" /> This month — CO₂e</p>
+          <p className="text-2xl font-bold font-display">{summary.totalCo2e.toFixed(1)} kg</p>
         </Card>
         <Card className="p-4">
           <p className="text-xs text-muted-foreground mb-1">Entries this month</p>
@@ -354,7 +462,10 @@ export default function WasteTracker() {
                         <Badge className={`text-xs ${cat.color}`}>{cat.icon} {cat.label}</Badge>
                         <span className="text-muted-foreground text-xs">{data.count} entries</span>
                       </span>
-                      <span className="font-medium">{data.kg.toFixed(1)} kg <span className="text-muted-foreground text-xs">({pct.toFixed(0)}%)</span></span>
+                      <span className="font-medium">
+                        {data.kg.toFixed(1)} kg <span className="text-muted-foreground text-xs">({pct.toFixed(0)}%)</span>
+                        <span className="text-emerald-700 text-xs ml-2">{data.co2e.toFixed(1)} kg CO₂e</span>
+                      </span>
                     </div>
                     <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                       <div className="h-full bg-primary/60 rounded-full" style={{ width: `${pct}%` }} />
@@ -393,6 +504,7 @@ export default function WasteTracker() {
                     <TableHead>Type</TableHead>
                     <TableHead className="text-right">Volume</TableHead>
                     <TableHead className="text-right">Weight</TableHead>
+                    <TableHead className="text-right">CO₂e</TableHead>
                     <TableHead>Recorded by</TableHead>
                     <TableHead>Notes</TableHead>
                     <TableHead></TableHead>
@@ -413,6 +525,9 @@ export default function WasteTracker() {
                         </TableCell>
                         <TableCell className="text-sm text-right font-mono font-medium">
                           {r.kg ? `${r.kg.toFixed(2)} kg` : '—'}
+                        </TableCell>
+                        <TableCell className="text-sm text-right font-mono text-emerald-700">
+                          {r.kg ? `${co2eFor(r, factors).toFixed(2)} kg` : '—'}
                         </TableCell>
                         <TableCell className="text-sm">{r.recorded_by || '—'}</TableCell>
                         <TableCell className="text-sm text-muted-foreground max-w-xs truncate">{r.notes || '—'}</TableCell>
@@ -454,6 +569,14 @@ export default function WasteTracker() {
           </DialogContent>
         </Dialog>
       )}
+
+      <EmissionFactorsDialog
+        open={factorsOpen}
+        onOpenChange={setFactorsOpen}
+        factors={factors}
+        onSave={(newFactors) => saveFactorsMutation.mutate(newFactors)}
+        saving={saveFactorsMutation.isPending}
+      />
     </div>
   );
 }
