@@ -113,6 +113,7 @@ export const db = {
   DistillationRun:   makeEntity('DistillationRun'),
   DistillationRunLotUsage: makeEntity('DistillationRunLotUsage'),
   EnvironmentalAspect: makeEntity('EnvironmentalAspect'),
+  EnvironmentalObjective: makeEntity('EnvironmentalObjective'),
   EnvironmentalPolicy: makeEntity('EnvironmentalPolicy'),
   FinishedGood:      makeEntity('FinishedGood'),
   FoodRecall:        makeEntity('FoodRecall'),
