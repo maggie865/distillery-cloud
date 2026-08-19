@@ -112,6 +112,8 @@ export const db = {
   Dispatch:          makeEntity('Dispatch'),
   DistillationRun:   makeEntity('DistillationRun'),
   DistillationRunLotUsage: makeEntity('DistillationRunLotUsage'),
+  EnvironmentalAspect: makeEntity('EnvironmentalAspect'),
+  EnvironmentalPolicy: makeEntity('EnvironmentalPolicy'),
   FinishedGood:      makeEntity('FinishedGood'),
   FoodRecall:        makeEntity('FoodRecall'),
   MaintenanceRecord: makeEntity('MaintenanceRecord'),
