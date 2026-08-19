@@ -7,10 +7,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { CheckSquare, Square, Plus, Trash2, ChevronDown, ChevronRight, ClipboardList, RotateCcw, GripVertical } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { CheckSquare, Square, Plus, Trash2, ChevronDown, ChevronRight, ClipboardList, RotateCcw, GripVertical, Wrench } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
+import PreUseChecksTab from '@/components/maintenance/PreUseChecksTab';
 
 // ── Checklist templates stored as a single AppSettings JSON blob ──────────────
 const TEMPLATES_KEY = 'checklist_templates';
@@ -232,8 +234,8 @@ function TemplateEditor({ template, onSave, onClose }) {
 const CATEGORY_LABELS = { daily: '📅 Daily', weekly: '📆 Weekly', monthly: '🗓 Monthly', 'odd-jobs': '🔧 Odd Jobs', other: '📋 Other' };
 const CATEGORY_COLORS = { daily: 'bg-blue-100 text-blue-700', weekly: 'bg-purple-100 text-purple-700', monthly: 'bg-indigo-100 text-indigo-700', 'odd-jobs': 'bg-amber-100 text-amber-700', other: 'bg-muted text-muted-foreground' };
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
-export default function Checklists() {
+// ── Checklists tab (generic, user-defined task lists) ────────────────────────
+function ChecklistsPanel() {
   const { templates, saveTemplates, saving } = useTemplates();
   const { runs, saveRuns } = useRuns();
   const [activeSession, setActiveSession] = useState(null); // { template }
@@ -291,8 +293,9 @@ export default function Checklists() {
   [runs]);
 
   return (
-    <div className="pb-20 md:pb-0 space-y-5">
-      <PageHeader title="Checklists" subtitle="Team task lists and sign-off logs">
+    <div className="space-y-5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">Team task lists and sign-off logs</p>
         <div className="flex gap-2">
           <Button variant={tab === 'run' ? 'default' : 'outline'} size="sm" onClick={() => setTab('run')}>
             <ClipboardList className="w-4 h-4 mr-1" /> Run
@@ -300,9 +303,8 @@ export default function Checklists() {
           <Button variant={tab === 'history' ? 'default' : 'outline'} size="sm" onClick={() => setTab('history')}>
             <RotateCcw className="w-4 h-4 mr-1" /> History
           </Button>
-
         </div>
-      </PageHeader>
+      </div>
 
       {/* ── RUN TAB ── */}
       {tab === 'run' && (
@@ -412,6 +414,51 @@ export default function Checklists() {
       )}
 
 
+    </div>
+  );
+}
+
+// ── Main Page — Checklists + the bottle washer's pre-use check share this
+// page and one permission gate since they're both "things the team runs
+// through before/during a shift", even though the data behind them is
+// unrelated (user-defined templates vs. a fixed maintenance form) ──────────
+export default function DailyChecks() {
+  const queryClient = useQueryClient();
+  const [saving, setSaving] = useState(false);
+
+  const { data: records = [] } = useQuery({
+    queryKey: ['maintenanceRecords'],
+    queryFn: () => base44.entities.MaintenanceRecord.list('-date', 5000),
+  });
+
+  const createRecords = async (recordsList) => {
+    setSaving(true);
+    try {
+      for (const data of recordsList) {
+        await base44.entities.MaintenanceRecord.create(data);
+      }
+      await queryClient.invalidateQueries({ queryKey: ['maintenanceRecords'] });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="pb-20 md:pb-0 space-y-5">
+      <PageHeader title="Daily Checks" subtitle="Team checklists and the bottle washer's pre-use check" />
+
+      <Tabs defaultValue="checklists">
+        <TabsList className="w-full justify-start overflow-x-auto">
+          <TabsTrigger value="checklists" className="gap-1.5"><ClipboardList className="w-4 h-4" /> Checklists</TabsTrigger>
+          <TabsTrigger value="pre_use" className="gap-1.5"><Wrench className="w-4 h-4" /> Pre-Use Checks</TabsTrigger>
+        </TabsList>
+        <TabsContent value="checklists" className="mt-4">
+          <ChecklistsPanel />
+        </TabsContent>
+        <TabsContent value="pre_use" className="mt-4">
+          <PreUseChecksTab records={records} onCreate={createRecords} saving={saving} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
