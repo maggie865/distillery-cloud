@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
+import { base44 } from '@/api/base44Client';
 import { db } from '@/api/supabaseClient';
 import { ELECTRICITY_EF, WATER_EF } from '@/pages/UtilityTracker';
+import { DEFAULT_EMISSION_FACTORS, EMISSION_FACTORS_KEY, WASTE_RECORDS_KEY, co2eFor } from '@/pages/WasteTracker';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -52,6 +54,27 @@ export default function LifecycleReport() {
     queryKey: ['utilityLogs'],
     queryFn: () => db.UtilityLog.list('-reading_date', 5000),
   });
+  // Same AppSettings-JSON-blob source WasteTracker.jsx itself reads —
+  // there's no dedicated waste table.
+  const { data: wasteRecords = [] } = useQuery({
+    queryKey: ['wasteRecordsForLifecycleReport'],
+    queryFn: async () => {
+      const rows = await base44.entities.AppSettings.list('key', 5000);
+      const row = rows.find(r => r.key === WASTE_RECORDS_KEY);
+      if (!row?.value) return [];
+      try { return JSON.parse(row.value); } catch { return []; }
+    },
+  });
+  const { data: wasteFactors = DEFAULT_EMISSION_FACTORS } = useQuery({
+    queryKey: ['wasteEmissionFactorsForLifecycleReport'],
+    queryFn: async () => {
+      const rows = await base44.entities.AppSettings.list('key', 5000);
+      const row = rows.find(r => r.key === EMISSION_FACTORS_KEY);
+      if (!row?.value) return DEFAULT_EMISSION_FACTORS;
+      try { return { ...DEFAULT_EMISSION_FACTORS, ...JSON.parse(row.value) }; }
+      catch { return DEFAULT_EMISSION_FACTORS; }
+    },
+  });
 
   const inRange = (dateStr) => !!dateStr && dateStr >= periodStart && dateStr <= periodEnd;
 
@@ -72,14 +95,16 @@ export default function LifecycleReport() {
     const outboundCo2e = dispatches.filter(d => inRange(d.dispatch_date)).reduce((s, d) => s + (d.co2e_kg || 0), 0);
     const transferCo2e = warehouseStock.filter(w => inRange(w.transfer_date)).reduce((s, w) => s + (w.co2e_kg || 0), 0);
 
+    const disposalCo2e = wasteRecords.filter(r => inRange(r.date)).reduce((s, r) => s + co2eFor(r, wasteFactors), 0);
+
     return {
       raw_materials: { ...aspectsByStage.raw_materials, co2e: inboundCo2e, tracked: true, note: 'Inbound freight (Receiving)' },
       production: { ...aspectsByStage.production, co2e: utilityCo2e, tracked: true, note: "Site electricity + water — an approximation, since meters aren't stage-specific" },
       packaging: { ...aspectsByStage.packaging, co2e: null, tracked: false, note: 'Packaging material embodied carbon not yet tracked' },
       distribution: { ...aspectsByStage.distribution, co2e: outboundCo2e + transferCo2e, tracked: true, note: 'Outbound dispatch + 3PL warehouse transfer freight' },
-      disposal: { ...aspectsByStage.disposal, co2e: null, tracked: false, note: 'Waste disposal emissions not yet tracked' },
+      disposal: { ...aspectsByStage.disposal, co2e: disposalCo2e, tracked: true, note: 'Waste disposal (indicative emission factors — adjust in Waste Tracker)' },
     };
-  }, [aspects, receiving, dispatches, warehouseStock, utilityLogs, periodStart, periodEnd]);
+  }, [aspects, receiving, dispatches, warehouseStock, utilityLogs, wasteRecords, wasteFactors, periodStart, periodEnd]);
 
   const totalTracked = STAGES.reduce((sum, stage) => sum + (stats[stage.id].co2e || 0), 0);
 
