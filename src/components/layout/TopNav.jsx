@@ -88,7 +88,20 @@ export default function TopNav() {
           </Link>
         ))}
 
-        {groups.map((group) => (
+        {groups.map((group) => group.items.length === 1 ? (
+          // A single visible item means every other page in this group is
+          // hubOnly - that item is the group's hub page itself, so there's
+          // nothing a row-2 reveal would add. Link straight there instead
+          // of toggling open a row 2 that would just repeat this button.
+          <Link
+            key={group.name}
+            to={group.items[0].path}
+            data-active={location.pathname === group.items[0].path}
+            className={navLinkClass(location.pathname === group.items[0].path)}
+          >
+            {group.name}
+          </Link>
+        ) : (
           <button
             key={group.name}
             data-active={activeGroup === group.name}
@@ -133,8 +146,10 @@ export default function TopNav() {
         </div>
       </div>
 
-      {/* Row 2: current group's pages - stays visible while inside the group */}
-      {activeGroup && (
+      {/* Row 2: current group's pages - stays visible while inside the group.
+          Skipped for single-item groups (row 1's link already goes straight
+          to that one page, e.g. a hubOnly sub-page's group is its hub). */}
+      {activeGroup && activeGroupPages.length > 1 && (
         <div ref={row2Ref} className="flex items-center gap-1 px-3 md:px-6 h-11 border-t border-border overflow-x-auto bg-muted/40" style={scrollFadeStyle}>
           {activeGroupPages.map((p) => {
             const isActive = location.pathname === p.path;
