@@ -1,11 +1,11 @@
 import NavGroupHub from '@/components/shared/NavGroupHub';
 
 // Descriptions for EMS-group tiles — see Compliance.jsx for the same
-// pattern. This starts with just Waste Tracker and Utilities (relocated
-// from Compliance); an environmental policy, aspects/impacts register,
-// objectives & targets, and lifecycle/carbon reporting are planned as
-// separate follow-up additions here, built one at a time.
+// pattern. Objectives & targets, a legal register, and lifecycle/carbon
+// reporting are planned as separate follow-up additions here, built one
+// at a time.
 const DESCRIPTIONS = {
+  'aspects-register': 'Environmental policy and the ISO 14001 aspects & impacts significance register',
   'waste-tracker': 'Waste volumes and disposal records',
   'utilities': 'Power, water, and gas usage tracking',
 };

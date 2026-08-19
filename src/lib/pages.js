@@ -22,6 +22,7 @@ import {
 
 import Compliance from '@/pages/Compliance';
 import EMS from '@/pages/EMS';
+import AspectsRegister from '@/pages/AspectsRegister';
 import Dashboard from '@/pages/Dashboard';
 import Receiving from '@/pages/Receiving';
 import Dilutions from '@/pages/Dilutions';
@@ -84,6 +85,7 @@ export const PAGES = [
   { key: 'food-recall',       label: 'Food Recall',       path: '/food-recall',       icon: AlertTriangle, component: FoodRecallManager, navGroup: 'Compliance' },
 
   { key: 'ems',               label: 'EMS',               path: '/ems',               icon: Recycle,       component: EMS,               navGroup: 'EMS' },
+  { key: 'aspects-register',  label: 'Aspects & Impacts Register', path: '/aspects-register', icon: FileText, component: AspectsRegister, navGroup: 'EMS' },
   { key: 'waste-tracker',     label: 'Waste Tracker',     path: '/waste-tracker',     icon: Leaf,          component: WasteTracker,      navGroup: 'EMS' },
   { key: 'utilities',         label: 'Utilities',         path: '/utilities',         icon: Zap,           component: UtilityTracker,    navGroup: 'EMS' },
 
