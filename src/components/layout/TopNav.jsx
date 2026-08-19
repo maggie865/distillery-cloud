@@ -38,7 +38,7 @@ export default function TopNav() {
   const topPages = PAGES.filter((p) => p.navGroup === 'top' && visible(p));
   const bottomPages = PAGES.filter((p) => p.navGroup === 'bottom' && (visible(p) || (p.superAdminOnly && isSuperAdmin)));
   const groups = NAV_GROUPS
-    .map((name) => ({ name, items: PAGES.filter((p) => p.navGroup === name && visible(p)) }))
+    .map((name) => ({ name, items: PAGES.filter((p) => p.navGroup === name && !p.hubOnly && visible(p)) }))
     .filter((g) => g.items.length > 0);
 
   const currentPage = PAGES.find((p) => p.path === location.pathname);
