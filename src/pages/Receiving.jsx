@@ -138,12 +138,32 @@ async function receiveLine({ header, line, allRM }) {
 
   if (existingRM) {
     const existingLots = Array.isArray(existingRM.lots) ? existingRM.lots : [];
+
+    // If this item already had stock that isn't accounted for in any lot
+    // (predates lot tracking, or was adjusted directly), that quantity is
+    // invisible to FIFO — depletion would draw from this brand-new lot
+    // first instead of the older stock already on the shelf, and cost
+    // everything at today's price immediately. Backfill one synthetic lot
+    // for the gap, dated before this receiving, at the item's previous
+    // cost, so FIFO still uses the old stock — and old pricing — first.
+    const trackedQty = existingLots.reduce((sum, l) => sum + (l.quantity_remaining || 0), 0);
+    const untrackedQty = parseFloat(((existingRM.quantity || 0) - trackedQty).toFixed(4));
+    const backfillLot = untrackedQty > 0.0001 ? [{
+      lot_number: null,
+      date_received: existingRM.date_received || payload.date_received,
+      quantity_received: untrackedQty,
+      quantity_remaining: untrackedQty,
+      supplier: 'Opening stock (pre-lot tracking)',
+      cost_per_unit: existingRM.cost_per_unit || null,
+      receiving_id: null,
+    }] : [];
+
     return base44.entities.RawMaterial.update(existingRM.id, {
       quantity: parseFloat(((existingRM.quantity || 0) + (payload.quantity || 0)).toFixed(4)),
       lals: parseFloat(((existingRM.lals || 0) + (payload.lals || 0)).toFixed(4)),
       cost_per_unit: payload.cost_per_unit || existingRM.cost_per_unit,
       date_received: payload.date_received,
-      lots: [...existingLots, newLot],
+      lots: [...existingLots, ...backfillLot, newLot],
     });
   }
   return base44.entities.RawMaterial.create({
