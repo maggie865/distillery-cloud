@@ -75,6 +75,18 @@ export default function LifecycleReport() {
       catch { return DEFAULT_EMISSION_FACTORS; }
     },
   });
+  // Packaging: each BottlingRun logs exactly which packaging items and
+  // quantities it consumed (packaging_costs, set in BottlingFloor.jsx's
+  // FIFO packaging depletion) — matched by name against RawMaterial's
+  // emission_factor_kg_co2e (set in Settings → Packaging Materials).
+  const { data: bottlingRuns = [] } = useQuery({
+    queryKey: ['bottlingRunsForLifecycleReport'],
+    queryFn: () => db.BottlingRun.list('-date', 5000),
+  });
+  const { data: rawMaterials = [] } = useQuery({
+    queryKey: ['rawMaterials'],
+    queryFn: () => db.RawMaterial.list('name', 5000),
+  });
 
   const inRange = (dateStr) => !!dateStr && dateStr >= periodStart && dateStr <= periodEnd;
 
@@ -97,14 +109,35 @@ export default function LifecycleReport() {
 
     const disposalCo2e = wasteRecords.filter(r => inRange(r.date)).reduce((s, r) => s + co2eFor(r, wasteFactors), 0);
 
+    const factorByName = new Map(rawMaterials.map(m => [(m.name || '').toLowerCase().trim(), m.emission_factor_kg_co2e]));
+    let packagingCo2e = 0;
+    let packagingLinesWithFactor = 0;
+    let packagingLinesMissingFactor = 0;
+    for (const run of bottlingRuns.filter(r => inRange(r.date))) {
+      for (const line of Array.isArray(run.packaging_costs) ? run.packaging_costs : []) {
+        const factor = factorByName.get((line.name || '').toLowerCase().trim());
+        if (factor != null) {
+          packagingCo2e += (line.qty_used || 0) * factor;
+          packagingLinesWithFactor++;
+        } else {
+          packagingLinesMissingFactor++;
+        }
+      }
+    }
+    const packagingNote = packagingLinesWithFactor === 0
+      ? 'No packaging items have an emission factor set yet — add them in Settings → Packaging Materials'
+      : packagingLinesMissingFactor > 0
+        ? `From bottling runs — ${packagingLinesMissingFactor} packaging line${packagingLinesMissingFactor !== 1 ? 's' : ''} excluded (no factor set)`
+        : 'From bottling runs (all packaging items have a factor set)';
+
     return {
       raw_materials: { ...aspectsByStage.raw_materials, co2e: inboundCo2e, tracked: true, note: 'Inbound freight (Receiving)' },
       production: { ...aspectsByStage.production, co2e: utilityCo2e, tracked: true, note: "Site electricity + water — an approximation, since meters aren't stage-specific" },
-      packaging: { ...aspectsByStage.packaging, co2e: null, tracked: false, note: 'Packaging material embodied carbon not yet tracked' },
+      packaging: { ...aspectsByStage.packaging, co2e: packagingCo2e, tracked: packagingLinesWithFactor > 0, note: packagingNote },
       distribution: { ...aspectsByStage.distribution, co2e: outboundCo2e + transferCo2e, tracked: true, note: 'Outbound dispatch + 3PL warehouse transfer freight' },
       disposal: { ...aspectsByStage.disposal, co2e: disposalCo2e, tracked: true, note: 'Waste disposal (indicative emission factors — adjust in Waste Tracker)' },
     };
-  }, [aspects, receiving, dispatches, warehouseStock, utilityLogs, wasteRecords, wasteFactors, periodStart, periodEnd]);
+  }, [aspects, receiving, dispatches, warehouseStock, utilityLogs, wasteRecords, wasteFactors, bottlingRuns, rawMaterials, periodStart, periodEnd]);
 
   const totalTracked = STAGES.reduce((sum, stage) => sum + (stats[stage.id].co2e || 0), 0);
 
@@ -167,6 +200,8 @@ export default function LifecycleReport() {
           <Link to="/reports" className="text-primary underline">Reports → Carbon Footprint / ISO Lifecycle</Link>.
           This page rolls those same figures up by lifecycle stage and cross-references them against the{' '}
           <Link to="/aspects-register" className="text-primary underline">Aspects & Impacts Register</Link>.
+          {' '}Set packaging emission factors and certifications under{' '}
+          <Link to="/settings" className="text-primary underline">Settings → Distillery → Packaging Materials</Link>.
         </p>
       </Card>
     </div>
