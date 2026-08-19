@@ -52,9 +52,9 @@ export default function UserDashboard({ userName }) {
     },
     {
       key: 'checklists',
-      label: 'Checklists',
-      description: 'Daily, weekly & monthly sign-offs',
-      path: '/checklists',
+      label: 'Daily Checks',
+      description: 'Checklists and the bottle washer pre-use check',
+      path: '/daily-checks',
       icon: CheckSquare,
       tone: 'bg-info/10 text-info',
       stat: `${templates.length} checklist${templates.length !== 1 ? 's' : ''} available`,
