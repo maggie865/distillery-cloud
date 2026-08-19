@@ -23,6 +23,11 @@ export const VISIT_FREQUENCIES = [
 // Contact" Needs Attention category until/unless that becomes a real field.
 export const DEFAULT_CONTACT_INTERVAL_DAYS = 30;
 
+// A recent order is itself evidence of an active relationship — a customer
+// who's ordering regularly shouldn't show as needing attention just
+// because nobody logged a separate "contact" activity or visit for them.
+export const RECENT_ORDER_GRACE_DAYS = 60;
+
 export function visitFrequencyDays(value) {
   return VISIT_FREQUENCIES.find((f) => f.value === value)?.days ?? null;
 }
@@ -97,8 +102,9 @@ export function computeCustomerStats(customer, { activities = [], requests = [],
   // default true) without hiding things someone deliberately logged for
   // them — an overdue follow-up task or an open request still surfaces.
   const trackingEnabled = customer.follow_up_tracking_enabled !== false;
-  const visitOverdue = trackingEnabled && isVisitOverdue(customer, lastVisit);
-  const contactOverdue = trackingEnabled && isContactOverdue(lastContact);
+  const recentOrder = lastOrder != null && daysSince(lastOrder) <= RECENT_ORDER_GRACE_DAYS;
+  const visitOverdue = trackingEnabled && !recentOrder && isVisitOverdue(customer, lastVisit);
+  const contactOverdue = trackingEnabled && !recentOrder && isContactOverdue(lastContact);
   const overdueFollowUp = !!followUp?.overdue;
 
   let health = 'healthy';
@@ -118,6 +124,7 @@ export function computeCustomerStats(customer, { activities = [], requests = [],
     totalOrders,
     followUp,
     openRequests: openReqs,
+    recentOrder,
     visitOverdue,
     contactOverdue,
     health,
