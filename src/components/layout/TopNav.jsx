@@ -38,7 +38,10 @@ export default function TopNav() {
   const topPages = PAGES.filter((p) => p.navGroup === 'top' && visible(p));
   const bottomPages = PAGES.filter((p) => p.navGroup === 'bottom' && (visible(p) || (p.superAdminOnly && isSuperAdmin)));
   const groups = NAV_GROUPS
-    .map((name) => ({ name, items: PAGES.filter((p) => p.navGroup === name && !p.hubOnly && visible(p)) }))
+    .map((name) => {
+      const items = PAGES.filter((p) => p.navGroup === name && visible(p));
+      return { name, items, hub: items.find((p) => p.isHub) || null };
+    })
     .filter((g) => g.items.length > 0);
 
   const currentPage = PAGES.find((p) => p.path === location.pathname);
@@ -48,7 +51,9 @@ export default function TopNav() {
   useEffect(() => setManualGroup(null), [location.pathname]);
 
   const activeGroup = manualGroup ?? routeGroup;
-  const activeGroupPages = groups.find((g) => g.name === activeGroup)?.items || [];
+  const activeGroupEntry = groups.find((g) => g.name === activeGroup);
+  const activeGroupPages = activeGroupEntry?.items || [];
+  const activeGroupHasHub = !!activeGroupEntry?.hub;
 
   const toggleGroup = (name) => setManualGroup(name === activeGroup ? null : name);
 
@@ -88,16 +93,16 @@ export default function TopNav() {
           </Link>
         ))}
 
-        {groups.map((group) => group.items.length === 1 ? (
-          // A single visible item means every other page in this group is
-          // hubOnly - that item is the group's hub page itself, so there's
-          // nothing a row-2 reveal would add. Link straight there instead
-          // of toggling open a row 2 that would just repeat this button.
+        {groups.map((group) => group.hub ? (
+          // A group with a hub page (Production/Inventory/Compliance/EMS)
+          // relies on HubSidebar for in-group navigation instead of row 2 -
+          // link straight to the hub rather than toggling open a row 2 that
+          // would just duplicate the sidebar.
           <Link
             key={group.name}
-            to={group.items[0].path}
-            data-active={location.pathname === group.items[0].path}
-            className={navLinkClass(location.pathname === group.items[0].path)}
+            to={group.hub.path}
+            data-active={location.pathname === group.hub.path}
+            className={navLinkClass(location.pathname === group.hub.path)}
           >
             {group.name}
           </Link>
@@ -147,9 +152,9 @@ export default function TopNav() {
       </div>
 
       {/* Row 2: current group's pages - stays visible while inside the group.
-          Skipped for single-item groups (row 1's link already goes straight
-          to that one page, e.g. a hubOnly sub-page's group is its hub). */}
-      {activeGroup && activeGroupPages.length > 1 && (
+          Skipped for groups with a hub page (row 1 links straight there,
+          and HubSidebar takes over in-group navigation from here). */}
+      {activeGroup && !activeGroupHasHub && (
         <div ref={row2Ref} className="flex items-center gap-1 px-3 md:px-6 h-11 border-t border-border overflow-x-auto bg-muted/40" style={scrollFadeStyle}>
           {activeGroupPages.map((p) => {
             const isActive = location.pathname === p.path;
