@@ -17,12 +17,13 @@ import {
   Home, Droplets, Flame, Wine, Cylinder, TrendingUp, Users,
   Warehouse, Building2, FileText, Settings as SettingsIcon, PackagePlus,
   Truck, ClipboardList, Thermometer, Wrench, Bug, AlertTriangle, CheckSquare,
-  Leaf, Archive, Zap, ShieldCheck, Activity, ClipboardCheck, Recycle,
+  Leaf, Archive, Zap, ShieldCheck, Activity, ClipboardCheck, Recycle, Target,
 } from 'lucide-react';
 
 import Compliance from '@/pages/Compliance';
 import EMS from '@/pages/EMS';
 import AspectsRegister from '@/pages/AspectsRegister';
+import Objectives from '@/pages/Objectives';
 import Dashboard from '@/pages/Dashboard';
 import Receiving from '@/pages/Receiving';
 import Dilutions from '@/pages/Dilutions';
@@ -86,6 +87,7 @@ export const PAGES = [
 
   { key: 'ems',               label: 'EMS',               path: '/ems',               icon: Recycle,       component: EMS,               navGroup: 'EMS' },
   { key: 'aspects-register',  label: 'Aspects & Impacts Register', path: '/aspects-register', icon: FileText, component: AspectsRegister, navGroup: 'EMS' },
+  { key: 'objectives',        label: 'Objectives & Targets', path: '/objectives',      icon: Target,        component: Objectives,        navGroup: 'EMS' },
   { key: 'waste-tracker',     label: 'Waste Tracker',     path: '/waste-tracker',     icon: Leaf,          component: WasteTracker,      navGroup: 'EMS' },
   { key: 'utilities',         label: 'Utilities',         path: '/utilities',         icon: Zap,           component: UtilityTracker,    navGroup: 'EMS' },
 
