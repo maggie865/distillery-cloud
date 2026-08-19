@@ -12,6 +12,12 @@
  * menu, while still being gated by PageGate and listed in the Permissions
  * page - not currently used by any page, but supported if a future one
  * needs a route without a nav entry.
+ *
+ * `hubOnly: true` means the page still belongs to its navGroup (so it
+ * shows as a tile on that group's hub page, e.g. EMS.jsx/Compliance.jsx
+ * via NavGroupHub) but is left out of TopNav's row-2 quick-list for that
+ * group, keeping the top nav short when a group has grown a lot of
+ * sub-pages. Route/permissions/hub visibility are unaffected either way.
  */
 import {
   Home, Droplets, Flame, Wine, Cylinder, TrendingUp, Users,
@@ -89,11 +95,11 @@ export const PAGES = [
   { key: 'food-recall',       label: 'Food Recall',       path: '/food-recall',       icon: AlertTriangle, component: FoodRecallManager, navGroup: 'Compliance' },
 
   { key: 'ems',               label: 'EMS',               path: '/ems',               icon: Recycle,       component: EMS,               navGroup: 'EMS' },
-  { key: 'aspects-register',  label: 'Aspects & Impacts Register', path: '/aspects-register', icon: FileText, component: AspectsRegister, navGroup: 'EMS' },
-  { key: 'objectives',        label: 'Objectives & Targets', path: '/objectives',      icon: Target,        component: Objectives,        navGroup: 'EMS' },
-  { key: 'legal-register',    label: 'Legal & Compliance Register', path: '/legal-register', icon: Scale,   component: LegalRegister,     navGroup: 'EMS' },
-  { key: 'management-review', label: 'Management Review', path: '/management-review', icon: ClipboardPen,  component: ManagementReview,  navGroup: 'EMS' },
-  { key: 'lifecycle-report',  label: 'Lifecycle Report',  path: '/lifecycle-report',  icon: Globe2,        component: LifecycleReport,   navGroup: 'EMS' },
+  { key: 'aspects-register',  label: 'Aspects & Impacts Register', path: '/aspects-register', icon: FileText, component: AspectsRegister, navGroup: 'EMS', hubOnly: true },
+  { key: 'objectives',        label: 'Objectives & Targets', path: '/objectives',      icon: Target,        component: Objectives,        navGroup: 'EMS', hubOnly: true },
+  { key: 'legal-register',    label: 'Legal & Compliance Register', path: '/legal-register', icon: Scale,   component: LegalRegister,     navGroup: 'EMS', hubOnly: true },
+  { key: 'management-review', label: 'Management Review', path: '/management-review', icon: ClipboardPen,  component: ManagementReview,  navGroup: 'EMS', hubOnly: true },
+  { key: 'lifecycle-report',  label: 'Lifecycle Report',  path: '/lifecycle-report',  icon: Globe2,        component: LifecycleReport,   navGroup: 'EMS', hubOnly: true },
   { key: 'waste-tracker',     label: 'Waste Tracker',     path: '/waste-tracker',     icon: Leaf,          component: WasteTracker,      navGroup: 'EMS' },
   { key: 'utilities',         label: 'Utilities',         path: '/utilities',         icon: Zap,           component: UtilityTracker,    navGroup: 'EMS' },
 
