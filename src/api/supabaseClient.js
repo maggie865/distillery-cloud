@@ -119,6 +119,7 @@ export const db = {
   FoodRecall:        makeEntity('FoodRecall'),
   LegalRequirement:  makeEntity('LegalRequirement'),
   MaintenanceRecord: makeEntity('MaintenanceRecord'),
+  ManagementReview:  makeEntity('ManagementReview'),
   MasterBatch:       makeEntity('MasterBatch'),
   MockRecall:        makeEntity('MockRecall'),
   PagePermission:    makeEntity('PagePermission'),

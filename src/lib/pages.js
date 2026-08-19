@@ -17,7 +17,7 @@ import {
   Home, Droplets, Flame, Wine, Cylinder, TrendingUp, Users,
   Warehouse, Building2, FileText, Settings as SettingsIcon, PackagePlus,
   Truck, ClipboardList, Thermometer, Wrench, Bug, AlertTriangle, CheckSquare,
-  Leaf, Archive, Zap, ShieldCheck, Activity, ClipboardCheck, Recycle, Target, Scale,
+  Leaf, Archive, Zap, ShieldCheck, Activity, ClipboardCheck, Recycle, Target, Scale, ClipboardPen,
 } from 'lucide-react';
 
 import Compliance from '@/pages/Compliance';
@@ -25,6 +25,7 @@ import EMS from '@/pages/EMS';
 import AspectsRegister from '@/pages/AspectsRegister';
 import Objectives from '@/pages/Objectives';
 import LegalRegister from '@/pages/LegalRegister';
+import ManagementReview from '@/pages/ManagementReview';
 import Dashboard from '@/pages/Dashboard';
 import Receiving from '@/pages/Receiving';
 import Dilutions from '@/pages/Dilutions';
@@ -90,6 +91,7 @@ export const PAGES = [
   { key: 'aspects-register',  label: 'Aspects & Impacts Register', path: '/aspects-register', icon: FileText, component: AspectsRegister, navGroup: 'EMS' },
   { key: 'objectives',        label: 'Objectives & Targets', path: '/objectives',      icon: Target,        component: Objectives,        navGroup: 'EMS' },
   { key: 'legal-register',    label: 'Legal & Compliance Register', path: '/legal-register', icon: Scale,   component: LegalRegister,     navGroup: 'EMS' },
+  { key: 'management-review', label: 'Management Review', path: '/management-review', icon: ClipboardPen,  component: ManagementReview,  navGroup: 'EMS' },
   { key: 'waste-tracker',     label: 'Waste Tracker',     path: '/waste-tracker',     icon: Leaf,          component: WasteTracker,      navGroup: 'EMS' },
   { key: 'utilities',         label: 'Utilities',         path: '/utilities',         icon: Zap,           component: UtilityTracker,    navGroup: 'EMS' },
 
