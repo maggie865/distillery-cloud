@@ -17,10 +17,11 @@ import {
   Home, Droplets, Flame, Wine, Cylinder, TrendingUp, Users,
   Warehouse, Building2, FileText, Settings as SettingsIcon, PackagePlus,
   Truck, ClipboardList, Thermometer, Wrench, Bug, AlertTriangle, CheckSquare,
-  Leaf, Archive, Zap, ShieldCheck, Activity, ClipboardCheck,
+  Leaf, Archive, Zap, ShieldCheck, Activity, ClipboardCheck, Recycle,
 } from 'lucide-react';
 
 import Compliance from '@/pages/Compliance';
+import EMS from '@/pages/EMS';
 import Dashboard from '@/pages/Dashboard';
 import Receiving from '@/pages/Receiving';
 import Dilutions from '@/pages/Dilutions';
@@ -50,7 +51,7 @@ import SalesOverview from '@/pages/SalesOverview';
 import CustomerDetail from '@/pages/CustomerDetail';
 import OrderDetail from '@/pages/OrderDetail';
 
-export const NAV_GROUPS = ['Production', 'Inventory', 'Sales', 'Compliance'];
+export const NAV_GROUPS = ['Production', 'Inventory', 'Sales', 'Compliance', 'EMS'];
 
 export const PAGES = [
   { key: 'dashboard',        label: 'Dashboard',        path: '/',                 icon: Home,          component: Dashboard,        navGroup: 'top' },
@@ -81,8 +82,10 @@ export const PAGES = [
   { key: 'maintenance',       label: 'Maintenance',       path: '/maintenance',       icon: Wrench,        component: MaintenanceRecords, navGroup: 'Compliance' },
   { key: 'pest-control',      label: 'Pest Control',      path: '/pest-control',      icon: Bug,           component: PestControl,       navGroup: 'Compliance' },
   { key: 'food-recall',       label: 'Food Recall',       path: '/food-recall',       icon: AlertTriangle, component: FoodRecallManager, navGroup: 'Compliance' },
-  { key: 'waste-tracker',     label: 'Waste Tracker',     path: '/waste-tracker',     icon: Leaf,          component: WasteTracker,      navGroup: 'Compliance' },
-  { key: 'utilities',         label: 'Utilities',         path: '/utilities',         icon: Zap,           component: UtilityTracker,    navGroup: 'Compliance' },
+
+  { key: 'ems',               label: 'EMS',               path: '/ems',               icon: Recycle,       component: EMS,               navGroup: 'EMS' },
+  { key: 'waste-tracker',     label: 'Waste Tracker',     path: '/waste-tracker',     icon: Leaf,          component: WasteTracker,      navGroup: 'EMS' },
+  { key: 'utilities',         label: 'Utilities',         path: '/utilities',         icon: Zap,           component: UtilityTracker,    navGroup: 'EMS' },
 
   { key: 'reports',           label: 'Reports',           path: '/reports',           icon: FileText,      component: Reports,           navGroup: 'bottom' },
   { key: 'settings',          label: 'Settings',          path: '/settings',          icon: SettingsIcon,  component: Settings,          navGroup: 'bottom' },
