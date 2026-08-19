@@ -13,11 +13,13 @@
  * page - not currently used by any page, but supported if a future one
  * needs a route without a nav entry.
  *
- * `hubOnly: true` means the page still belongs to its navGroup (so it
- * shows as a tile on that group's hub page, e.g. EMS.jsx/Compliance.jsx
- * via NavGroupHub) but is left out of TopNav's row-2 quick-list for that
- * group, keeping the top nav short when a group has grown a lot of
- * sub-pages. Route/permissions/hub visibility are unaffected either way.
+ * `isHub: true` marks the one page per navGroup that's a NavGroupHub tile
+ * dashboard (Production.jsx, InventoryHub.jsx, Compliance.jsx, EMS.jsx).
+ * TopNav.jsx reads it two ways: the group's row-1 button links straight to
+ * that hub page instead of toggling open a row-2 quick-list, and
+ * HubSidebar.jsx reads it to find which page is the "Overview" link and
+ * which group to show a left-nav for. A navGroup with no isHub page (Sales)
+ * keeps the old row-1-toggles-row-2 behavior untouched.
  */
 import {
   Home, Droplets, Flame, Wine, Cylinder, TrendingUp, Users,
@@ -70,20 +72,20 @@ export const NAV_GROUPS = ['Production', 'Inventory', 'Sales', 'Compliance', 'EM
 export const PAGES = [
   { key: 'dashboard',        label: 'Dashboard',        path: '/',                 icon: Home,          component: Dashboard,        navGroup: 'top' },
 
-  { key: 'production',        label: 'Production',        path: '/production',       icon: Factory,       component: Production,        navGroup: 'Production' },
-  { key: 'tanks',             label: 'Tanks',             path: '/tanks',             icon: Cylinder,      component: Tanks,             navGroup: 'Production', hubOnly: true },
+  { key: 'production',        label: 'Production',        path: '/production',       icon: Factory,       component: Production,        navGroup: 'Production', isHub: true },
+  { key: 'tanks',             label: 'Tanks',             path: '/tanks',             icon: Cylinder,      component: Tanks,             navGroup: 'Production' },
   { key: 'tank-detail',       label: 'Tank Detail',       path: '/tanks/:tankId',     icon: Cylinder,      component: TankDetail,        navGroup: null },
-  { key: 'dilutions',         label: 'Dilutions',         path: '/dilutions',         icon: Droplets,      component: Dilutions,         navGroup: 'Production', hubOnly: true },
-  { key: 'distillation',      label: 'Distillations',     path: '/distillation',      icon: Flame,         component: Distillation,      navGroup: 'Production', hubOnly: true },
-  { key: 'sns-distillation',  label: 'SNS Distillation',  path: '/sns-distillation',  icon: Flame,         component: SNSDistillation,   navGroup: 'Production', hubOnly: true },
-  { key: 'bottling-floor',    label: 'Bottling Floor',    path: '/bottling-floor',    icon: Wine,          component: BottlingFloor,     navGroup: 'Production', hubOnly: true },
+  { key: 'dilutions',         label: 'Dilutions',         path: '/dilutions',         icon: Droplets,      component: Dilutions,         navGroup: 'Production' },
+  { key: 'distillation',      label: 'Distillations',     path: '/distillation',      icon: Flame,         component: Distillation,      navGroup: 'Production' },
+  { key: 'sns-distillation',  label: 'SNS Distillation',  path: '/sns-distillation',  icon: Flame,         component: SNSDistillation,   navGroup: 'Production' },
+  { key: 'bottling-floor',    label: 'Bottling Floor',    path: '/bottling-floor',    icon: Wine,          component: BottlingFloor,     navGroup: 'Production' },
 
-  { key: 'inventory-hub',     label: 'Inventory',         path: '/inventory-hub',     icon: Boxes,         component: InventoryHub,      navGroup: 'Inventory' },
-  { key: 'inventory',         label: 'Finished Goods',    path: '/inventory',         icon: Warehouse,     component: Inventory,         navGroup: 'Inventory', hubOnly: true },
-  { key: 'warehouse',         label: 'Warehouse (3PL)',   path: '/warehouse',         icon: Building2,     component: Warehouse_,        navGroup: 'Inventory', hubOnly: true },
-  { key: 'receiving',         label: 'Receiving',         path: '/receiving',         icon: PackagePlus,   component: Receiving,         navGroup: 'Inventory', hubOnly: true },
-  { key: 'stock-takes',       label: 'Stock Takes',       path: '/stock-takes',       icon: ClipboardList, component: StockTakes,        navGroup: 'Inventory', hubOnly: true },
-  { key: 'whiskey-barrels',   label: 'Whiskey Barrels',   path: '/whiskey-barrels',   icon: Archive,       component: WhiskeyBarrels,    navGroup: 'Inventory', hubOnly: true },
+  { key: 'inventory-hub',     label: 'Inventory',         path: '/inventory-hub',     icon: Boxes,         component: InventoryHub,      navGroup: 'Inventory', isHub: true },
+  { key: 'inventory',         label: 'Finished Goods',    path: '/inventory',         icon: Warehouse,     component: Inventory,         navGroup: 'Inventory' },
+  { key: 'warehouse',         label: 'Warehouse (3PL)',   path: '/warehouse',         icon: Building2,     component: Warehouse_,        navGroup: 'Inventory' },
+  { key: 'receiving',         label: 'Receiving',         path: '/receiving',         icon: PackagePlus,   component: Receiving,         navGroup: 'Inventory' },
+  { key: 'stock-takes',       label: 'Stock Takes',       path: '/stock-takes',       icon: ClipboardList, component: StockTakes,        navGroup: 'Inventory' },
+  { key: 'whiskey-barrels',   label: 'Whiskey Barrels',   path: '/whiskey-barrels',   icon: Archive,       component: WhiskeyBarrels,    navGroup: 'Inventory' },
 
   { key: 'sales',             label: 'Sales',             path: '/sales',             icon: Activity,      component: SalesOverview,     navGroup: 'Sales' },
   { key: 'dispatch',          label: 'Dispatch',          path: '/dispatch',          icon: TrendingUp,    component: DispatchHub,       navGroup: 'Sales' },
@@ -92,19 +94,19 @@ export const PAGES = [
   { key: 'order-detail',      label: 'Order Detail',      path: '/customers/:customerId/orders/:orderId', icon: Users, component: OrderDetail, navGroup: null },
   { key: 'suppliers',         label: 'Suppliers',         path: '/suppliers',         icon: Truck,         component: Suppliers,         navGroup: 'Sales' },
 
-  { key: 'compliance',        label: 'Compliance',        path: '/compliance',        icon: ClipboardCheck, component: Compliance,       navGroup: 'Compliance' },
-  { key: 'checklists',        label: 'Daily Checks',      path: '/daily-checks',      icon: CheckSquare,   component: Checklists,        navGroup: 'Compliance', hubOnly: true },
-  { key: 'temperature-logs',  label: 'Temperature Logs',  path: '/temperature-logs',  icon: Thermometer,   component: TemperatureLogs,   navGroup: 'Compliance', hubOnly: true },
-  { key: 'maintenance',       label: 'Maintenance',       path: '/maintenance',       icon: Wrench,        component: MaintenanceRecords, navGroup: 'Compliance', hubOnly: true },
-  { key: 'pest-control',      label: 'Pest Control',      path: '/pest-control',      icon: Bug,           component: PestControl,       navGroup: 'Compliance', hubOnly: true },
-  { key: 'food-recall',       label: 'Food Recall',       path: '/food-recall',       icon: AlertTriangle, component: FoodRecallManager, navGroup: 'Compliance', hubOnly: true },
+  { key: 'compliance',        label: 'Compliance',        path: '/compliance',        icon: ClipboardCheck, component: Compliance,       navGroup: 'Compliance', isHub: true },
+  { key: 'checklists',        label: 'Daily Checks',      path: '/daily-checks',      icon: CheckSquare,   component: Checklists,        navGroup: 'Compliance' },
+  { key: 'temperature-logs',  label: 'Temperature Logs',  path: '/temperature-logs',  icon: Thermometer,   component: TemperatureLogs,   navGroup: 'Compliance' },
+  { key: 'maintenance',       label: 'Maintenance',       path: '/maintenance',       icon: Wrench,        component: MaintenanceRecords, navGroup: 'Compliance' },
+  { key: 'pest-control',      label: 'Pest Control',      path: '/pest-control',      icon: Bug,           component: PestControl,       navGroup: 'Compliance' },
+  { key: 'food-recall',       label: 'Food Recall',       path: '/food-recall',       icon: AlertTriangle, component: FoodRecallManager, navGroup: 'Compliance' },
 
-  { key: 'ems',               label: 'EMS',               path: '/ems',               icon: Recycle,       component: EMS,               navGroup: 'EMS' },
-  { key: 'aspects-register',  label: 'Aspects & Impacts Register', path: '/aspects-register', icon: FileText, component: AspectsRegister, navGroup: 'EMS', hubOnly: true },
-  { key: 'objectives',        label: 'Objectives & Targets', path: '/objectives',      icon: Target,        component: Objectives,        navGroup: 'EMS', hubOnly: true },
-  { key: 'legal-register',    label: 'Legal & Compliance Register', path: '/legal-register', icon: Scale,   component: LegalRegister,     navGroup: 'EMS', hubOnly: true },
-  { key: 'management-review', label: 'Management Review', path: '/management-review', icon: ClipboardPen,  component: ManagementReview,  navGroup: 'EMS', hubOnly: true },
-  { key: 'lifecycle-report',  label: 'Lifecycle Report',  path: '/lifecycle-report',  icon: Globe2,        component: LifecycleReport,   navGroup: 'EMS', hubOnly: true },
+  { key: 'ems',               label: 'EMS',               path: '/ems',               icon: Recycle,       component: EMS,               navGroup: 'EMS', isHub: true },
+  { key: 'aspects-register',  label: 'Aspects & Impacts Register', path: '/aspects-register', icon: FileText, component: AspectsRegister, navGroup: 'EMS' },
+  { key: 'objectives',        label: 'Objectives & Targets', path: '/objectives',      icon: Target,        component: Objectives,        navGroup: 'EMS' },
+  { key: 'legal-register',    label: 'Legal & Compliance Register', path: '/legal-register', icon: Scale,   component: LegalRegister,     navGroup: 'EMS' },
+  { key: 'management-review', label: 'Management Review', path: '/management-review', icon: ClipboardPen,  component: ManagementReview,  navGroup: 'EMS' },
+  { key: 'lifecycle-report',  label: 'Lifecycle Report',  path: '/lifecycle-report',  icon: Globe2,        component: LifecycleReport,   navGroup: 'EMS' },
   { key: 'waste-tracker',     label: 'Waste Tracker',     path: '/waste-tracker',     icon: Leaf,          component: WasteTracker,      navGroup: 'EMS' },
   { key: 'utilities',         label: 'Utilities',         path: '/utilities',         icon: Zap,           component: UtilityTracker,    navGroup: 'EMS' },
 
