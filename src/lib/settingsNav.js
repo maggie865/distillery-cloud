@@ -19,7 +19,7 @@
 import {
   User, Building2, Users, Cylinder, FlaskConical, Link2, Boxes, Truck, Upload,
   CheckSquare, Wrench, MapPin, ShieldCheck, LayoutDashboard, Database, Factory,
-  Package, PackagePlus, ClipboardList, Lock, Activity, RefreshCw,
+  Package, PackagePlus, ClipboardList, Lock, Activity, RefreshCw, Leaf,
 } from 'lucide-react';
 
 import MyProfilePanel from '@/components/settings/MyProfilePanel';
@@ -29,6 +29,7 @@ import RecipeManager from '@/components/settings/RecipeManager';
 import PackagingRecipeManager from '@/components/settings/PackagingRecipeManager';
 import ProductsManager from '@/components/settings/ProductsManager';
 import ProductLinksManager from '@/components/settings/ProductLinksManager';
+import PackagingMaterialsManager from '@/components/settings/PackagingMaterialsManager';
 import ImportDataPanel from '@/components/settings/ImportDataPanel';
 import ChecklistManager from '@/components/settings/ChecklistManager';
 import PestControlMapSettings from '@/components/settings/PestControlMapSettings';
@@ -60,6 +61,7 @@ export const SETTINGS_NAV = [
       { key: 'recipes', label: 'Recipes', description: 'Manage base spirit recipes and botanicals.', icon: FlaskConical, kind: 'embed', component: RecipeManager },
       { key: 'packaging-recipes', label: 'Packaging Recipes', description: 'Link each bottle size to a base recipe, a product, and its packaging materials.', icon: PackagePlus, kind: 'embed', component: PackagingRecipeManager },
       { key: 'product-links', label: 'Product Links', description: 'Link supplier packing-slip names to your stock items.', icon: Link2, kind: 'embed', component: ProductLinksManager },
+      { key: 'packaging-materials', label: 'Packaging Materials', description: 'Emission factors and environmental certifications for each packaging item, used by the EMS Lifecycle Report.', icon: Leaf, kind: 'embed', component: PackagingMaterialsManager },
     ],
   },
   {
