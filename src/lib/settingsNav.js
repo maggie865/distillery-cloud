@@ -39,6 +39,7 @@ import DataExportPanel from '@/components/settings/DataExportPanel';
 import CustomerImportPanel from '@/components/customers/CustomerImportPanel';
 import XeroConnectionPanel from '@/components/settings/XeroConnectionPanel';
 import XeroMappingManager from '@/components/settings/XeroMappingManager';
+import PermissionsPanel from '@/components/settings/PermissionsPanel';
 
 export const SETTINGS_NAV = [
   {
@@ -48,7 +49,7 @@ export const SETTINGS_NAV = [
     items: [
       { key: 'profile', label: 'My Profile', description: 'Your account details.', icon: User, kind: 'embed', component: MyProfilePanel },
       { key: 'organisation', label: 'Organisation', description: 'Distillery and warehouse addresses used across the app.', icon: Building2, kind: 'embed', component: LocationSettings },
-      { key: 'users-team', label: 'Users & Team', description: 'Manage team access and roles.', icon: Users, kind: 'link', path: '/permissions', superAdminOnly: true },
+      { key: 'users-team', label: 'Users & Team', description: 'Manage team access and roles.', icon: Users, kind: 'embed', component: PermissionsPanel, superAdminOnly: true },
     ],
   },
   {
@@ -115,7 +116,7 @@ export const SETTINGS_NAV = [
     label: 'System',
     icon: Lock,
     items: [
-      { key: 'permissions', label: 'Permissions', description: 'Toggle page access per role and assign user roles.', icon: ShieldCheck, kind: 'link', path: '/permissions', superAdminOnly: true },
+      { key: 'permissions', label: 'Permissions', description: 'Toggle page access per role and assign user roles.', icon: ShieldCheck, kind: 'embed', component: PermissionsPanel, superAdminOnly: true },
       { key: 'backup', label: 'Backup', description: 'Export your data for backup or safekeeping.', icon: Database, kind: 'embed', component: DataExportPanel },
     ],
   },

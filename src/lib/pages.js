@@ -115,5 +115,8 @@ export const PAGES = [
 
   // Super-admin only - not part of the toggleable permission matrix at all
   // (see PageGate.jsx), so it has no corresponding page_permission row.
-  { key: 'permissions',       label: 'Permissions',       path: '/permissions',       icon: ShieldCheck,   component: Permissions,       navGroup: 'bottom', superAdminOnly: true },
+  // navGroup: null - reachable via Settings (System > Permissions / Account >
+  // Users & Team, both now embedded via PermissionsPanel), not its own
+  // top-nav destination, but the route stays live as a direct-link fallback.
+  { key: 'permissions',       label: 'Permissions',       path: '/permissions',       icon: ShieldCheck,   component: Permissions,       navGroup: null, superAdminOnly: true },
 ];
