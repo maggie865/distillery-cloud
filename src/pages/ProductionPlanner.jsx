@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { CalendarDays, Plus, Pencil, Trash2, Flame, Droplets, Wine, Cylinder, AlertTriangle } from 'lucide-react';
+import { CalendarDays, Plus, Pencil, Trash2, Flame, Droplets, Wine, Cylinder, AlertTriangle, Link2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 import StatCard from '@/components/shared/StatCard';
@@ -22,6 +22,24 @@ const RUN_TYPES = [
   { id: 'bottling', label: 'Bottling', icon: Wine },
 ];
 const runTypeInfo = (id) => RUN_TYPES.find(t => t.id === id) || RUN_TYPES[0];
+
+// Linking a plan to the real record it became (see "Link to actual run"
+// below) lets the planner show what's really going on - that record's own
+// status - instead of just the plan's own coarse
+// planned/in_progress/completed state. Each real run table has a different
+// shape (only distillation_run and
+// bottling_run have product_name; sns_run has neither a batch_number nor a
+// product_name) - this builds one identifying line per type rather than
+// assuming a common shape.
+function runSummary(runType, run) {
+  if (!run) return '';
+  const parts = [];
+  if (run.batch_number) parts.push(run.batch_number);
+  else if (runType === 'sns_distillation') parts.push('SNS Run');
+  if (run.product_name) parts.push(run.product_name);
+  if (run.date) parts.push(run.date);
+  return parts.join(' · ');
+}
 
 const STATUSES = ['planned', 'in_progress', 'completed', 'cancelled'];
 const STATUS_LABELS = { planned: 'Planned', in_progress: 'In Progress', completed: 'Completed', cancelled: 'Cancelled' };
@@ -66,6 +84,27 @@ export default function ProductionPlanner() {
   });
   const tankById = useMemo(() => new Map(tanks.map(t => [t.id, t])), [tanks]);
 
+  // Real run records, one query per type (hooks can't be called in a loop,
+  // hence four separate useQuery calls rather than mapping over RUN_TYPES)
+  // - used both to look up a linked plan's actual current status and to
+  // populate the "pick a run" list in the link dialog. Counts are modest
+  // (a few hundred rows each at most) so fetching all of each is fine.
+  const { data: distillationRuns = [] } = useQuery({ queryKey: ['runsForPlanner', 'distillation'], queryFn: () => db.DistillationRun.list('-date', 1000) });
+  const { data: snsRuns = [] } = useQuery({ queryKey: ['runsForPlanner', 'sns_distillation'], queryFn: () => db.SNSRun.list('-date', 1000) });
+  const { data: dilutionRuns = [] } = useQuery({ queryKey: ['runsForPlanner', 'dilution'], queryFn: () => db.Dilution.list('-date', 1000) });
+  const { data: bottlingRuns = [] } = useQuery({ queryKey: ['runsForPlanner', 'bottling'], queryFn: () => db.BottlingRun.list('-date', 1000) });
+  const runsByType = {
+    distillation: distillationRuns, sns_distillation: snsRuns,
+    dilution: dilutionRuns, bottling: bottlingRuns,
+  };
+  const runById = useMemo(() => {
+    const map = new Map();
+    for (const t of RUN_TYPES) for (const r of runsByType[t.id]) map.set(r.id, { ...r, run_type: t.id });
+    return map;
+  }, [distillationRuns, snsRuns, dilutionRuns, bottlingRuns]);
+
+  const [linkTarget, setLinkTarget] = useState(null); // plan being linked, or null
+
   const createMutation = useMutation({
     mutationFn: (payload) => db.ProductionPlan.create(payload),
     onSuccess: () => {
@@ -100,6 +139,30 @@ export default function ProductionPlanner() {
     mutationFn: ({ id, status }) => db.ProductionPlan.update(id, { status }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['productionPlans'] }); },
     onError: (e) => toast.error(e.message || 'Failed to update status'),
+  });
+
+  // Linking to the real run also bumps the plan to in_progress (unless
+  // it's already completed/cancelled) - the whole point of linking is that
+  // the run has actually started, so leaving it sitting at "planned" would
+  // be misleading now that there's a real record.
+  const linkMutation = useMutation({
+    mutationFn: ({ plan, run }) => db.ProductionPlan.update(plan.id, {
+      linked_run_id: run.id,
+      linked_run_type: plan.run_type,
+      status: (plan.status === 'completed' || plan.status === 'cancelled') ? plan.status : 'in_progress',
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['productionPlans'] });
+      setLinkTarget(null);
+      toast.success('Linked to actual run');
+    },
+    onError: (e) => toast.error(e.message || 'Failed to link'),
+  });
+
+  const unlinkMutation = useMutation({
+    mutationFn: (planId) => db.ProductionPlan.update(planId, { linked_run_id: null, linked_run_type: null }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['productionPlans'] }); },
+    onError: (e) => toast.error(e.message || 'Failed to unlink'),
   });
 
   const openAdd = () => { setEditingPlan(null); setForm(BLANK_FORM); setFormOpen(true); };
@@ -198,7 +261,7 @@ export default function ProductionPlanner() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Cylinder className="w-4 h-4" /> Tank availability</CardTitle>
-          <CardDescription>Nearest upcoming booking per tank</CardDescription>
+          <CardDescription>What's actually in each tank right now, plus the nearest upcoming booking</CardDescription>
         </CardHeader>
         <CardContent>
           {tanks.length === 0 ? (
@@ -207,19 +270,32 @@ export default function ProductionPlanner() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {tanks.map(tank => {
                 const booking = nextBookingByTank.get(tank.id);
+                const liveInUse = tank.status === 'in_use';
                 return (
-                  <div key={tank.id} className="flex items-center justify-between gap-2 rounded-lg border border-border p-3">
-                    <div className="min-w-0">
+                  <div key={tank.id} className="rounded-lg border border-border p-3 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium truncate">{tank.name}</p>
-                      {booking ? (
-                        <p className="text-xs text-muted-foreground truncate">
-                          {booking.title} · {booking.planned_date}{endOf(booking) !== booking.planned_date ? ` – ${endOf(booking)}` : ''}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-emerald-600">Free</p>
+                      {tank.status && tank.status !== 'empty' && (
+                        <Badge variant={liveInUse ? 'default' : 'secondary'} className="text-[10px] shrink-0 capitalize">
+                          {tank.status.replace('_', ' ')}
+                        </Badge>
                       )}
                     </div>
-                    {booking && <Badge className={`text-xs shrink-0 ${STATUS_COLORS[booking.status]}`}>{STATUS_LABELS[booking.status]}</Badge>}
+                    {liveInUse && (
+                      <p className="text-xs text-foreground truncate">
+                        Now: {tank.current_product || 'Unlabelled contents'}{tank.current_batch ? ` · ${tank.current_batch}` : ''}
+                      </p>
+                    )}
+                    {booking ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs text-muted-foreground truncate">
+                          Next: {booking.title} · {booking.planned_date}{endOf(booking) !== booking.planned_date ? ` – ${endOf(booking)}` : ''}
+                        </p>
+                        <Badge className={`text-[10px] shrink-0 ${STATUS_COLORS[booking.status]}`}>{STATUS_LABELS[booking.status]}</Badge>
+                      </div>
+                    ) : !liveInUse && (
+                      <p className="text-xs text-emerald-600">Free — nothing scheduled</p>
+                    )}
                   </div>
                 );
               })}
@@ -265,6 +341,7 @@ export default function ProductionPlanner() {
                 <TableBody>
                   {filtered.map(p => {
                     const type = runTypeInfo(p.run_type);
+                    const linkedRun = p.linked_run_id ? runById.get(p.linked_run_id) : null;
                     return (
                       <TableRow key={p.id}>
                         <TableCell className="text-sm whitespace-nowrap">
@@ -276,6 +353,15 @@ export default function ProductionPlanner() {
                         <TableCell className="text-sm">
                           <p className="font-medium">{p.title}</p>
                           {p.product_name && <p className="text-xs text-muted-foreground">{p.product_name}</p>}
+                          {p.linked_run_id ? (
+                            linkedRun ? (
+                              <p className="text-xs text-emerald-700 mt-0.5">
+                                Actual: {runSummary(p.run_type, linkedRun)} — <span className="capitalize">{linkedRun.status?.replace('_', ' ')}</span>
+                              </p>
+                            ) : (
+                              <p className="text-xs text-muted-foreground mt-0.5">Linked run no longer found</p>
+                            )
+                          ) : null}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">{p.tank_id ? (tankById.get(p.tank_id)?.name || '—') : '—'}</TableCell>
                         <TableCell>
@@ -289,7 +375,16 @@ export default function ProductionPlanner() {
                           </Select>
                         </TableCell>
                         <TableCell>
-                          <div className="flex gap-1 justify-end">
+                          <div className="flex gap-1.5 justify-end">
+                            {p.linked_run_id ? (
+                              <button onClick={() => unlinkMutation.mutate(p.id)} title="Unlink actual run" className="text-muted-foreground hover:text-foreground transition-colors">
+                                <Unlink className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <button onClick={() => setLinkTarget(p)} title="Link to actual run" className="text-muted-foreground hover:text-primary transition-colors">
+                                <Link2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             <button onClick={() => openEdit(p)} className="text-muted-foreground hover:text-foreground transition-colors">
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
@@ -385,6 +480,40 @@ export default function ProductionPlanner() {
               {(createMutation.isPending || updateMutation.isPending) ? 'Saving...' : editingPlan ? 'Save Changes' : 'Plan Run'}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!linkTarget} onOpenChange={(v) => !v && setLinkTarget(null)}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-display">Link to Actual Run</DialogTitle>
+          </DialogHeader>
+          {linkTarget && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Pick the real {runTypeInfo(linkTarget.run_type).label.toLowerCase()} record for "{linkTarget.title}".
+              </p>
+              {(runsByType[linkTarget.run_type] || []).length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  No {runTypeInfo(linkTarget.run_type).label.toLowerCase()} records found yet.
+                </p>
+              ) : (
+                <div className="space-y-1.5 max-h-96 overflow-y-auto">
+                  {(runsByType[linkTarget.run_type] || []).slice(0, 40).map(run => (
+                    <button
+                      key={run.id}
+                      onClick={() => linkMutation.mutate({ plan: linkTarget, run })}
+                      disabled={linkMutation.isPending}
+                      className="w-full flex items-center justify-between gap-2 rounded-lg border border-border p-2.5 text-left hover:border-primary/50 hover:bg-muted/50 transition-colors"
+                    >
+                      <span className="text-sm">{runSummary(linkTarget.run_type, run)}</span>
+                      <Badge variant="secondary" className="text-xs capitalize shrink-0">{run.status?.replace('_', ' ')}</Badge>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
