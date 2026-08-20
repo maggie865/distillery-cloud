@@ -1,10 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
 import { db } from '@/api/supabaseClient';
 import { ELECTRICITY_EF, WATER_EF } from '@/pages/UtilityTracker';
-import { DEFAULT_EMISSION_FACTORS, EMISSION_FACTORS_KEY, WASTE_RECORDS_KEY, co2eFor } from '@/pages/WasteTracker';
+import { DEFAULT_EMISSION_FACTORS, EMISSION_FACTORS_KEY, co2eFor, normalizeWasteRecord } from '@/pages/WasteTracker';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -54,21 +53,17 @@ export default function LifecycleReport() {
     queryKey: ['utilityLogs'],
     queryFn: () => db.UtilityLog.list('-reading_date', 5000),
   });
-  // Same AppSettings-JSON-blob source WasteTracker.jsx itself reads —
-  // there's no dedicated waste table.
   const { data: wasteRecords = [] } = useQuery({
     queryKey: ['wasteRecordsForLifecycleReport'],
     queryFn: async () => {
-      const rows = await base44.entities.AppSettings.list('key', 5000);
-      const row = rows.find(r => r.key === WASTE_RECORDS_KEY);
-      if (!row?.value) return [];
-      try { return JSON.parse(row.value); } catch { return []; }
+      const rows = await db.WasteRecord.list('-date', 5000);
+      return rows.map(normalizeWasteRecord);
     },
   });
   const { data: wasteFactors = DEFAULT_EMISSION_FACTORS } = useQuery({
     queryKey: ['wasteEmissionFactorsForLifecycleReport'],
     queryFn: async () => {
-      const rows = await base44.entities.AppSettings.list('key', 5000);
+      const rows = await db.AppSettings.list('key', 5000);
       const row = rows.find(r => r.key === EMISSION_FACTORS_KEY);
       if (!row?.value) return DEFAULT_EMISSION_FACTORS;
       try { return { ...DEFAULT_EMISSION_FACTORS, ...JSON.parse(row.value) }; }

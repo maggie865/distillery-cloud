@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db } from '@/api/supabaseClient';
-import { base44 } from '@/api/base44Client';
+import { normalizeWasteRecord } from '@/pages/WasteTracker';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -96,15 +96,11 @@ export default function Objectives() {
   });
   const aspectById = useMemo(() => new Map(aspects.map(a => [a.id, a])), [aspects]);
 
-  // Same source WasteTracker.jsx reads — one AppSettings row holding every
-  // waste record as a JSON array (no dedicated waste table exists).
   const { data: wasteRecords = [] } = useQuery({
     queryKey: ['wasteRecordsForObjectives'],
     queryFn: async () => {
-      const rows = await base44.entities.AppSettings.list('key', 5000);
-      const row = rows.find(r => r.key === 'waste_records');
-      if (!row?.value) return [];
-      try { return JSON.parse(row.value); } catch { return []; }
+      const rows = await db.WasteRecord.list('-date', 5000);
+      return rows.map(normalizeWasteRecord);
     },
   });
 
