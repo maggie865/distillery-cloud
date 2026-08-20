@@ -12,7 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Upload, Loader2, FileText, Pencil, ExternalLink, Trash2, MapPin, Eye, Search, Link2 } from 'lucide-react';
+import { Plus, Upload, Loader2, FileText, Pencil, ExternalLink, Trash2, MapPin, Eye, Search, Link2, Camera } from 'lucide-react';
 import MobileCard, { MobileCardGrid, MobileDetailRow } from '@/components/shared/MobileCard';
 import MaterialAutocomplete from '@/components/receiving/MaterialAutocomplete';
 import { format } from 'date-fns';
@@ -687,6 +687,18 @@ export default function Receiving() {
       )}
 
       <PageHeader title="Receiving" subtitle="Log incoming raw materials and ethanol">
+        {/* Camera-direct shortcut, mobile only - a separate input from the
+            general upload button below since forcing `capture` on that one
+            would also block picking an existing PDF/photo (e.g. a slip
+            emailed as a PDF), which is at least as common as photographing
+            a paper one on the spot. */}
+        <label className="cursor-pointer md:hidden">
+          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePackingSlip} disabled={uploadingSlip || extracting} />
+          <div className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-9 px-4 py-2 border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors ${(uploadingSlip || extracting) ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            <Camera className="w-4 h-4" />
+            Take Photo
+          </div>
+        </label>
         <label className="cursor-pointer">
           <input type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden" onChange={handlePackingSlip} disabled={uploadingSlip || extracting} />
           <div className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-9 px-4 py-2 border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors ${(uploadingSlip || extracting) ? 'opacity-50 cursor-not-allowed' : ''}`}>

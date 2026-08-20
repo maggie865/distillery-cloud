@@ -33,5 +33,25 @@
       "type": "image/png",
       "purpose": "maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Log Waste",
+      "short_name": "Log Waste",
+      "description": "Log a new waste entry",
+      "url": "/waste-tracker?action=log"
+    },
+    {
+      "name": "Receiving",
+      "short_name": "Receiving",
+      "description": "Log incoming raw materials and ethanol",
+      "url": "/receiving"
+    },
+    {
+      "name": "Dispatch",
+      "short_name": "Dispatch",
+      "description": "Record dispatches and track stock",
+      "url": "/dispatch"
+    }
   ]
 }
