@@ -10,11 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Truck, PackageCheck, MapPin, Trash2, Search, Map, Pencil, RotateCcw, ArrowRightLeft, Plus, Store, FileCheck } from 'lucide-react';
+import { Truck, PackageCheck, MapPin, Trash2, Search, Map, Pencil, RotateCcw, ArrowRightLeft, Plus, Store, FileCheck, RefreshCw } from 'lucide-react';
 import MobileCard, { MobileCardGrid, MobileDetailRow } from '@/components/shared/MobileCard';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { base44 } from '@/api/base44Client';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import Pagination from '@/components/ui/Pagination';
@@ -74,6 +73,17 @@ export default function DispatchHub() {
   const { data: warehouseStock = [] } = useQuery({ queryKey: ['warehouseStock'], queryFn: () => db.WarehouseStock.list('-date_transferred_in', 5000) });
   const { data: allDispatches = [] } = useQuery({ queryKey: ['dispatches-all'], queryFn: () => db.Dispatch.list('-dispatch_date', 5000) });
   const { data: customers = [] } = useQuery({ queryKey: ['customers'], queryFn: () => db.Customer.list('business_name', 5000) });
+  // Shares a query key with XeroConnectionPanel.jsx (Settings) so both stay
+  // in sync off one cache entry rather than polling independently.
+  const { data: xeroStatus } = useQuery({
+    queryKey: ['xeroConnectionStatus'],
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke('xero-connection', { body: { action: 'status' } });
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Failed to check Xero connection status');
+      return data;
+    },
+  });
   // Client-side pagination — allDispatches already loaded above
 
   const totalBottlesDispatched = allDispatches.reduce((s, d) => s + (d.quantity_bottles || 0), 0);
@@ -329,14 +339,22 @@ export default function DispatchHub() {
     onError: (err) => toast.error(err.message || 'Failed to delete dispatch'),
   });
 
-  const recalcMutation = useMutation({
-    mutationFn: async () => { return await base44.functions.invoke('recalculateFinishedGoodStock', {}); },
-    onSuccess: (res) => {
-      invalidateAll();
-      const d = res?.data || res;
-      toast.success(`Stock recalculated: ${d.records_updated} updated, ${d.records_deleted} removed`);
+  const xeroSyncMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('xero-sync-invoices', {});
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Sync failed');
+      return data;
     },
-    onError: () => toast.error('Failed to recalculate stock'),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['xeroConnectionStatus'] });
+      invalidateAll();
+      const parts = [`${data.invoices_processed} invoice${data.invoices_processed === 1 ? '' : 's'} checked`];
+      if (data.lines_created > 0) parts.push(`${data.lines_created} new draft dispatch${data.lines_created === 1 ? '' : 'es'} added`);
+      if (data.lines_unmatched > 0) parts.push(`${data.lines_unmatched} unmatched — needs a product mapping or manual completion`);
+      toast.success(parts.join(' · '));
+    },
+    onError: (e) => toast.error(e.message || 'Xero sync failed'),
   });
 
   return (
@@ -346,7 +364,16 @@ export default function DispatchHub() {
         <Button onClick={() => setShowTransfer3PL(true)} className="gap-2"><ArrowRightLeft className="w-4 h-4" />Transfer to 3PL</Button>
         <Button variant="outline" onClick={() => setShowForm(true)} className="gap-2"><Truck className="w-4 h-4" />Wholesale</Button>
         <Button onClick={() => setShowDirectSalesForm(true)} className="gap-2"><Store className="w-4 h-4" />Direct Sale</Button>
-        <Button variant="outline" onClick={() => recalcMutation.mutate()} disabled={recalcMutation.isPending} className="gap-2"><RotateCcw className="w-4 h-4" />{recalcMutation.isPending ? 'Recalculating...' : 'Recalc Stock'}</Button>
+        <Button
+          variant="outline"
+          onClick={() => xeroSyncMutation.mutate()}
+          disabled={xeroSyncMutation.isPending || !xeroStatus?.connected}
+          title={xeroStatus?.connected ? undefined : 'Connect to Xero under Settings first'}
+          className="gap-2"
+        >
+          <RefreshCw className={`w-4 h-4 ${xeroSyncMutation.isPending ? 'animate-spin' : ''}`} />
+          {xeroSyncMutation.isPending ? 'Syncing…' : 'Sync Xero'}
+        </Button>
       </PageHeader>
 
       {showMap && <div className="mb-6"><DeliveryMap dispatches={allDispatches} customers={customers} distilleryOrigin={DISTILLERY_ORIGIN} /></div>}

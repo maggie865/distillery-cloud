@@ -1,23 +1,20 @@
-import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/api/supabaseClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { RefreshCw, Link2, Unlink, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
-// Connect/disconnect Xero and manually pull invoices in as draft ('pending')
-// dispatch rows. No token, secret, or tenant ID is ever visible here or
-// stored client-side — everything OAuth-related lives behind the
-// xero-oauth-start / xero-oauth-callback / xero-connection / xero-sync-invoices
-// Edge Functions (see supabase/functions/), which are the only things that
-// ever touch the locked-down xero_connection table.
+// Connect/disconnect Xero here; the actual "pull invoices in as draft
+// dispatches" action lives as a Sync button on the Dispatch page instead,
+// since that's where the results land. No token, secret, or tenant ID is
+// ever visible here or stored client-side — everything OAuth-related lives
+// behind the xero-oauth-start / xero-oauth-callback / xero-connection /
+// xero-sync-invoices Edge Functions (see supabase/functions/), which are the
+// only things that ever touch the locked-down xero_connection table.
 export default function XeroConnectionPanel() {
   const queryClient = useQueryClient();
-  const [syncFromDate, setSyncFromDate] = useState('');
 
   const { data: status, isLoading } = useQuery({
     queryKey: ['xeroConnectionStatus'],
@@ -58,40 +55,6 @@ export default function XeroConnectionPanel() {
     onError: (e) => toast.error(e.message || 'Failed to disconnect'),
   });
 
-  const syncMutation = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('xero-sync-invoices', { body: syncFromDate ? { since_date: syncFromDate } : {} });
-      if (error) throw error;
-      if (!data?.success) throw new Error(data?.error || 'Sync failed');
-      return data;
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['xeroConnectionStatus'] });
-      queryClient.invalidateQueries({ queryKey: ['dispatches'] });
-      queryClient.invalidateQueries({ queryKey: ['dispatches-all'] });
-      // TODO(temporary): drop debug_where/debug_if_modified_since from the
-      // response and this console.log once Xero sync is confirmed working
-      // end-to-end — added only to diagnose a 0-invoices-found report
-      // without needing server-side function logs.
-      console.log('Xero sync result:', data);
-      const parts = [`${data.invoices_processed} invoice${data.invoices_processed === 1 ? '' : 's'} checked`];
-      if (data.lines_created > 0) parts.push(`${data.lines_created} new draft dispatch${data.lines_created === 1 ? '' : 'es'} added`);
-      if (data.lines_unmatched > 0) parts.push(`${data.lines_unmatched} unmatched — needs a product mapping or manual completion`);
-      // Surface debug info any time nothing got created, not just when Xero
-      // returned zero invoices — invoices_processed > 0 with 0 lines created
-      // AND 0 unmatched (the case this was actually needed for) means every
-      // invoice came back with no usable line items, which is just as worth
-      // seeing without needing DevTools.
-      const nothingCreated = data.lines_created === 0 && data.lines_unmatched === 0;
-      if (nothingCreated) {
-        parts.push(`where: ${data.debug_where}${data.debug_if_modified_since ? ` · If-Modified-Since: ${data.debug_if_modified_since}` : ''}`);
-        if (data.debug_sample) parts.push(`sample: ${JSON.stringify(data.debug_sample)}`);
-      }
-      toast.success(parts.join(' · '), nothingCreated ? { duration: 30000 } : undefined);
-    },
-    onError: (e) => toast.error(e.message || 'Sync failed'),
-  });
-
   const connected = status?.connected;
 
   return (
@@ -103,7 +66,8 @@ export default function XeroConnectionPanel() {
         <p className="text-sm text-muted-foreground">
           Connect Xero to pull authorised sales invoices in as draft dispatches you can review, allocate a real batch
           against, and approve — nothing here touches stock until you approve a dispatch. Configure which Xero line
-          items map to which products under Xero Product Mapping.
+          items map to which products under Xero Product Mapping. Once connected, use the "Sync Xero" button on the
+          Dispatch page to pull in new invoices.
         </p>
 
         {isLoading ? (
@@ -117,23 +81,9 @@ export default function XeroConnectionPanel() {
             <p className="text-xs text-muted-foreground">
               Last synced: {status.last_synced_at ? format(new Date(status.last_synced_at), 'd MMM yyyy, h:mm a') : 'Never'}
             </p>
-            <div className="max-w-xs">
-              <Label className="text-xs">Sync from date (optional)</Label>
-              <Input type="date" value={syncFromDate} onChange={(e) => setSyncFromDate(e.target.value)} className="mt-1" />
-              <p className="text-xs text-muted-foreground mt-1">
-                {syncFromDate
-                  ? `Next sync pulls every authorised invoice dated ${format(new Date(syncFromDate), 'd MMM yyyy')} or later, regardless of when it was last checked.`
-                  : 'Leave blank for a normal sync — only invoices changed since the last sync (or the last 30 days, on the very first sync).'}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" className="gap-1.5" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
-                <RefreshCw className={`w-4 h-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} /> {syncMutation.isPending ? 'Syncing…' : 'Sync Now'}
-              </Button>
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => disconnectMutation.mutate()} disabled={disconnectMutation.isPending}>
-                <Unlink className="w-4 h-4" /> Disconnect
-              </Button>
-            </div>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => disconnectMutation.mutate()} disabled={disconnectMutation.isPending}>
+              <Unlink className="w-4 h-4" /> Disconnect
+            </Button>
           </div>
         ) : (
           <div className="space-y-3">
