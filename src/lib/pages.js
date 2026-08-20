@@ -26,12 +26,13 @@ import {
   Warehouse, Building2, FileText, Settings as SettingsIcon, PackagePlus,
   Truck, ClipboardList, Thermometer, Wrench, Bug, AlertTriangle, CheckSquare,
   Leaf, Archive, Zap, ShieldCheck, Activity, ClipboardCheck, Recycle, Target, Scale, ClipboardPen, Globe2,
-  Factory, Boxes,
+  Factory, Boxes, CalendarDays,
 } from 'lucide-react';
 
 import Compliance from '@/pages/Compliance';
 import EMS from '@/pages/EMS';
 import Production from '@/pages/Production';
+import ProductionPlanner from '@/pages/ProductionPlanner';
 import InventoryHub from '@/pages/InventoryHub';
 import AspectsRegister from '@/pages/AspectsRegister';
 import Objectives from '@/pages/Objectives';
@@ -73,6 +74,7 @@ export const PAGES = [
   { key: 'dashboard',        label: 'Dashboard',        path: '/',                 icon: Home,          component: Dashboard,        navGroup: 'top' },
 
   { key: 'production',        label: 'Production',        path: '/production',       icon: Factory,       component: Production,        navGroup: 'Production', isHub: true },
+  { key: 'production-planner', label: 'Production Planner', path: '/production-planner', icon: CalendarDays, component: ProductionPlanner, navGroup: 'Production' },
   { key: 'tanks',             label: 'Tanks',             path: '/tanks',             icon: Cylinder,      component: Tanks,             navGroup: 'Production' },
   { key: 'tank-detail',       label: 'Tank Detail',       path: '/tanks/:tankId',     icon: Cylinder,      component: TankDetail,        navGroup: null },
   { key: 'dilutions',         label: 'Dilutions',         path: '/dilutions',         icon: Droplets,      component: Dilutions,         navGroup: 'Production' },
