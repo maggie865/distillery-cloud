@@ -1,0 +1,28 @@
+-- Security hardening pass, prompted by Supabase's security advisor.
+--
+-- public.assign_initial_role() is a BEFORE INSERT trigger on auth.users
+-- (see 20260806030000_roles_and_permissions.sql) - it's never meant to be
+-- called directly. Postgres itself already refuses to invoke a
+-- `returns trigger` function outside trigger context ("trigger functions
+-- can only be called as triggers"), so this was never actually callable -
+-- but having no schema running here in Prod without EXECUTE explicitly
+-- revoked means PostgREST still lists it as a public RPC endpoint
+-- (/rest/v1/rpc/assign_initial_role), which is needless API surface.
+-- Revoking EXECUTE doesn't affect the trigger itself - trigger firing
+-- doesn't require the invoking role to hold EXECUTE on the trigger
+-- function.
+revoke execute on function public.assign_initial_role() from public, anon, authenticated;
+
+-- public.list_users_for_admin(), public.set_user_role(), and
+-- public.generate_order_number() are also SECURITY DEFINER and flagged by
+-- the advisor as callable by authenticated/anon - but that's intentional
+-- and already as tight as it should be:
+--   - list_users_for_admin/set_user_role each check the caller's own
+--     auth.jwt() role and raise an exception for anyone but super_admin,
+--     so granting EXECUTE to `authenticated` (not `anon`) is required for
+--     the function's own internal check to ever run at all.
+--   - generate_order_number() only hands out the next sequential order
+--     number from a table with all direct grants revoked
+--     (order_number_counter) - safe for any authenticated user, and is how
+--     Quick Order numbers get generated.
+-- No change needed for these three.

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/api/supabaseClient';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -47,17 +47,13 @@ export const DEFAULT_EMISSION_FACTORS = {
   other: 0.40,
 };
 export const EMISSION_FACTORS_KEY = 'waste_emission_factors';
-// Also used by LifecycleReport.jsx to read the same underlying AppSettings
-// row WasteTracker itself reads — no dedicated waste table exists (see
-// Objectives.jsx/EMS step 3 for the same finding).
-export const WASTE_RECORDS_KEY = 'waste_records';
 
 function useEmissionFactors() {
   const qc = useQueryClient();
   const { data: settingsRow } = useQuery({
     queryKey: ['wasteEmissionFactors'],
     queryFn: async () => {
-      const rows = await base44.entities.AppSettings.list('key', 5000);
+      const rows = await db.AppSettings.list('key', 5000);
       return rows.find(r => r.key === EMISSION_FACTORS_KEY) || null;
     },
   });
@@ -71,15 +67,28 @@ function useEmissionFactors() {
   const saveFactors = async (newFactors) => {
     const val = JSON.stringify(newFactors);
     if (settingsRow) {
-      await base44.entities.AppSettings.update(settingsRow.id, { value: val });
+      await db.AppSettings.update(settingsRow.id, { value: val });
     } else {
-      await base44.entities.AppSettings.create({ key: EMISSION_FACTORS_KEY, value: val });
+      await db.AppSettings.create({ key: EMISSION_FACTORS_KEY, value: val });
     }
     qc.invalidateQueries({ queryKey: ['wasteEmissionFactors'] });
   };
 
   return { factors, saveFactors };
 }
+
+// PostgREST serializes `numeric` columns as JSON strings (to avoid float
+// precision loss), so raw rows need coercing back to real numbers here -
+// same fields the JSON-blob version stored as genuine JS numbers, which is
+// what every calculation below (co2eFor, the +='s in the monthly/summary
+// reducers) assumes it's working with.
+export const normalizeWasteRecord = (r) => ({
+  ...r,
+  litres: r.litres != null ? Number(r.litres) : null,
+  kg: r.kg != null ? Number(r.kg) : null,
+  bins_count: r.bins_count != null ? Number(r.bins_count) : null,
+  bin_size_litres: r.bin_size_litres != null ? Number(r.bin_size_litres) : null,
+});
 
 export const co2eFor = (record, factors) => (record.kg || 0) * (factors[record.category] ?? factors.other ?? 0);
 
@@ -287,52 +296,40 @@ export default function WasteTracker() {
     onError: (e) => toast.error('Failed: ' + e.message),
   });
 
-  // Store waste records in AppSettings as JSON (no separate entity needed)
-  const { data: settingsRow, isLoading } = useQuery({
+  const { data: records = [], isLoading } = useQuery({
     queryKey: ['wasteRecords'],
     queryFn: async () => {
-      const rows = await base44.entities.AppSettings.list('key', 5000);
-      return rows.find(r => r.key === WASTE_RECORDS_KEY) || null;
+      const rows = await db.WasteRecord.list('-date', 5000);
+      return rows.map(normalizeWasteRecord);
     },
   });
 
-  const records = useMemo(() => {
-    if (!settingsRow?.value) return [];
-    try { return JSON.parse(settingsRow.value); } catch { return []; }
-  }, [settingsRow]);
-
-  const saveRecords = async (newRecords) => {
-    const val = JSON.stringify(newRecords);
-    if (settingsRow) {
-      await base44.entities.AppSettings.update(settingsRow.id, { value: val });
-    } else {
-      await base44.entities.AppSettings.create({ key: WASTE_RECORDS_KEY, value: val });
-    }
-    qc.invalidateQueries({ queryKey: ['wasteRecords'] });
-  };
-
   const createMutation = useMutation({
-    mutationFn: async (data) => {
-      const newRecord = { ...data, id: Date.now().toString(), created_at: new Date().toISOString() };
-      await saveRecords([...records, newRecord]);
+    mutationFn: (data) => db.WasteRecord.create(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['wasteRecords'] });
+      setShowForm(false);
+      toast.success('Waste logged');
     },
-    onSuccess: () => { setShowForm(false); toast.success('Waste logged'); },
     onError: (e) => toast.error('Failed: ' + e.message),
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }) => {
-      await saveRecords(records.map(r => r.id === id ? { ...r, ...data } : r));
+    mutationFn: ({ id, data }) => db.WasteRecord.update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['wasteRecords'] });
+      setEditRecord(null);
+      toast.success('Updated');
     },
-    onSuccess: () => { setEditRecord(null); toast.success('Updated'); },
     onError: (e) => toast.error('Failed: ' + e.message),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id) => {
-      await saveRecords(records.filter(r => r.id !== id));
+    mutationFn: (id) => db.WasteRecord.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['wasteRecords'] });
+      toast.success('Deleted');
     },
-    onSuccess: () => { toast.success('Deleted'); },
     onError: (e) => toast.error('Failed: ' + e.message),
   });
 

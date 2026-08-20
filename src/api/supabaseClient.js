@@ -142,6 +142,7 @@ export const db = {
   UtilityLog:        makeEntity('UtilityLog'),
   WarehouseStock:    makeEntity('WarehouseStock'),
   WastageRecord:     makeEntity('WastageRecord'),
+  WasteRecord:       makeEntity('WasteRecord'),
   WhiskeyBarrel:     makeEntity('WhiskeyBarrel'),
   XeroItemMapping:   makeEntity('XeroItemMapping'),
 };
