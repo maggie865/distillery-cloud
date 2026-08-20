@@ -127,6 +127,7 @@ export const db = {
   PestControlTrap:   makeEntity('PestControlTrap'),
   Product:           makeEntity('Product'),
   ProductAlias:      makeEntity('ProductAlias'),
+  ProductionPlan:    makeEntity('ProductionPlan'),
   RawMaterial:       makeEntity('RawMaterial'),
   Receiving:         makeEntity('Receiving'),
   Recipe:            makeEntity('Recipe'),
