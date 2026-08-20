@@ -65,7 +65,7 @@ export default function SalesOverview() {
   }, [activities, rows]);
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader
         title={`${greetingForNow()}, ${(user?.full_name || '').split(' ')[0] || ''}.`}
         subtitle={priority.length > 0 ? `You've got ${priority.length} customer${priority.length !== 1 ? 's' : ''} to follow up with.` : "You're all caught up — no customers need attention right now."}

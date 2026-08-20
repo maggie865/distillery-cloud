@@ -40,7 +40,7 @@ export default function Tanks() {
   const pagedMovements = movements.slice((mvmtPage - 1) * mvmtPageSize, mvmtPage * mvmtPageSize);
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="Tank Farm" subtitle="Live view of all storage tanks and their contents" />
 
       <Tabs defaultValue="tanks">

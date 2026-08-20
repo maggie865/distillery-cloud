@@ -407,7 +407,7 @@ export default function StockTakes() {
   const totalScoped = scopeCounts.raw_material + scopeCounts.finished_good + scopeCounts.tank;
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="Stock Takes" subtitle="Count raw materials, finished goods, and tank levels — reconcile against system stock">
         <Button onClick={() => setNewOpen(true)} className="gap-2">
           <Plus className="w-4 h-4" /> New Stock Take

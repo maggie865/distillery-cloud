@@ -444,7 +444,7 @@ export default function DailyChecks() {
   };
 
   return (
-    <div className="pb-20 md:pb-0 space-y-5">
+    <div className="space-y-5">
       <PageHeader title="Daily Checks" subtitle="Team checklists and the bottle washer's pre-use check" />
 
       <Tabs defaultValue="checklists">

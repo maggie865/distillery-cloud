@@ -483,7 +483,7 @@ export default function Dilutions() {
   );
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="Dilutions" subtitle="Track ethanol and hearts dilutions">
         <div className="flex gap-2">
           {/* Ethanol Dilution Dialog */}

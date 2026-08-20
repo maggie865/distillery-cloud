@@ -300,7 +300,7 @@ export default function TankDetail() {
   actions.push({ key: 'print', label: 'Print Tank Record', icon: Printer, onClick: () => window.print() });
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <button
         onClick={() => navigate('/tanks')}
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"

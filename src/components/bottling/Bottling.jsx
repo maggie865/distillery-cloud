@@ -104,7 +104,7 @@ export default function Bottling() {
   const set = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="Bottling" subtitle="Bottle your spirits into finished goods">
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>

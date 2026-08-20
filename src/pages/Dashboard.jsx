@@ -135,7 +135,7 @@ export default function Dashboard() {
   ].sort((a, b) => new Date(b._date) - new Date(a._date)).slice(0, 8);
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader
         title="Today's Operations"
         subtitle={`${format(new Date(), 'EEEE, MMMM d')} · ${todaysRuns} run${todaysRuns !== 1 ? 's' : ''} logged today`}

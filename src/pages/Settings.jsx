@@ -40,7 +40,7 @@ export default function Settings() {
   }, []);
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="Settings" subtitle="Configure and manage your Distillery OS">
         <SettingsSearch onSelect={handleSelect} isSuperAdmin={isSuperAdmin} />
       </PageHeader>

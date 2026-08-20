@@ -340,7 +340,7 @@ export default function DispatchHub() {
   });
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="Sales & Dispatch" subtitle="Record dispatches, track stock by location, and manage deliveries">
         <Button variant="outline" onClick={() => setShowMap(v => !v)} className="gap-2 hidden md:inline-flex"><Map className="w-4 h-4" />{showMap ? 'Hide Map' : 'Delivery Map'}</Button>
         <Button onClick={() => setShowTransfer3PL(true)} className="gap-2"><ArrowRightLeft className="w-4 h-4" />Transfer to 3PL</Button>

@@ -121,7 +121,7 @@ export default function PestControl() {
   const trapTypeLabel = (t) => t.replace('_', ' ');
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="Pest Control" subtitle="Trap map, inspections and bait records">
         <Button variant="outline" onClick={() => { setEditingTrapId(null); setTrapForm(BLANK_TRAP); setTrapOpen(true); }} className="gap-2">
           <MapPin className="w-4 h-4" /> Add Trap

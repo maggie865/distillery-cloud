@@ -65,7 +65,7 @@ export default function OrderDetail() {
   }
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <button onClick={() => navigate(`/customers/${customerId}`)} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4">
         <ArrowLeft className="w-4 h-4" /> Back to {customer?.business_name || 'Customer'}
       </button>

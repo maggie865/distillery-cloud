@@ -143,7 +143,7 @@ export default function Warehouse() {
   };
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader
         title={location === 'UK Bonded' ? 'Warehouse (UK Bonded)' : 'Warehouse (Auckland 3PL)'}
         subtitle={location === 'UK Bonded'

@@ -783,7 +783,7 @@ export default function Distillation() {
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="Distillation" subtitle="Manage distillation runs and batches" />
 
       <Tabs defaultValue="runs" className="space-y-4">

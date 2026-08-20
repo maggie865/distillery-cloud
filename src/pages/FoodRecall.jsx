@@ -590,7 +590,7 @@ export default function FoodRecallManager() {
   const activeRecalls = recalls.filter(r => r.status !== 'closed');
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="Food Recall Manager" subtitle="MPI-compliant 6-step recall process">
         <Button onClick={() => { setMockOpen(true); setEditingMockId(null); setMockForm({...BLANK_MOCK, recall_number: `MOCK-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`}); }} variant="outline" className="gap-2">
           <ClipboardList className="w-4 h-4" /> Log Mock Recall
