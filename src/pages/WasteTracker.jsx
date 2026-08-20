@@ -280,7 +280,16 @@ function EmissionFactorsDialog({ open, onOpenChange, factors, onSave, saving }) 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function WasteTracker() {
   const qc = useQueryClient();
-  const [showForm, setShowForm] = useState(false);
+  // ?action=log opens the Log Waste dialog immediately - the target of the
+  // "Log Waste" home-screen shortcut in manifest.json, so tapping it from
+  // the phone's launcher skips straight to logging instead of landing on
+  // the summary view first.
+  const [showForm, setShowForm] = useState(() => new URLSearchParams(window.location.search).get('action') === 'log');
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('action') === 'log') {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
   const [editRecord, setEditRecord] = useState(null);
   const [monthFilter, setMonthFilter] = useState(() => {
     const now = new Date();
