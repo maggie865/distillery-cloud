@@ -139,7 +139,7 @@ export default function Suppliers() {
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="Suppliers" subtitle="Manage supplier information for receiving goods">
         <Button 
           variant="outline" 

@@ -85,7 +85,7 @@ export default function CustomerDetail() {
   const mapsQuery = encodeURIComponent(customer.delivery_address || '');
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <button onClick={() => navigate('/customers')} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4">
         <ArrowLeft className="w-4 h-4" /> Back to Customers
       </button>

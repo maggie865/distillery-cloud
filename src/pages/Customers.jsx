@@ -114,7 +114,7 @@ export default function Customers() {
   };
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="Customers" subtitle="Your customer accounts, activity and follow-ups">
         <Button onClick={() => setShowForm(true)} className="gap-2">
           <Plus className="w-4 h-4" /> Add Customer

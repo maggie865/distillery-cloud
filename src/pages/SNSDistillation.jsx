@@ -347,7 +347,7 @@ export default function SNSDistillation() {
   };
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="SNS Distillation" subtitle="Heads + Tails Stripping for high ABV ethanol regeneration">
         <Button onClick={openNew} className="gap-2">
           <Plus className="w-4 h-4" />

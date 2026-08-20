@@ -395,7 +395,7 @@ export default function Reports() {
   const pagedWastage = wastageWithCost.slice((wastePage - 1) * wastePageSize, wastePage * wastePageSize);
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="Reports" subtitle="Operational audit, inventory snapshot, and wastage analysis">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex flex-wrap gap-1.5">

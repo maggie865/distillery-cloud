@@ -530,7 +530,7 @@ export default function BottlingFloor() {
   }
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="Bottling Floor" subtitle="Live production tracking and case management">
         <Button onClick={() => setShowNewRun(true)} className="gap-2">
           <Plus className="w-4 h-4" />

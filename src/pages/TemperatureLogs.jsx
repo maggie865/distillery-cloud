@@ -381,7 +381,7 @@ export default function TemperatureLogs() {
     : null;
 
   return (
-    <div className="pb-20 md:pb-0 space-y-5">
+    <div className="space-y-5">
       <PageHeader title="Temperature Logs" subtitle="Record and monitor fridge and freezer temperatures">
         <UnitSettings units={units} onChange={setUnits} />
       </PageHeader>

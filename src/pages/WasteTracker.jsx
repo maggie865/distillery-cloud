@@ -388,7 +388,7 @@ export default function WasteTracker() {
   const maxMonthlyKg = Math.max(...monthlyTotals.map(m => m.kg), 1);
 
   return (
-    <div className="pb-20 md:pb-0 space-y-5">
+    <div className="space-y-5">
       <PageHeader title="Waste Tracker" subtitle="Log and monitor waste for BCorp reporting and KPIs">
         <Button variant="outline" onClick={() => setFactorsOpen(true)} className="gap-2">
           <Settings2 className="w-4 h-4" /> Emission Factors

@@ -806,7 +806,7 @@ export default function Inventory() {
   ];
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader title="Inventory" subtitle="Track all raw materials and finished goods" />
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">

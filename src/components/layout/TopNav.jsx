@@ -75,7 +75,7 @@ export default function TopNav() {
   );
 
   return (
-    <div className="sticky top-0 z-40 bg-card/85 backdrop-blur-md border-b border-border shadow-sm">
+    <div className="sticky top-0 z-40 bg-card/85 backdrop-blur-md border-b border-border shadow-sm pt-[env(safe-area-inset-top)]">
       {/* Row 1: brand, top-level pages, groups, user menu */}
       <div ref={row1Ref} className="flex items-center gap-1 px-3 md:px-6 h-16 overflow-x-auto" style={scrollFadeStyle}>
         <Link to="/" className="font-display font-bold text-primary shrink-0 mr-2 whitespace-nowrap">

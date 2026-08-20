@@ -73,7 +73,7 @@ export default function UserDashboard({ userName }) {
   ];
 
   return (
-    <div className="pb-20 md:pb-0">
+    <div>
       <PageHeader
         title={`Welcome back${userName ? `, ${userName.split(' ')[0]}` : ''}`}
         subtitle={format(new Date(), 'EEEE, MMMM d')}

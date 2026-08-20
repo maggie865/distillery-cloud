@@ -1,7 +1,37 @@
 {
   "name": "Distillery Cloud",
   "short_name": "Distillery Cloud",
+  "description": "Operations, compliance and environmental management for Bluff Distillery.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "icons": []
+  "orientation": "portrait-primary",
+  "theme_color": "#C9793A",
+  "background_color": "#F8F6F2",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
 }
