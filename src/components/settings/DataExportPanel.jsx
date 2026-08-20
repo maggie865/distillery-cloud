@@ -63,7 +63,7 @@ export default function DataExportPanel() {
     try {
       const backup = {
         exported_at: new Date().toISOString(),
-        application: 'Distillery OS',
+        application: 'Congener',
         record_counts: {},
         data: {},
       };

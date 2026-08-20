@@ -41,7 +41,7 @@ export default function Settings() {
 
   return (
     <div>
-      <PageHeader title="Settings" subtitle="Configure and manage your Distillery OS">
+      <PageHeader title="Settings" subtitle="Configure and manage your Congener workspace">
         <SettingsSearch onSelect={handleSelect} isSuperAdmin={isSuperAdmin} />
       </PageHeader>
 
