@@ -50,6 +50,96 @@ function YesNo({ value, onChange, yesLabel = '✅ Good', noLabel = '❌ Issue Fo
   );
 }
 
+// Compact 3-way toggle for the workplace inspection's Yes/No/N/A items -
+// there are too many (39, across 9 sections) for the full-size YesNo
+// buttons above to stay usable on a phone.
+function YesNoNA({ value, onChange }) {
+  const OPTS = [['yes', 'Yes', 'emerald'], ['no', 'No', 'red'], ['na', 'N/A', 'slate']];
+  return (
+    <div className="flex gap-1.5 shrink-0">
+      {OPTS.map(([v, label, color]) => (
+        <button key={v} type="button" onClick={() => onChange(v)}
+          className={`w-14 h-8 rounded-md text-xs font-medium border-2 transition-colors ${
+            value === v
+              ? color === 'emerald' ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                : color === 'red' ? 'border-red-500 bg-red-50 text-red-700'
+                : 'border-slate-400 bg-slate-100 text-slate-700'
+              : 'border-border hover:border-muted-foreground/50'
+          }`}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// From the "Permanent Workplace Inspection Checklist" template - grouped
+// the same way as the source document's sections. Each item gets a
+// Yes/No/N/A answer; free-text hazard/comment detail is captured once at
+// the bottom (as "Additional hazards identified") rather than per item,
+// since a per-item comment field for 39 items would make this unusable on
+// a phone.
+const WORKPLACE_INSPECTION_SECTIONS = [
+  { section: 'Housekeeping', items: [
+    'Work area clean / no trip hazards',
+    'Floor coverings in good condition',
+    'Adequate storage of materials/equipment',
+    'Area free from pest/vermin problems',
+    'Storage located clear of doors, corridors and frequently used passages',
+    'Rubbish removed regularly',
+    'Sharp corners, furniture/fittings do not create hazard',
+    'Fans working and electrical leads in good condition/no faults',
+  ]},
+  { section: 'Work Area', items: [
+    'Area/layout is suitable for task',
+    'Lighting suitable for task',
+    'Items stored safely on shelves/filing cabinets so as not to pose risk from falling',
+  ]},
+  { section: 'Amenities', items: [
+    'Toilets/washing facilities clean and maintained',
+    'Hand sanitiser and soap available',
+    'Rubbish bins provided and emptied daily',
+  ]},
+  { section: 'Electrical', items: [
+    'No damaged or frayed leads, no exposed wires',
+    'Power boards in use – no double adapters',
+    'Power leads in good condition and off the floor or placed away from walkways',
+    'Faulty equipment/cords removed from workplace',
+  ]},
+  { section: 'Emergency Equipment', items: [
+    'First aid kit available and stocked',
+    'Smoke detector/alarm system installed and regularly tested',
+    '1m clearance around fire extinguishers',
+    'Fire equipment signs are directly above equipment',
+    'Yellow indicator is in green section (sufficient pressure)',
+    'Cable tie has not been tampered with',
+    'Lock pin is intact',
+    'Type of extinguisher appropriate for location',
+  ]},
+  { section: 'Workstations', items: [
+    'No visual damage to desks or chairs',
+    'No visual damage to computers, monitors, printers, scanners etc',
+    'Ergonomics check completed in last 12 months',
+    'Footrests available where required',
+    'Anti-glare/blue light filters in place where required',
+    'Sufficient lighting over workstations',
+  ]},
+  { section: 'Plant and Equipment', items: [
+    'No visual damage to machinery/equipment',
+    'Damaged or faulty equipment has been locked out',
+  ]},
+  { section: 'Site Security', items: [
+    'Access to site is restricted to personnel',
+    'Doors and locks are checked for damage/working order for escape in an emergency',
+    'Outside areas clear and well lit',
+    'No overgrown or obstructed areas',
+  ]},
+  { section: 'Administrative / System', items: [
+    'Current HSW Policy statement displayed',
+  ]},
+];
+const WORKPLACE_INSPECTION_ITEMS = WORKPLACE_INSPECTION_SECTIONS.flatMap(s => s.items);
+
 function SectionHistory({ records, checkItemName, columns, renderRow }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
@@ -292,6 +382,103 @@ function FirstAidCheck({ records, now, selectedMonth, onSave, saving }) {
   );
 }
 
+function WorkplaceInspectionCheck({ records, now, selectedMonth, onSave, saving }) {
+  const today = format(now, 'yyyy-MM-dd');
+  const [answers, setAnswers] = useState({});
+  const [location, setLocation] = useState('');
+  const [hazardNotes, setHazardNotes] = useState('');
+  const [performedBy, setPerformedBy] = useState('');
+  const [date, setDate] = useState(today);
+  const [submitted, setSubmitted] = useState(false);
+  const doneThisMonth = records.find(r => r.check_item_name === 'Workplace Inspection' && r.date?.startsWith(selectedMonth));
+
+  const answeredCount = WORKPLACE_INSPECTION_ITEMS.filter(i => answers[i]).length;
+  const failedItems = WORKPLACE_INSPECTION_ITEMS.filter(i => answers[i] === 'no');
+  const allAnswered = answeredCount === WORKPLACE_INSPECTION_ITEMS.length;
+
+  const handleSave = async () => {
+    if (!allAnswered) { toast.error(`Please answer all items (${answeredCount}/${WORKPLACE_INSPECTION_ITEMS.length} done)`); return; }
+    if (!performedBy.trim()) { toast.error('Please enter your name'); return; }
+    const notesParts = [];
+    if (location.trim()) notesParts.push(`Location: ${location.trim()}`);
+    notesParts.push(failedItems.length === 0 ? 'All items passed' : `Issues: ${failedItems.join('; ')}`);
+    if (hazardNotes.trim()) notesParts.push(`Additional hazards identified: ${hazardNotes.trim()}`);
+    try {
+      await onSave([{
+        maintenance_type: 'monthly_check', check_item_name: 'Workplace Inspection', equipment_name: 'Workplace',
+        date, result: failedItems.length === 0 ? 'pass' : 'needs_attention',
+        notes: notesParts.join(' | '), performed_by: performedBy.trim(),
+        requires_followup: failedItems.length > 0, status: 'completed',
+      }]);
+      toast.success('Workplace inspection saved');
+      setSubmitted(true);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save workplace inspection');
+    }
+  };
+
+  return (
+    <Card className={`p-5 border-2 space-y-4 ${doneThisMonth ? 'border-emerald-300' : 'border-amber-300'}`}>
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold">🏭 Workplace Inspection</h3>
+        {doneThisMonth ? <Badge className="bg-emerald-100 text-emerald-700">✅ Done {doneThisMonth.date ? format(parseISO(doneThisMonth.date), 'd MMM') : ''}</Badge> : <Badge className="bg-amber-100 text-amber-700">⚠ Due this month</Badge>}
+      </div>
+      {!submitted && (
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 gap-2">
+            <div><Label className="text-xs font-semibold">Date</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} className="mt-1" /></div>
+            <div><Label className="text-xs font-semibold">Location</Label><Input value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Distillery floor" className="mt-1" /></div>
+          </div>
+
+          <div>
+            <div className="flex justify-between text-xs mb-1">
+              <span className="font-medium">{answeredCount} of {WORKPLACE_INSPECTION_ITEMS.length} items answered</span>
+              <span className="text-muted-foreground">{Math.round(answeredCount / WORKPLACE_INSPECTION_ITEMS.length * 100)}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-primary transition-all" style={{ width: `${answeredCount / WORKPLACE_INSPECTION_ITEMS.length * 100}%` }} /></div>
+          </div>
+
+          {WORKPLACE_INSPECTION_SECTIONS.map(({ section, items }) => (
+            <div key={section} className="space-y-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{section}</h4>
+              <div className="space-y-1.5">
+                {items.map(item => (
+                  <div key={item} className={`flex items-center justify-between gap-3 p-2 rounded-md ${answers[item] === 'no' ? 'bg-red-50' : ''}`}>
+                    <span className="text-sm flex-1">{item}</span>
+                    <YesNoNA value={answers[item]} onChange={v => setAnswers(a => ({ ...a, [item]: v }))} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {failedItems.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+              <p className="text-sm font-semibold text-red-800">🔴 Issues found ({failedItems.length}) — flagged for follow-up:</p>
+              <ul className="mt-1 space-y-0.5">{failedItems.map(i => <li key={i} className="text-sm text-red-700">• {i}</li>)}</ul>
+            </div>
+          )}
+
+          <div><Label className="text-xs font-semibold">Additional hazards identified (optional)</Label><Textarea value={hazardNotes} onChange={e => setHazardNotes(e.target.value)} rows={2} className="mt-1" placeholder="Describe anything not covered above" /></div>
+          <div><Label className="text-xs font-semibold">Completed by *</Label><Input value={performedBy} onChange={e => setPerformedBy(e.target.value)} placeholder="Your name" className="mt-1" /></div>
+          <Button onClick={handleSave} disabled={saving} className="w-full">Save Workplace Inspection</Button>
+        </div>
+      )}
+      {submitted && <p className="text-sm text-emerald-600 font-medium">✅ Saved successfully</p>}
+      <SectionHistory records={records} checkItemName="Workplace Inspection" columns={['Date', 'Result', 'Details', 'By']}
+        renderRow={r => (
+          <TableRow key={r.id}>
+            <TableCell className="text-sm whitespace-nowrap">{r.date ? format(parseISO(r.date), 'd MMM yyyy') : '—'}</TableCell>
+            <TableCell className={`text-sm ${RESULT_CLS[r.result] || ''}`}>{RESULT_LABEL[r.result] || '—'}</TableCell>
+            <TableCell className="text-sm text-muted-foreground max-w-md">{r.notes || '—'}</TableCell>
+            <TableCell className="text-sm">{r.performed_by || '—'}</TableCell>
+          </TableRow>
+        )}
+      />
+    </Card>
+  );
+}
+
 function FireExtinguisherLog({ records, onSave, saving }) {
   const now = new Date();
   const [showForm, setShowForm] = useState(false);
@@ -368,7 +555,7 @@ export default function MonthlyChecksTab({ records, onCreate, saving }) {
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(format(now, 'yyyy-MM'));
   const monthlyCheckRecords = useMemo(() => records.filter(r => ['monthly_check', 'fire_extinguisher_service'].includes(r.maintenance_type)), [records]);
-  const TRACKED = ['Still Condition Inspection', 'Condenser Check', 'First Aid Kit Check'];
+  const TRACKED = ['Still Condition Inspection', 'Condenser Check', 'First Aid Kit Check', 'Workplace Inspection'];
   const completedCount = TRACKED.filter(item => records.some(r => r.maintenance_type === 'monthly_check' && r.check_item_name === item && r.date?.startsWith(selectedMonth))).length;
 
   return (
@@ -389,6 +576,7 @@ export default function MonthlyChecksTab({ records, onCreate, saving }) {
       <StillCheck records={monthlyCheckRecords} now={now} selectedMonth={selectedMonth} onSave={onCreate} saving={saving} />
       <CondenserCheck records={monthlyCheckRecords} now={now} selectedMonth={selectedMonth} onSave={onCreate} saving={saving} />
       <FirstAidCheck records={monthlyCheckRecords} now={now} selectedMonth={selectedMonth} onSave={onCreate} saving={saving} />
+      <WorkplaceInspectionCheck records={monthlyCheckRecords} now={now} selectedMonth={selectedMonth} onSave={onCreate} saving={saving} />
       <FireExtinguisherLog records={monthlyCheckRecords} onSave={onCreate} saving={saving} />
     </div>
   );
