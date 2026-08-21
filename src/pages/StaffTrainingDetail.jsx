@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ArrowLeft, Pencil, GraduationCap } from 'lucide-react';
+import { ArrowLeft, Pencil, GraduationCap, StickyNote, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 
@@ -27,40 +27,66 @@ function expiryBadge(expiryDate) {
 }
 
 // Local field state per row so typing doesn't touch the parent on every
-// keystroke - text/date fields save on blur, the checkbox saves
-// immediately (that IS the "tick when signed off" action). Keyed by the
-// signoff's updated_at in the parent so a real save round-trip remounts
-// this with fresh values, without disrupting an in-progress edit.
+// keystroke - date/initials save on blur, the checkbox saves immediately
+// (that IS the "tick when signed off" action). Keyed by the signoff's
+// updated_at in the parent so a real save round-trip remounts this with
+// fresh values, without disrupting an in-progress edit.
+//
+// No per-item trainer field - the trainer is assumed the same for the
+// whole form (see the Trainer field on the program card above) and gets
+// carried into every item's signoff automatically when it's ticked.
 function TrainingItemRow({ item, signoff, onToggle, onFieldSave, saving }) {
-  const [trainer, setTrainer] = useState(signoff?.trainer || '');
   const [dateCompleted, setDateCompleted] = useState(signoff?.date_completed || '');
   const [initials, setInitials] = useState(signoff?.staff_initials || '');
   const [expiry, setExpiry] = useState(signoff?.expiry_date || '');
+  const [notes, setNotes] = useState(signoff?.notes || '');
+  const [notesOpen, setNotesOpen] = useState(false);
   const completed = signoff?.completed || false;
+  const hasNoteContent = !!(signoff?.notes || signoff?.requires_followup);
 
   return (
-    <div className={`flex flex-wrap items-center gap-2 p-2 rounded-md ${completed ? 'bg-emerald-50/50' : ''}`}>
-      <Checkbox checked={completed} onCheckedChange={(v) => onToggle(!!v)} disabled={saving} className="shrink-0" />
-      <span className="text-sm flex-1 min-w-[180px]">{item.label}</span>
-      <Input
-        value={trainer} onChange={e => setTrainer(e.target.value)} onBlur={() => onFieldSave({ trainer: trainer.trim() || null })}
-        placeholder="Trainer" className="h-8 text-xs w-28"
-      />
-      <Input
-        type="date" value={dateCompleted} onChange={e => setDateCompleted(e.target.value)} onBlur={() => onFieldSave({ date_completed: dateCompleted || null })}
-        className="h-8 text-xs w-36"
-      />
-      <Input
-        value={initials} onChange={e => setInitials(e.target.value)} onBlur={() => onFieldSave({ staff_initials: initials.trim() || null })}
-        placeholder="Initials" className="h-8 text-xs w-16"
-      />
-      {item.is_certification && (
-        <div className="flex items-center gap-1.5">
-          <Input
-            type="date" value={expiry} onChange={e => setExpiry(e.target.value)} onBlur={() => onFieldSave({ expiry_date: expiry || null })}
-            className="h-8 text-xs w-36" title="Expiry date"
+    <div className={`rounded-md ${completed ? 'bg-emerald-50/50' : ''}`}>
+      <div className="flex flex-wrap items-center gap-2 p-2">
+        <Checkbox checked={completed} onCheckedChange={(v) => onToggle(!!v)} disabled={saving} className="shrink-0" />
+        <div className="flex-1 min-w-[180px]">
+          <span className="text-sm">{item.label}</span>
+          {completed && signoff?.trainer && <p className="text-xs text-muted-foreground">Signed off by {signoff.trainer}</p>}
+        </div>
+        <Input
+          type="date" value={dateCompleted} onChange={e => setDateCompleted(e.target.value)} onBlur={() => onFieldSave({ date_completed: dateCompleted || null })}
+          className="h-8 text-xs w-36"
+        />
+        <Input
+          value={initials} onChange={e => setInitials(e.target.value)} onBlur={() => onFieldSave({ staff_initials: initials.trim() || null })}
+          placeholder="Initials" className="h-8 text-xs w-16"
+        />
+        {item.is_certification && (
+          <div className="flex items-center gap-1.5">
+            <Input
+              type="date" value={expiry} onChange={e => setExpiry(e.target.value)} onBlur={() => onFieldSave({ expiry_date: expiry || null })}
+              className="h-8 text-xs w-36" title="Expiry date"
+            />
+            {expiryBadge(signoff?.expiry_date)}
+          </div>
+        )}
+        {signoff?.requires_followup && <Badge className="bg-red-100 text-red-700 text-xs gap-1"><AlertTriangle className="w-3 h-3" /> Follow-up</Badge>}
+        <button
+          type="button" onClick={() => setNotesOpen(v => !v)} title="Notes / follow-up"
+          className={`shrink-0 p-1.5 rounded-md transition-colors ${hasNoteContent ? 'text-amber-600 hover:text-amber-700' : 'text-muted-foreground hover:text-foreground'}`}
+        >
+          <StickyNote className={`w-4 h-4 ${hasNoteContent ? 'fill-amber-100' : ''}`} />
+        </button>
+      </div>
+      {notesOpen && (
+        <div className="px-2 pb-2 pl-9 space-y-2">
+          <Textarea
+            value={notes} onChange={e => setNotes(e.target.value)} onBlur={() => onFieldSave({ notes: notes.trim() || null })}
+            rows={2} placeholder="Notes on this area — observations, what still needs work, etc." className="text-sm"
           />
-          {expiryBadge(signoff?.expiry_date)}
+          <div className="flex items-center gap-2">
+            <Checkbox checked={signoff?.requires_followup || false} onCheckedChange={(v) => onFieldSave({ requires_followup: !!v })} />
+            <Label className="text-xs font-normal text-muted-foreground">Flag for follow-up</Label>
+          </div>
         </div>
       )}
     </div>
@@ -73,6 +99,10 @@ export default function StaffTrainingDetail() {
   const qc = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState(null);
+  // "Assume the same trainer for the whole form" - one input per program,
+  // carried into every item's signoff automatically as it's ticked, rather
+  // than retyping the trainer's name on each of up to 27 rows.
+  const [sessionTrainerByProgram, setSessionTrainerByProgram] = useState({});
 
   const { data: staffList = [] } = useQuery({ queryKey: ['staffMembers'], queryFn: () => db.StaffMember.list('full_name', 1000) });
   const staff = staffList.find(s => s.id === staffId);
@@ -152,6 +182,7 @@ export default function StaffTrainingDetail() {
         const doneCount = programItems.filter(i => signoffByItemId.get(i.id)?.completed).length;
         const sections = [...new Set(programItems.map(i => i.section))];
         const pct = programItems.length ? Math.round((doneCount / programItems.length) * 100) : 0;
+        const sessionTrainer = sessionTrainerByProgram[program.id] ?? staff.primary_trainer ?? '';
 
         return (
           <Card key={program.id}>
@@ -163,7 +194,16 @@ export default function StaffTrainingDetail() {
                 </div>
                 <Badge className={`text-xs font-mono ${pct === 100 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{doneCount}/{programItems.length} signed off</Badge>
               </div>
-              <div className="h-1.5 rounded-full bg-muted overflow-hidden mt-2"><div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} /></div>
+              <div className="h-1.5 rounded-full bg-muted overflow-hidden mt-2 mb-3"><div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} /></div>
+              <div className="max-w-xs">
+                <Label className="text-xs">Trainer for this form</Label>
+                <Input
+                  value={sessionTrainer}
+                  onChange={e => setSessionTrainerByProgram(m => ({ ...m, [program.id]: e.target.value }))}
+                  placeholder="Assumed the same for every item below"
+                  className="mt-1 h-8 text-sm"
+                />
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               {sections.map(section => (
@@ -180,6 +220,7 @@ export default function StaffTrainingDetail() {
                           onToggle={(checked) => upsertFor(item, signoff, {
                             completed: checked,
                             date_completed: checked && !signoff?.date_completed ? todayStr() : (signoff?.date_completed ?? null),
+                            trainer: checked && !signoff?.trainer && sessionTrainer.trim() ? sessionTrainer.trim() : (signoff?.trainer ?? null),
                           })}
                           onFieldSave={(partial) => upsertFor(item, signoff, partial)}
                         />
