@@ -138,7 +138,44 @@ const WORKPLACE_INSPECTION_SECTIONS = [
     'Current HSW Policy statement displayed',
   ]},
 ];
-const WORKPLACE_INSPECTION_ITEMS = WORKPLACE_INSPECTION_SECTIONS.flatMap(s => s.items);
+
+// General condition check for the company vehicle - deliberately NOT a
+// pre-start/pre-drive check (no "check before you leave" items); this is
+// the periodic "is everything still in order" inspection.
+const VEHICLE_CHECK_SECTIONS = [
+  { section: 'Documentation', items: [
+    'WOF (Warrant of Fitness) current',
+    'Registration (rego) current',
+    'Log book / service records up to date',
+  ]},
+  { section: 'Exterior & Body', items: [
+    'No new dents, scratches, or body damage',
+    'Windscreen free of cracks or chips',
+    'Mirrors intact and properly adjusted',
+    'Number plates clean and legible',
+  ]},
+  { section: 'Tyres', items: [
+    'Tread depth adequate on all tyres (incl. spare)',
+    'Tyre pressures correct',
+    'No visible tyre damage or uneven wear',
+  ]},
+  { section: 'Lights & Signals', items: [
+    'Headlights, tail lights and brake lights working',
+    'Indicators working',
+    'Reverse lights working',
+  ]},
+  { section: 'Fluids', items: [
+    'Engine oil level adequate',
+    'Coolant level adequate',
+    'Windscreen washer fluid topped up',
+  ]},
+  { section: 'Interior & Safety Equipment', items: [
+    'Seatbelts in good working condition',
+    'First aid kit present',
+    'Fire extinguisher present and in date (if carried)',
+    'Interior clean and tidy',
+  ]},
+];
 
 function SectionHistory({ records, checkItemName, columns, renderRow }) {
   const [open, setOpen] = useState(false);
@@ -382,67 +419,78 @@ function FirstAidCheck({ records, now, selectedMonth, onSave, saving }) {
   );
 }
 
-function WorkplaceInspectionCheck({ records, now, selectedMonth, onSave, saving }) {
+// Generic multi-section Yes/No/N/A checklist, shared by Workplace Inspection
+// and Vehicle Check (see their section configs below) - both need the same
+// shape (grouped items, a progress bar, an optional secondary identifying
+// field like Location/Vehicle, a shared free-text note, issues flagged for
+// follow-up), so this drives both from one implementation rather than
+// duplicating ~90 lines of near-identical JSX per check.
+function SectionedChecklistCheck({
+  icon, title, checkItemName, equipmentName, sections,
+  extraFieldLabel, extraFieldPlaceholder, notesLabel, notesPlaceholder,
+  records, now, selectedMonth, onSave, saving,
+}) {
+  const items = useMemo(() => sections.flatMap(s => s.items), [sections]);
   const today = format(now, 'yyyy-MM-dd');
   const [answers, setAnswers] = useState({});
-  const [location, setLocation] = useState('');
-  const [hazardNotes, setHazardNotes] = useState('');
+  const [extraField, setExtraField] = useState('');
+  const [notes, setNotes] = useState('');
   const [performedBy, setPerformedBy] = useState('');
   const [date, setDate] = useState(today);
   const [submitted, setSubmitted] = useState(false);
-  const doneThisMonth = records.find(r => r.check_item_name === 'Workplace Inspection' && r.date?.startsWith(selectedMonth));
+  const doneThisMonth = records.find(r => r.check_item_name === checkItemName && r.date?.startsWith(selectedMonth));
 
-  const answeredCount = WORKPLACE_INSPECTION_ITEMS.filter(i => answers[i]).length;
-  const failedItems = WORKPLACE_INSPECTION_ITEMS.filter(i => answers[i] === 'no');
-  const allAnswered = answeredCount === WORKPLACE_INSPECTION_ITEMS.length;
+  const answeredCount = items.filter(i => answers[i]).length;
+  const failedItems = items.filter(i => answers[i] === 'no');
+  const allAnswered = answeredCount === items.length;
 
   const handleSave = async () => {
-    if (!allAnswered) { toast.error(`Please answer all items (${answeredCount}/${WORKPLACE_INSPECTION_ITEMS.length} done)`); return; }
+    if (!allAnswered) { toast.error(`Please answer all items (${answeredCount}/${items.length} done)`); return; }
     if (!performedBy.trim()) { toast.error('Please enter your name'); return; }
     const notesParts = [];
-    if (location.trim()) notesParts.push(`Location: ${location.trim()}`);
+    if (extraField.trim()) notesParts.push(`${extraFieldLabel}: ${extraField.trim()}`);
     notesParts.push(failedItems.length === 0 ? 'All items passed' : `Issues: ${failedItems.join('; ')}`);
-    if (hazardNotes.trim()) notesParts.push(`Additional hazards identified: ${hazardNotes.trim()}`);
+    if (notes.trim()) notesParts.push(`${notesLabel}: ${notes.trim()}`);
     try {
       await onSave([{
-        maintenance_type: 'monthly_check', check_item_name: 'Workplace Inspection', equipment_name: 'Workplace',
+        maintenance_type: 'monthly_check', check_item_name: checkItemName, equipment_name: equipmentName,
         date, result: failedItems.length === 0 ? 'pass' : 'needs_attention',
         notes: notesParts.join(' | '), performed_by: performedBy.trim(),
         requires_followup: failedItems.length > 0, status: 'completed',
       }]);
-      toast.success('Workplace inspection saved');
+      toast.success(`${title} saved`);
       setSubmitted(true);
     } catch (err) {
-      toast.error(err.message || 'Failed to save workplace inspection');
+      toast.error(err.message || `Failed to save ${title.toLowerCase()}`);
     }
   };
 
   return (
     <Card className={`p-5 border-2 space-y-4 ${doneThisMonth ? 'border-emerald-300' : 'border-amber-300'}`}>
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold">🏭 Workplace Inspection</h3>
+        <h3 className="font-semibold">{icon} {title}</h3>
         {doneThisMonth ? <Badge className="bg-emerald-100 text-emerald-700">✅ Done {doneThisMonth.date ? format(parseISO(doneThisMonth.date), 'd MMM') : ''}</Badge> : <Badge className="bg-amber-100 text-amber-700">⚠ Due this month</Badge>}
       </div>
       {!submitted && (
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-2">
             <div><Label className="text-xs font-semibold">Date</Label><Input type="date" value={date} onChange={e => setDate(e.target.value)} className="mt-1" /></div>
-            <div><Label className="text-xs font-semibold">Location</Label><Input value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Distillery floor" className="mt-1" /></div>
+            <div><Label className="text-xs font-semibold">{extraFieldLabel}</Label><Input value={extraField} onChange={e => setExtraField(e.target.value)} placeholder={extraFieldPlaceholder} className="mt-1" /></div>
           </div>
 
           <div>
             <div className="flex justify-between text-xs mb-1">
-              <span className="font-medium">{answeredCount} of {WORKPLACE_INSPECTION_ITEMS.length} items answered</span>
-              <span className="text-muted-foreground">{Math.round(answeredCount / WORKPLACE_INSPECTION_ITEMS.length * 100)}%</span>
+              <span className="font-medium">{answeredCount} of {items.length} items answered</span>
+              <span className="text-muted-foreground">{Math.round(answeredCount / items.length * 100)}%</span>
             </div>
-            <div className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-primary transition-all" style={{ width: `${answeredCount / WORKPLACE_INSPECTION_ITEMS.length * 100}%` }} /></div>
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full bg-primary transition-all" style={{ width: `${answeredCount / items.length * 100}%` }} /></div>
           </div>
 
-          {WORKPLACE_INSPECTION_SECTIONS.map(({ section, items }) => (
+          {sections.map(({ section, items: sectionItems }) => (
             <div key={section} className="space-y-2">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{section}</h4>
               <div className="space-y-1.5">
-                {items.map(item => (
+                {sectionItems.map(item => (
                   <div key={item} className={`flex items-center justify-between gap-3 p-2 rounded-md ${answers[item] === 'no' ? 'bg-red-50' : ''}`}>
                     <span className="text-sm flex-1">{item}</span>
                     <YesNoNA value={answers[item]} onChange={v => setAnswers(a => ({ ...a, [item]: v }))} />
@@ -459,13 +507,13 @@ function WorkplaceInspectionCheck({ records, now, selectedMonth, onSave, saving 
             </div>
           )}
 
-          <div><Label className="text-xs font-semibold">Additional hazards identified (optional)</Label><Textarea value={hazardNotes} onChange={e => setHazardNotes(e.target.value)} rows={2} className="mt-1" placeholder="Describe anything not covered above" /></div>
+          <div><Label className="text-xs font-semibold">{notesLabel} (optional)</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="mt-1" placeholder={notesPlaceholder} /></div>
           <div><Label className="text-xs font-semibold">Completed by *</Label><Input value={performedBy} onChange={e => setPerformedBy(e.target.value)} placeholder="Your name" className="mt-1" /></div>
-          <Button onClick={handleSave} disabled={saving} className="w-full">Save Workplace Inspection</Button>
+          <Button onClick={handleSave} disabled={saving} className="w-full">Save {title}</Button>
         </div>
       )}
       {submitted && <p className="text-sm text-emerald-600 font-medium">✅ Saved successfully</p>}
-      <SectionHistory records={records} checkItemName="Workplace Inspection" columns={['Date', 'Result', 'Details', 'By']}
+      <SectionHistory records={records} checkItemName={checkItemName} columns={['Date', 'Result', 'Details', 'By']}
         renderRow={r => (
           <TableRow key={r.id}>
             <TableCell className="text-sm whitespace-nowrap">{r.date ? format(parseISO(r.date), 'd MMM yyyy') : '—'}</TableCell>
@@ -555,7 +603,7 @@ export default function MonthlyChecksTab({ records, onCreate, saving }) {
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(format(now, 'yyyy-MM'));
   const monthlyCheckRecords = useMemo(() => records.filter(r => ['monthly_check', 'fire_extinguisher_service'].includes(r.maintenance_type)), [records]);
-  const TRACKED = ['Still Condition Inspection', 'Condenser Check', 'First Aid Kit Check', 'Workplace Inspection'];
+  const TRACKED = ['Still Condition Inspection', 'Condenser Check', 'First Aid Kit Check', 'Workplace Inspection', 'Vehicle Check'];
   const completedCount = TRACKED.filter(item => records.some(r => r.maintenance_type === 'monthly_check' && r.check_item_name === item && r.date?.startsWith(selectedMonth))).length;
 
   return (
@@ -576,7 +624,20 @@ export default function MonthlyChecksTab({ records, onCreate, saving }) {
       <StillCheck records={monthlyCheckRecords} now={now} selectedMonth={selectedMonth} onSave={onCreate} saving={saving} />
       <CondenserCheck records={monthlyCheckRecords} now={now} selectedMonth={selectedMonth} onSave={onCreate} saving={saving} />
       <FirstAidCheck records={monthlyCheckRecords} now={now} selectedMonth={selectedMonth} onSave={onCreate} saving={saving} />
-      <WorkplaceInspectionCheck records={monthlyCheckRecords} now={now} selectedMonth={selectedMonth} onSave={onCreate} saving={saving} />
+      <SectionedChecklistCheck
+        icon="🏭" title="Workplace Inspection" checkItemName="Workplace Inspection" equipmentName="Workplace"
+        sections={WORKPLACE_INSPECTION_SECTIONS}
+        extraFieldLabel="Location" extraFieldPlaceholder="e.g. Distillery floor"
+        notesLabel="Additional hazards identified" notesPlaceholder="Describe anything not covered above"
+        records={monthlyCheckRecords} now={now} selectedMonth={selectedMonth} onSave={onCreate} saving={saving}
+      />
+      <SectionedChecklistCheck
+        icon="🚚" title="Vehicle Check" checkItemName="Vehicle Check" equipmentName="Company Vehicle"
+        sections={VEHICLE_CHECK_SECTIONS}
+        extraFieldLabel="Vehicle / Registration" extraFieldPlaceholder="e.g. ABC123"
+        notesLabel="Additional notes" notesPlaceholder="Describe anything not covered above"
+        records={monthlyCheckRecords} now={now} selectedMonth={selectedMonth} onSave={onCreate} saving={saving}
+      />
       <FireExtinguisherLog records={monthlyCheckRecords} onSave={onCreate} saving={saving} />
     </div>
   );
