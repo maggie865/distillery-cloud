@@ -143,6 +143,7 @@ export const db = {
   TemperatureLog:    makeEntity('TemperatureLog'),
   TrainingItem:      makeEntity('TrainingItem'),
   TrainingProgram:   makeEntity('TrainingProgram'),
+  TrainingRefresherLog: makeEntity('TrainingRefresherLog'),
   TrainingSignoff:   makeEntity('TrainingSignoff'),
   UtilityLog:        makeEntity('UtilityLog'),
   WarehouseStock:    makeEntity('WarehouseStock'),
