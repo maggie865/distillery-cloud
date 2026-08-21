@@ -70,7 +70,7 @@ import OrderDetail from '@/pages/OrderDetail';
 import StaffTraining from '@/pages/StaffTraining';
 import StaffTrainingDetail from '@/pages/StaffTrainingDetail';
 
-export const NAV_GROUPS = ['Production', 'Inventory', 'Sales', 'Compliance', 'EMS'];
+export const NAV_GROUPS = ['Production', 'Stock', 'Sales', 'Compliance', 'EMS'];
 
 export const PAGES = [
   { key: 'dashboard',        label: 'Dashboard',        path: '/',                 icon: Home,          component: Dashboard,        navGroup: 'top' },
@@ -84,12 +84,12 @@ export const PAGES = [
   { key: 'sns-distillation',  label: 'SNS Distillation',  path: '/sns-distillation',  icon: Flame,         component: SNSDistillation,   navGroup: 'Production' },
   { key: 'bottling-floor',    label: 'Bottling Floor',    path: '/bottling-floor',    icon: Wine,          component: BottlingFloor,     navGroup: 'Production' },
 
-  { key: 'inventory-hub',     label: 'Inventory',         path: '/inventory-hub',     icon: Boxes,         component: InventoryHub,      navGroup: 'Inventory', isHub: true },
-  { key: 'inventory',         label: 'Finished Goods',    path: '/inventory',         icon: Warehouse,     component: Inventory,         navGroup: 'Inventory' },
-  { key: 'warehouse',         label: 'Warehouse (3PL)',   path: '/warehouse',         icon: Building2,     component: Warehouse_,        navGroup: 'Inventory' },
-  { key: 'receiving',         label: 'Receiving',         path: '/receiving',         icon: PackagePlus,   component: Receiving,         navGroup: 'Inventory' },
-  { key: 'stock-takes',       label: 'Stock Takes',       path: '/stock-takes',       icon: ClipboardList, component: StockTakes,        navGroup: 'Inventory' },
-  { key: 'whiskey-barrels',   label: 'Whiskey Barrels',   path: '/whiskey-barrels',   icon: Archive,       component: WhiskeyBarrels,    navGroup: 'Inventory' },
+  { key: 'inventory-hub',     label: 'Stock',             path: '/inventory-hub',     icon: Boxes,         component: InventoryHub,      navGroup: 'Stock', isHub: true },
+  { key: 'inventory',         label: 'Inventory',         path: '/inventory',         icon: Warehouse,     component: Inventory,         navGroup: 'Stock' },
+  { key: 'warehouse',         label: 'Warehouse (3PL)',   path: '/warehouse',         icon: Building2,     component: Warehouse_,        navGroup: 'Stock' },
+  { key: 'receiving',         label: 'Receiving',         path: '/receiving',         icon: PackagePlus,   component: Receiving,         navGroup: 'Stock' },
+  { key: 'stock-takes',       label: 'Stock Takes',       path: '/stock-takes',       icon: ClipboardList, component: StockTakes,        navGroup: 'Stock' },
+  { key: 'whiskey-barrels',   label: 'Whiskey Barrels',   path: '/whiskey-barrels',   icon: Archive,       component: WhiskeyBarrels,    navGroup: 'Stock' },
 
   { key: 'sales',             label: 'Sales',             path: '/sales',             icon: Activity,      component: SalesOverview,     navGroup: 'Sales' },
   { key: 'dispatch',          label: 'Dispatch',          path: '/dispatch',          icon: TrendingUp,    component: DispatchHub,       navGroup: 'Sales' },
