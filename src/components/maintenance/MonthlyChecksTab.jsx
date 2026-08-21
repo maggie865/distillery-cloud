@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import Pagination from '@/components/ui/Pagination';
-import { ChevronDown, CalendarCheck, Flame, Plus } from 'lucide-react';
+import { ChevronDown, CalendarCheck, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 
 const RESULT_CLS = { pass: 'text-emerald-600', fail: 'text-red-600', needs_attention: 'text-amber-600' };
@@ -177,6 +177,29 @@ const VEHICLE_CHECK_SECTIONS = [
   ]},
 ];
 
+// Each check starts collapsed to just its title + status badge - tap to
+// expand into the actual form. Keeps the page scannable now that there
+// are 6 checks (one, Workplace Inspection, has 39 items on its own).
+function CollapsibleCheckCard({ icon, title, badge, borderClass = 'border-border', children }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Card className={`border-2 overflow-hidden ${borderClass}`}>
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger className="w-full flex items-center justify-between gap-2 p-5 text-left hover:bg-muted/30 transition-colors">
+          <h3 className="font-semibold">{icon} {title}</h3>
+          <div className="flex items-center gap-2 shrink-0">
+            {badge}
+            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+          </div>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="px-5 pb-5">
+          <div className="space-y-4 pt-1">{children}</div>
+        </CollapsibleContent>
+      </Collapsible>
+    </Card>
+  );
+}
+
 function SectionHistory({ records, checkItemName, columns, renderRow }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
@@ -225,11 +248,11 @@ function StillCheck({ records, now, selectedMonth, onSave, saving }) {
   };
 
   return (
-    <Card className={`p-5 border-2 space-y-4 ${doneThisMonth ? 'border-emerald-300' : 'border-amber-300'}`}>
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold">🔩 Still Condition Inspection</h3>
-        {doneThisMonth ? <Badge className="bg-emerald-100 text-emerald-700">✅ Done {doneThisMonth.date ? format(parseISO(doneThisMonth.date), 'd MMM') : ''}</Badge> : <Badge className="bg-amber-100 text-amber-700">⚠ Due this month</Badge>}
-      </div>
+    <CollapsibleCheckCard
+      icon="🔩" title="Still Condition Inspection"
+      borderClass={doneThisMonth ? 'border-emerald-300' : 'border-amber-300'}
+      badge={doneThisMonth ? <Badge className="bg-emerald-100 text-emerald-700">✅ Done {doneThisMonth.date ? format(parseISO(doneThisMonth.date), 'd MMM') : ''}</Badge> : <Badge className="bg-amber-100 text-amber-700">⚠ Due this month</Badge>}
+    >
       {!submitted && (
         <div className="space-y-4">
           <div><Label className="text-xs font-semibold">Seal Conditions</Label><div className="mt-1"><YesNo value={form.seals} onChange={v => setForm(f => ({ ...f, seals: v }))} /></div></div>
@@ -258,7 +281,7 @@ function StillCheck({ records, now, selectedMonth, onSave, saving }) {
           </TableRow>
         )}
       />
-    </Card>
+    </CollapsibleCheckCard>
   );
 }
 
@@ -285,11 +308,11 @@ function CondenserCheck({ records, now, selectedMonth, onSave, saving }) {
   };
 
   return (
-    <Card className={`p-5 border-2 space-y-4 ${doneThisMonth ? 'border-emerald-300' : 'border-amber-300'}`}>
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold">🌡 Condenser Check</h3>
-        {doneThisMonth ? <Badge className="bg-emerald-100 text-emerald-700">✅ Done {doneThisMonth.date ? format(parseISO(doneThisMonth.date), 'd MMM') : ''}</Badge> : <Badge className="bg-amber-100 text-amber-700">⚠ Due this month</Badge>}
-      </div>
+    <CollapsibleCheckCard
+      icon="🌡" title="Condenser Check"
+      borderClass={doneThisMonth ? 'border-emerald-300' : 'border-amber-300'}
+      badge={doneThisMonth ? <Badge className="bg-emerald-100 text-emerald-700">✅ Done {doneThisMonth.date ? format(parseISO(doneThisMonth.date), 'd MMM') : ''}</Badge> : <Badge className="bg-amber-100 text-amber-700">⚠ Due this month</Badge>}
+    >
       {!submitted && (
         <div className="space-y-4">
           <div><Label className="text-xs font-semibold">Flow Meter Operational</Label><div className="mt-1"><YesNo value={form.flow_meter} onChange={v => setForm(f => ({ ...f, flow_meter: v }))} yesLabel="✅ Yes — Operational" noLabel="❌ No — Not Working" /></div></div>
@@ -335,7 +358,7 @@ function CondenserCheck({ records, now, selectedMonth, onSave, saving }) {
           </TableRow>
         )}
       />
-    </Card>
+    </CollapsibleCheckCard>
   );
 }
 
@@ -369,11 +392,11 @@ function FirstAidCheck({ records, now, selectedMonth, onSave, saving }) {
   };
 
   return (
-    <Card className={`p-5 border-2 space-y-4 ${doneThisMonth ? 'border-emerald-300' : 'border-amber-300'}`}>
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold">🩹 First Aid Kit Check</h3>
-        {doneThisMonth ? <Badge className="bg-emerald-100 text-emerald-700">✅ Done {doneThisMonth.date ? format(parseISO(doneThisMonth.date), 'd MMM') : ''}</Badge> : <Badge className="bg-amber-100 text-amber-700">⚠ Due this month</Badge>}
-      </div>
+    <CollapsibleCheckCard
+      icon="🩹" title="First Aid Kit Check"
+      borderClass={doneThisMonth ? 'border-emerald-300' : 'border-amber-300'}
+      badge={doneThisMonth ? <Badge className="bg-emerald-100 text-emerald-700">✅ Done {doneThisMonth.date ? format(parseISO(doneThisMonth.date), 'd MMM') : ''}</Badge> : <Badge className="bg-amber-100 text-amber-700">⚠ Due this month</Badge>}
+    >
       {!submitted && (
         <div className="space-y-3">
           <p className="text-xs text-muted-foreground">All items default to ✅ Present. Tap ❌ for any missing items.</p>
@@ -415,7 +438,7 @@ function FirstAidCheck({ records, now, selectedMonth, onSave, saving }) {
           </TableRow>
         )}
       />
-    </Card>
+    </CollapsibleCheckCard>
   );
 }
 
@@ -466,11 +489,11 @@ function SectionedChecklistCheck({
   };
 
   return (
-    <Card className={`p-5 border-2 space-y-4 ${doneThisMonth ? 'border-emerald-300' : 'border-amber-300'}`}>
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold">{icon} {title}</h3>
-        {doneThisMonth ? <Badge className="bg-emerald-100 text-emerald-700">✅ Done {doneThisMonth.date ? format(parseISO(doneThisMonth.date), 'd MMM') : ''}</Badge> : <Badge className="bg-amber-100 text-amber-700">⚠ Due this month</Badge>}
-      </div>
+    <CollapsibleCheckCard
+      icon={icon} title={title}
+      borderClass={doneThisMonth ? 'border-emerald-300' : 'border-amber-300'}
+      badge={doneThisMonth ? <Badge className="bg-emerald-100 text-emerald-700">✅ Done {doneThisMonth.date ? format(parseISO(doneThisMonth.date), 'd MMM') : ''}</Badge> : <Badge className="bg-amber-100 text-amber-700">⚠ Due this month</Badge>}
+    >
       {!submitted && (
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-2">
@@ -523,7 +546,7 @@ function SectionedChecklistCheck({
           </TableRow>
         )}
       />
-    </Card>
+    </CollapsibleCheckCard>
   );
 }
 
@@ -549,12 +572,14 @@ function FireExtinguisherLog({ records, onSave, saving }) {
   };
 
   return (
-    <Card className="p-5 border-2 border-slate-200 space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2"><Flame className="w-5 h-5 text-orange-500" /><h3 className="font-semibold">Fire Extinguisher Service Records</h3></div>
-        <Button size="sm" variant="outline" onClick={() => setShowForm(v => !v)} className="gap-1"><Plus className="w-4 h-4" /> Add Service Record</Button>
+    <CollapsibleCheckCard
+      icon="🧯" title="Fire Extinguisher Service Records"
+      badge={<Badge variant="secondary" className="text-xs">{feRecords.length} record{feRecords.length === 1 ? '' : 's'}</Badge>}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">Log when an external company services the fire extinguishers. Not a fixed monthly check.</p>
+        <Button size="sm" variant="outline" onClick={() => setShowForm(v => !v)} className="gap-1 shrink-0"><Plus className="w-4 h-4" /> Add Service Record</Button>
       </div>
-      <p className="text-xs text-muted-foreground">Log when an external company services the fire extinguishers. Not a fixed monthly check.</p>
       {showForm && (
         <div className="border border-border rounded-lg p-4 space-y-3 bg-muted/30">
           <div className="grid grid-cols-2 gap-2">
@@ -595,7 +620,7 @@ function FireExtinguisherLog({ records, onSave, saving }) {
           <Pagination total={feRecords.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={() => {}} />
         </>
       )}
-    </Card>
+    </CollapsibleCheckCard>
   );
 }
 
