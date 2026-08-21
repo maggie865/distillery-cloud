@@ -10,6 +10,7 @@ const DESCRIPTIONS = {
   'maintenance': 'Monthly inspections and annual safety certifications',
   'pest-control': 'Bait station checks and pest activity records',
   'food-recall': 'Recall register and traceability records',
+  'staff-training': 'Staff roster and training sign-off progress',
 };
 
 export default function Compliance() {
