@@ -1,9 +1,11 @@
 import NavGroupHub from '@/components/shared/NavGroupHub';
 
-// Descriptions for Inventory-group tiles — see Compliance.jsx for the
-// same pattern. Named InventoryHub (not Inventory) to avoid colliding
-// with the existing Finished Goods page component, which is itself one
-// of this hub's tiles.
+// Descriptions for Stock-group tiles — see Compliance.jsx for the same
+// pattern. Named InventoryHub (not Stock) since it predates the group's
+// rename from "Inventory" to "Stock" - the nav label freed up "Inventory"
+// for its own Finished Goods tile (see pages.js), so the group itself
+// became "Stock" instead. Left the component/key/path as-is; only the
+// user-facing labels changed.
 const DESCRIPTIONS = {
   'inventory': 'Finished goods stock levels',
   'warehouse': '3PL warehouse stock and transfers',
@@ -15,9 +17,9 @@ const DESCRIPTIONS = {
 export default function InventoryHub() {
   return (
     <NavGroupHub
-      title="Inventory"
+      title="Stock"
       subtitle="Stock, receiving, and warehousing"
-      navGroup="Inventory"
+      navGroup="Stock"
       ownKey="inventory-hub"
       descriptions={DESCRIPTIONS}
     />
