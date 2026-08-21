@@ -11,7 +11,8 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ArrowLeft, Pencil, GraduationCap, StickyNote, AlertTriangle } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { ArrowLeft, Pencil, GraduationCap, StickyNote, AlertTriangle, RefreshCw, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 
@@ -90,6 +91,96 @@ function TrainingItemRow({ item, signoff, onToggle, onFieldSave, saving }) {
         </div>
       )}
     </div>
+  );
+}
+
+const BLANK_REFRESHER = { date: todayStr(), topic: '', delivered_by: '', staff_initials: '', notes: '' };
+
+// Refresher / ongoing training: toolbox topics, updates, or a re-run of an
+// existing area - repeatable log entries, not tied to a fixed checklist
+// item (unlike the programs above, the same topic can reasonably be
+// logged more than once over time).
+function RefresherLog({ staffId }) {
+  const qc = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(BLANK_REFRESHER);
+
+  const { data: entries = [], isLoading } = useQuery({
+    queryKey: ['trainingRefresherLog', staffId],
+    queryFn: async () => (await db.TrainingRefresherLog.list('-date', 1000)).filter(e => e.staff_member_id === staffId),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => db.TrainingRefresherLog.create({
+      staff_member_id: staffId,
+      date: form.date,
+      topic: form.topic.trim(),
+      delivered_by: form.delivered_by.trim() || undefined,
+      staff_initials: form.staff_initials.trim() || undefined,
+      notes: form.notes.trim() || undefined,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['trainingRefresherLog', staffId] });
+      setForm(BLANK_REFRESHER);
+      setShowForm(false);
+      toast.success('Refresher training logged');
+    },
+    onError: (e) => toast.error(e.message || 'Failed to log refresher training'),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2"><RefreshCw className="w-4 h-4" /> Refresher / Ongoing Training</CardTitle>
+            <CardDescription>Toolbox topics, refreshers, or updates following customer feedback</CardDescription>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setShowForm(v => !v)} className="gap-1"><Plus className="w-4 h-4" /> Log Entry</Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {showForm && (
+          <div className="border border-border rounded-lg p-4 space-y-3 bg-muted/30">
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label className="text-xs font-semibold">Date *</Label><Input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} className="mt-1" /></div>
+              <div><Label className="text-xs font-semibold">Delivered by</Label><Input value={form.delivered_by} onChange={e => setForm(f => ({ ...f, delivered_by: e.target.value }))} className="mt-1" /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label className="text-xs font-semibold">Topic / Reason *</Label><Input value={form.topic} onChange={e => setForm(f => ({ ...f, topic: e.target.value }))} placeholder="e.g. RSA refresher, new POS system" className="mt-1" /></div>
+              <div><Label className="text-xs font-semibold">Staff initials</Label><Input value={form.staff_initials} onChange={e => setForm(f => ({ ...f, staff_initials: e.target.value }))} className="mt-1" /></div>
+            </div>
+            <div><Label className="text-xs font-semibold">Notes (optional)</Label><Textarea rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} className="mt-1" /></div>
+            <div className="flex gap-2">
+              <Button onClick={() => createMutation.mutate()} disabled={!form.date || !form.topic.trim() || createMutation.isPending} className="flex-1">Save Entry</Button>
+              <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+            </div>
+          </div>
+        )}
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground text-center py-4">Loading…</p>
+        ) : entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">No refresher training logged yet.</p>
+        ) : (
+          <div className="overflow-x-auto border rounded-lg">
+            <Table>
+              <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Topic</TableHead><TableHead>Delivered By</TableHead><TableHead>Staff Initials</TableHead><TableHead>Notes</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {entries.map(e => (
+                  <TableRow key={e.id}>
+                    <TableCell className="text-sm whitespace-nowrap">{e.date}</TableCell>
+                    <TableCell className="text-sm">{e.topic}</TableCell>
+                    <TableCell className="text-sm">{e.delivered_by || '—'}</TableCell>
+                    <TableCell className="text-sm">{e.staff_initials || '—'}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-xs truncate">{e.notes || '—'}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -233,6 +324,8 @@ export default function StaffTrainingDetail() {
           </Card>
         );
       })}
+
+      <RefresherLog staffId={staffId} />
 
       {editForm && (
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
