@@ -26,7 +26,7 @@ import {
   Warehouse, Building2, FileText, Settings as SettingsIcon, PackagePlus,
   Truck, ClipboardList, Thermometer, Wrench, Bug, AlertTriangle, CheckSquare,
   Leaf, Archive, Zap, ShieldCheck, Activity, ClipboardCheck, Recycle, Target, Scale, ClipboardPen, Globe2,
-  Factory, Boxes, CalendarDays,
+  Factory, Boxes, CalendarDays, GraduationCap,
 } from 'lucide-react';
 
 import Compliance from '@/pages/Compliance';
@@ -67,6 +67,8 @@ import TankDetail from '@/pages/TankDetail';
 import SalesOverview from '@/pages/SalesOverview';
 import CustomerDetail from '@/pages/CustomerDetail';
 import OrderDetail from '@/pages/OrderDetail';
+import StaffTraining from '@/pages/StaffTraining';
+import StaffTrainingDetail from '@/pages/StaffTrainingDetail';
 
 export const NAV_GROUPS = ['Production', 'Inventory', 'Sales', 'Compliance', 'EMS'];
 
@@ -102,6 +104,8 @@ export const PAGES = [
   { key: 'maintenance',       label: 'Maintenance',       path: '/maintenance',       icon: Wrench,        component: MaintenanceRecords, navGroup: 'Compliance' },
   { key: 'pest-control',      label: 'Pest Control',      path: '/pest-control',      icon: Bug,           component: PestControl,       navGroup: 'Compliance' },
   { key: 'food-recall',       label: 'Food Recall',       path: '/food-recall',       icon: AlertTriangle, component: FoodRecallManager, navGroup: 'Compliance' },
+  { key: 'staff-training',    label: 'Staff Training',    path: '/staff-training',    icon: GraduationCap, component: StaffTraining,     navGroup: 'Compliance' },
+  { key: 'staff-training-detail', label: 'Staff Training Detail', path: '/staff-training/:staffId', icon: GraduationCap, component: StaffTrainingDetail, navGroup: null },
 
   { key: 'ems',               label: 'EMS',               path: '/ems',               icon: Recycle,       component: EMS,               navGroup: 'EMS', isHub: true },
   { key: 'aspects-register',  label: 'Aspects & Impacts Register', path: '/aspects-register', icon: FileText, component: AspectsRegister, navGroup: 'EMS' },
