@@ -1,7 +1,11 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
-import { Flame, PackagePlus, ArrowLeftRight, Truck } from 'lucide-react';
+import { Flame, PackagePlus, ArrowLeftRight, Truck, Martini } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/AuthContext';
+import { usePagePermissions } from '@/hooks/usePagePermissions';
+import TastingDispatchDialog from './TastingDispatchDialog';
 
 const ACTIONS = [
   { label: 'New Distillation', path: '/distillation', icon: Flame, tone: 'bg-warning/10 text-warning' },
@@ -12,6 +16,15 @@ const ACTIONS = [
 
 export default function QuickActions() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { canAccess } = usePagePermissions();
+  const [tastingOpen, setTastingOpen] = useState(false);
+
+  // Same access check as the Dispatch page itself - visible only to
+  // whoever could actually open Dispatch and see the pending row this
+  // creates.
+  const canDispatch = user?.role === 'super_admin' || canAccess('dispatch', user?.role);
+
   return (
     <div>
       <h2 className="text-sm font-semibold text-foreground mb-3">Quick Actions</h2>
@@ -26,7 +39,19 @@ export default function QuickActions() {
             </Card>
           </button>
         ))}
+        {canDispatch && (
+          <button onClick={() => setTastingOpen(true)} className="text-left">
+            <Card className="p-4 flex flex-col items-center text-center gap-2.5 cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+              <div className="w-11 h-11 rounded-full flex items-center justify-center bg-accent text-accent-foreground">
+                <Martini className="w-5 h-5" />
+              </div>
+              <span className="text-xs font-medium text-foreground leading-tight">Tasting / Promo Dispatch</span>
+            </Card>
+          </button>
+        )}
       </div>
+
+      <TastingDispatchDialog open={tastingOpen} onClose={() => setTastingOpen(false)} />
     </div>
   );
 }
