@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db } from '@/api/supabaseClient';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,7 +12,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowLeft, Pencil, GraduationCap, StickyNote, AlertTriangle, RefreshCw, Plus } from 'lucide-react';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { ArrowLeft, Pencil, GraduationCap, StickyNote, AlertTriangle, RefreshCw, Plus, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 
@@ -102,6 +103,7 @@ const BLANK_REFRESHER = { date: todayStr(), topic: '', delivered_by: '', staff_i
 // logged more than once over time).
 function RefresherLog({ staffId }) {
   const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(BLANK_REFRESHER);
 
@@ -130,16 +132,22 @@ function RefresherLog({ staffId }) {
 
   return (
     <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2 flex-wrap">
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger className="w-full flex items-center justify-between gap-2 p-5 text-left hover:bg-muted/30 transition-colors">
           <div>
             <CardTitle className="flex items-center gap-2"><RefreshCw className="w-4 h-4" /> Refresher / Ongoing Training</CardTitle>
             <CardDescription>Toolbox topics, refreshers, or updates following customer feedback</CardDescription>
           </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Badge variant="secondary" className="text-xs">{entries.length} entr{entries.length === 1 ? 'y' : 'ies'}</Badge>
+            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+          </div>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+      <CardContent className="space-y-3 pt-0">
+        <div className="flex justify-end">
           <Button size="sm" variant="outline" onClick={() => setShowForm(v => !v)} className="gap-1"><Plus className="w-4 h-4" /> Log Entry</Button>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
         {showForm && (
           <div className="border border-border rounded-lg p-4 space-y-3 bg-muted/30">
             <div className="grid grid-cols-2 gap-2">
@@ -180,6 +188,8 @@ function RefresherLog({ staffId }) {
           </div>
         )}
       </CardContent>
+        </CollapsibleContent>
+      </Collapsible>
     </Card>
   );
 }
@@ -194,6 +204,10 @@ export default function StaffTrainingDetail() {
   // carried into every item's signoff automatically as it's ticked, rather
   // than retyping the trainer's name on each of up to 27 rows.
   const [sessionTrainerByProgram, setSessionTrainerByProgram] = useState({});
+  // Programs start collapsed to just title + progress, so the whole page
+  // (every program, at a glance) fits without scrolling through 27+ rows
+  // per program - expand only the one you're working on.
+  const [openPrograms, setOpenPrograms] = useState({});
 
   const { data: staffList = [] } = useQuery({ queryKey: ['staffMembers'], queryFn: () => db.StaffMember.list('full_name', 1000) });
   const staff = staffList.find(s => s.id === staffId);
@@ -274,53 +288,61 @@ export default function StaffTrainingDetail() {
         const sections = [...new Set(programItems.map(i => i.section))];
         const pct = programItems.length ? Math.round((doneCount / programItems.length) * 100) : 0;
         const sessionTrainer = sessionTrainerByProgram[program.id] ?? staff.primary_trainer ?? '';
+        const isOpen = !!openPrograms[program.id];
 
         return (
           <Card key={program.id}>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div>
-                  <CardTitle className="flex items-center gap-2"><GraduationCap className="w-4 h-4" /> {program.name}</CardTitle>
-                  {program.description && <CardDescription>{program.description}</CardDescription>}
-                </div>
-                <Badge className={`text-xs font-mono ${pct === 100 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{doneCount}/{programItems.length} signed off</Badge>
-              </div>
-              <div className="h-1.5 rounded-full bg-muted overflow-hidden mt-2 mb-3"><div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} /></div>
-              <div className="max-w-xs">
-                <Label className="text-xs">Trainer for this form</Label>
-                <Input
-                  value={sessionTrainer}
-                  onChange={e => setSessionTrainerByProgram(m => ({ ...m, [program.id]: e.target.value }))}
-                  placeholder="Assumed the same for every item below"
-                  className="mt-1 h-8 text-sm"
-                />
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {sections.map(section => (
-                <div key={section} className="space-y-1">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{section}</h4>
-                  <div className="space-y-0.5">
-                    {programItems.filter(i => i.section === section).map(item => {
-                      const signoff = signoffByItemId.get(item.id);
-                      return (
-                        <TrainingItemRow
-                          key={`${item.id}-${signoff?.updated_at || 'new'}`}
-                          item={item} signoff={signoff}
-                          saving={upsertMutation.isPending}
-                          onToggle={(checked) => upsertFor(item, signoff, {
-                            completed: checked,
-                            date_completed: checked && !signoff?.date_completed ? todayStr() : (signoff?.date_completed ?? null),
-                            trainer: checked && !signoff?.trainer && sessionTrainer.trim() ? sessionTrainer.trim() : (signoff?.trainer ?? null),
-                          })}
-                          onFieldSave={(partial) => upsertFor(item, signoff, partial)}
-                        />
-                      );
-                    })}
+            <Collapsible open={isOpen} onOpenChange={(v) => setOpenPrograms(m => ({ ...m, [program.id]: v }))}>
+              <div className="p-5 pb-3">
+                <CollapsibleTrigger className="w-full flex items-center justify-between gap-2 text-left">
+                  <div>
+                    <CardTitle className="flex items-center gap-2"><GraduationCap className="w-4 h-4" /> {program.name}</CardTitle>
+                    {program.description && <CardDescription>{program.description}</CardDescription>}
                   </div>
-                </div>
-              ))}
-            </CardContent>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge className={`text-xs font-mono ${pct === 100 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{doneCount}/{programItems.length} signed off</Badge>
+                    <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                  </div>
+                </CollapsibleTrigger>
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden mt-2"><div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} /></div>
+              </div>
+              <CollapsibleContent>
+                <CardContent className="pt-0 space-y-4">
+                  <div className="max-w-xs">
+                    <Label className="text-xs">Trainer for this form</Label>
+                    <Input
+                      value={sessionTrainer}
+                      onChange={e => setSessionTrainerByProgram(m => ({ ...m, [program.id]: e.target.value }))}
+                      placeholder="Assumed the same for every item below"
+                      className="mt-1 h-8 text-sm"
+                    />
+                  </div>
+                  {sections.map(section => (
+                    <div key={section} className="space-y-1">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{section}</h4>
+                      <div className="space-y-0.5">
+                        {programItems.filter(i => i.section === section).map(item => {
+                          const signoff = signoffByItemId.get(item.id);
+                          return (
+                            <TrainingItemRow
+                              key={`${item.id}-${signoff?.updated_at || 'new'}`}
+                              item={item} signoff={signoff}
+                              saving={upsertMutation.isPending}
+                              onToggle={(checked) => upsertFor(item, signoff, {
+                                completed: checked,
+                                date_completed: checked && !signoff?.date_completed ? todayStr() : (signoff?.date_completed ?? null),
+                                trainer: checked && !signoff?.trainer && sessionTrainer.trim() ? sessionTrainer.trim() : (signoff?.trainer ?? null),
+                              })}
+                              onFieldSave={(partial) => upsertFor(item, signoff, partial)}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </CollapsibleContent>
+            </Collapsible>
           </Card>
         );
       })}
