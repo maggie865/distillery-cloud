@@ -41,8 +41,18 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
   const [calcingDistance, setCalcingDistance] = useState(false);
   const [allocationMode, setAllocationMode] = useState('fifo');
   const [newLineBatchId, setNewLineBatchId] = useState('');
+  const [locationId, setLocationId] = useState('');
 
   const queryClient = useQueryClient();
+
+  // Only relevant once a customer with more than one store/branch on file
+  // is selected - see CustomerLocationsPanel on the customer detail page.
+  const selectedCustomer = customers.find(c => c.business_name.trim().toLowerCase() === form.customer_name.trim().toLowerCase());
+  const { data: customerLocations = [] } = useQuery({
+    queryKey: ['customerLocations', selectedCustomer?.id],
+    queryFn: async () => (await db.CustomerLocation.list('location_name', 500)).filter(l => l.customer_id === selectedCustomer.id && l.active),
+    enabled: !!selectedCustomer?.id,
+  });
   const { getStock } = useProductStock();
 
   const { data: appSettings = [] } = useQuery({
@@ -249,6 +259,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
     setAllocationMode('fifo');
     setNewLineQty('');
     setDispatchedFrom('Bluff');
+    setLocationId('');
     onClose();
   };
 
@@ -279,6 +290,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
             parcel_weight_kg: a.weightKg,
             co2e_kg: a.co2e,
             dispatched_from: 'Bluff',
+            location_id: locationId || undefined,
             sample_dispatch: form.sample_dispatch === true,
             duty_free: form.duty_free === true,
             is_export: form.is_export === true,
@@ -305,6 +317,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
             transport_distance_km: distanceKm || undefined, transport_method: transportMethod,
             co2e_kg: co2e > 0 ? parseFloat(co2e.toFixed(3)) : undefined, status: form.status || 'dispatched',
             sample_dispatch: form.sample_dispatch === true, duty_free: form.duty_free === true, is_export: form.is_export === true, notes: form.notes || undefined, dispatched_from: dispatchedFrom,
+            location_id: locationId || undefined,
           });
           if (!deductsStock) continue;
           const newQty = Math.max(0, ws.quantity_bottles - qty);
@@ -450,10 +463,29 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
             </div>
             <CustomerAutocomplete
               customers={customers} value={form.customer_name}
-              onSelect={v => setForm(f => ({ ...f, customer_name: v }))}
+              onSelect={v => { setForm(f => ({ ...f, customer_name: v })); setLocationId(''); }}
               onAddressChange={addr => { setForm(f => ({ ...f, customer_address: addr })); if (addr) calculateDistance(addr); }}
             />
             {form.customer_address && <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1"><MapPin className="w-3 h-3" /> {form.customer_address}</p>}
+            {customerLocations.length > 0 && (
+              <div className="mt-2">
+                <Label className="text-xs text-muted-foreground">Location</Label>
+                <Select
+                  value={locationId || 'none'}
+                  onValueChange={v => {
+                    setLocationId(v === 'none' ? '' : v);
+                    const loc = customerLocations.find(l => l.id === v);
+                    if (loc?.address) { setForm(f => ({ ...f, customer_address: loc.address })); calculateDistance(loc.address); }
+                  }}
+                >
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Main / not specified</SelectItem>
+                    {customerLocations.map(l => <SelectItem key={l.id} value={l.id}>{l.location_name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           <div><Label>Dispatch Date</Label><Input type="date" value={form.dispatch_date} onChange={e => setForm(f => ({ ...f, dispatch_date: e.target.value }))} className="mt-1" /></div>

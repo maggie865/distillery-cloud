@@ -24,6 +24,7 @@ import StockHistoryTimeline from '@/components/customers/StockHistoryTimeline';
 import CustomerOrderHistoryTable from '@/components/customers/CustomerOrderHistoryTable';
 import CustomerStockAlertsList from '@/components/customers/CustomerStockAlertsList';
 import CustomerGroupTagEditor from '@/components/customers/CustomerGroupTagEditor';
+import CustomerLocationsPanel from '@/components/customers/CustomerLocationsPanel';
 import { useCustomerStock } from '@/hooks/useCustomerStock';
 import { useCustomerOrders } from '@/hooks/useCustomerOrders';
 import { computeCustomerStats, daysSince, visitFrequencyLabel } from '@/lib/customerHealth';
@@ -215,6 +216,7 @@ export default function CustomerDetail() {
       </div>
 
       <div className="space-y-5 mb-6">
+        <CustomerLocationsPanel customerId={customerId} dispatches={dispatches} />
         <CustomerStockTable rows={customerStock.rows} isLoading={customerStock.isLoading} />
         <StockHistoryTimeline history={customerStock.history} products={customerStock.products} />
         <div id="order-history">

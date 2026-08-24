@@ -103,6 +103,7 @@ export const db = {
   CustomerActivity:  makeEntity('CustomerActivity'),
   CustomerGroup:     makeEntity('CustomerGroup'),
   CustomerGroupMember: makeEntity('CustomerGroupMember'),
+  CustomerLocation:  makeEntity('CustomerLocation'),
   CustomerOrder:     makeEntity('CustomerOrder'),
   CustomerParLevel:  makeEntity('CustomerParLevel'),
   CustomerRequest:   makeEntity('CustomerRequest'),

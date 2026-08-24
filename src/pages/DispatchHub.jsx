@@ -73,6 +73,8 @@ export default function DispatchHub() {
   const { data: warehouseStock = [] } = useQuery({ queryKey: ['warehouseStock'], queryFn: () => db.WarehouseStock.list('-date_transferred_in', 5000) });
   const { data: allDispatches = [] } = useQuery({ queryKey: ['dispatches-all'], queryFn: () => db.Dispatch.list('-dispatch_date', 5000) });
   const { data: customers = [] } = useQuery({ queryKey: ['customers'], queryFn: () => db.Customer.list('business_name', 5000) });
+  const { data: customerLocations = [] } = useQuery({ queryKey: ['allCustomerLocations'], queryFn: () => db.CustomerLocation.list('location_name', 5000) });
+  const locationById = new Map(customerLocations.map(l => [l.id, l]));
   // Shares a query key with XeroConnectionPanel.jsx (Settings) so both stay
   // in sync off one cache entry rather than polling independently.
   const { data: xeroStatus } = useQuery({
@@ -483,6 +485,9 @@ export default function DispatchHub() {
                         </button>
                       )}
                     </div>
+                    {d.location_id && locationById.get(d.location_id) && (
+                      <p className="text-xs font-normal text-muted-foreground mt-0.5">{locationById.get(d.location_id).location_name}</p>
+                    )}
                   </TableCell>
                   <TableCell>{d.product_name}</TableCell>
                   <TableCell className="font-mono text-xs">{d.batch_number}</TableCell>
@@ -530,7 +535,7 @@ export default function DispatchHub() {
             <MobileCard
               key={d.id || i}
               title={d.sales_channel && d.sales_channel !== 'wholesale' ? (CHANNEL_LABELS[d.sales_channel] || d.sales_channel) : (d.customer_name || '—')}
-              subtitle={`${d.product_name} • ${(() => { try { const dt = new Date(d.dispatch_date?.replace(/-/g, '/')); return isNaN(dt) ? d.dispatch_date || '—' : format(dt, 'dd MMM yyyy'); } catch { return d.dispatch_date || '—'; } })()}`}
+              subtitle={`${d.product_name} • ${(() => { try { const dt = new Date(d.dispatch_date?.replace(/-/g, '/')); return isNaN(dt) ? d.dispatch_date || '—' : format(dt, 'dd MMM yyyy'); } catch { return d.dispatch_date || '—'; } })()}${d.location_id && locationById.get(d.location_id) ? ` • ${locationById.get(d.location_id).location_name}` : ''}`}
               badge={
                 <>
                   <Badge variant={d.dispatched_from === 'Auckland 3PL' ? 'secondary' : 'outline'} className="text-xs">{d.dispatched_from || 'Bluff'}</Badge>
