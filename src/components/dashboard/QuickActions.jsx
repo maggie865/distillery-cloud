@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
-import { Flame, PackagePlus, ArrowLeftRight, Truck, Martini } from 'lucide-react';
+import { Flame, PackagePlus, ArrowLeftRight, Truck, Martini, UserPlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { usePagePermissions } from '@/hooks/usePagePermissions';
 import TastingDispatchDialog from './TastingDispatchDialog';
+import NewCustomerVisitDialog from './NewCustomerVisitDialog';
 
 const ACTIONS = [
   { label: 'New Distillation', path: '/distillation', icon: Flame, tone: 'bg-warning/10 text-warning' },
@@ -19,11 +20,15 @@ export default function QuickActions() {
   const { user } = useAuth();
   const { canAccess } = usePagePermissions();
   const [tastingOpen, setTastingOpen] = useState(false);
+  const [newCustomerVisitOpen, setNewCustomerVisitOpen] = useState(false);
 
   // Same access check as the Dispatch page itself - visible only to
   // whoever could actually open Dispatch and see the pending row this
   // creates.
   const canDispatch = user?.role === 'super_admin' || canAccess('dispatch', user?.role);
+  // Same access check as the Customers page - visible only to whoever
+  // could actually open Customers and see the record this creates.
+  const canManageCustomers = user?.role === 'super_admin' || canAccess('customers', user?.role);
 
   return (
     <div>
@@ -49,9 +54,20 @@ export default function QuickActions() {
             </Card>
           </button>
         )}
+        {canManageCustomers && (
+          <button onClick={() => setNewCustomerVisitOpen(true)} className="text-left">
+            <Card className="p-4 flex flex-col items-center text-center gap-2.5 cursor-pointer transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+              <div className="w-11 h-11 rounded-full flex items-center justify-center bg-secondary text-secondary-foreground">
+                <UserPlus className="w-5 h-5" />
+              </div>
+              <span className="text-xs font-medium text-foreground leading-tight">Log New Customer Visit</span>
+            </Card>
+          </button>
+        )}
       </div>
 
       <TastingDispatchDialog open={tastingOpen} onClose={() => setTastingOpen(false)} />
+      <NewCustomerVisitDialog open={newCustomerVisitOpen} onClose={() => setNewCustomerVisitOpen(false)} />
     </div>
   );
 }
