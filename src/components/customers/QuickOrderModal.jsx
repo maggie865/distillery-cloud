@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { db, orders, supabase } from '@/api/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
 import { useCustomerStock } from '@/hooks/useCustomerStock';
@@ -27,6 +27,16 @@ export default function QuickOrderModal({ customer, open, onOpenChange, prefill 
   const [addProductId, setAddProductId] = useState('');
   const [notes, setNotes] = useState('');
   const [overrideAck, setOverrideAck] = useState(false);
+  const [locationId, setLocationId] = useState('');
+
+  // Only relevant for customers with more than one store/branch recorded -
+  // see CustomerLocationsPanel on the customer detail page.
+  const { data: locations = [] } = useQuery({
+    queryKey: ['customerLocations', customer?.id],
+    queryFn: async () => (await db.CustomerLocation.list('location_name', 500)).filter((l) => l.customer_id === customer.id && l.active),
+    enabled: open && !!customer?.id,
+  });
+  const selectedLocation = locations.find((l) => l.id === locationId);
 
   // Seed the line list once stock data is ready: from a Stock Alert's
   // prefill if given, otherwise every product with a suggested order > 0.
@@ -42,7 +52,7 @@ export default function QuickOrderModal({ customer, open, onOpenChange, prefill 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, stockLoading, rows, prefill]);
 
-  const reset = () => { setStep('build'); setLines([]); setAddProductId(''); setNotes(''); setOverrideAck(false); };
+  const reset = () => { setStep('build'); setLines([]); setAddProductId(''); setNotes(''); setOverrideAck(false); setLocationId(''); };
 
   const rowFor = (productId) => rows.find((r) => r.product.id === productId);
   const addableProducts = rows.filter((r) => !lines.some((l) => l.productId === r.product.id));
@@ -86,7 +96,8 @@ export default function QuickOrderModal({ customer, open, onOpenChange, prefill 
         await db.Dispatch.create({
           dispatch_date: order.order_date,
           customer_name: customer.business_name,
-          customer_address: customer.delivery_address || null,
+          customer_address: selectedLocation?.address || customer.delivery_address || null,
+          location_id: locationId || undefined,
           product_name: l.row.product.name,
           batch_number: null, // assigned by FIFO the moment this line is marked Dispatched
           bottle_size_ml: l.row.product.bottle_size_ml || null,
@@ -151,6 +162,19 @@ export default function QuickOrderModal({ customer, open, onOpenChange, prefill 
           <Label className="text-xs text-muted-foreground">Customer</Label>
           <p className="text-sm font-semibold">{customer.business_name}</p>
         </div>
+
+        {locations.length > 0 && (
+          <div className="mb-3">
+            <Label className="text-xs text-muted-foreground">Location</Label>
+            <Select value={locationId || 'none'} onValueChange={(v) => setLocationId(v === 'none' ? '' : v)}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Main / not specified</SelectItem>
+                {locations.map((l) => <SelectItem key={l.id} value={l.id}>{l.location_name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         {step === 'build' ? (
           <div className="space-y-4 mt-2">
