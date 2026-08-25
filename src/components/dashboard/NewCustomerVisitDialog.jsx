@@ -48,13 +48,12 @@ const blankForm = () => ({
 });
 
 // Combined "we walked into a store that isn't in the system yet" flow -
-// creates a bare-minimum Customer record (name, contact, phone/email - no
-// address, type, etc. required, those get filled in properly later) and
-// logs the visit against it in one step, instead of Add Customer then Log
-// Visit as two separate trips through the Customers page. New customers
-// created here default to 'prospect' status since a walk-in visit doesn't
-// yet mean a trading account - promote them from the Customers page once
-// they're actually placing orders.
+// creates a Customer record and logs the visit against it in one step,
+// instead of Add Customer then Log Visit as two separate trips through the
+// Customers page. Nothing here is mandatory - fill in whatever's known on
+// the spot and complete the rest later from the Customers page. New
+// customers created here default to 'prospect' status since a walk-in
+// visit doesn't yet mean a trading account.
 export default function NewCustomerVisitDialog({ open, onClose }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -98,13 +97,11 @@ export default function NewCustomerVisitDialog({ open, onClose }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       queryClient.invalidateQueries({ queryKey: ['customerActivities'] });
-      toast.success(`${form.business_name.trim()} added and visit logged`);
+      toast.success(`${form.business_name.trim() || 'Customer'} added and visit logged`);
       handleClose();
     },
     onError: (e) => toast.error('Failed to save: ' + e.message),
   });
-
-  const canSubmit = form.business_name.trim() && form.primary_contact.trim() && (form.phone.trim() || form.email.trim());
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose(); }}>
@@ -115,11 +112,11 @@ export default function NewCustomerVisitDialog({ open, onClose }) {
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">New Customer</p>
             <div>
               <Label>Store Name</Label>
-              <Input value={form.business_name} onChange={(e) => set('business_name', e.target.value)} placeholder="e.g. Coastal Liquor" required />
+              <Input value={form.business_name} onChange={(e) => set('business_name', e.target.value)} placeholder="e.g. Coastal Liquor" />
             </div>
             <div>
               <Label>Contact Person</Label>
-              <Input value={form.primary_contact} onChange={(e) => set('primary_contact', e.target.value)} placeholder="Name" required />
+              <Input value={form.primary_contact} onChange={(e) => set('primary_contact', e.target.value)} placeholder="Name" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -131,7 +128,6 @@ export default function NewCustomerVisitDialog({ open, onClose }) {
                 <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">At least one of phone or email is required.</p>
           </div>
 
           <div className="space-y-3">
@@ -139,7 +135,7 @@ export default function NewCustomerVisitDialog({ open, onClose }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Date</Label>
-                <Input type="date" value={form.date} onChange={(e) => set('date', e.target.value)} required />
+                <Input type="date" value={form.date} onChange={(e) => set('date', e.target.value)} />
               </div>
               <div>
                 <Label>Time</Label>
@@ -224,7 +220,7 @@ export default function NewCustomerVisitDialog({ open, onClose }) {
             </div>
           </div>
 
-          <Button type="submit" className="w-full" disabled={!canSubmit || mutation.isPending}>
+          <Button type="submit" className="w-full" disabled={mutation.isPending}>
             {mutation.isPending ? 'Saving…' : 'Add Customer & Log Visit'}
           </Button>
         </form>
