@@ -9,11 +9,11 @@ export default function StockOverview() {
 
   const { data: finishedGoods = [] } = useQuery({
     queryKey: ['finishedGoods'],
-    queryFn: () => base44.entities.FinishedGood.list('-updated_date', 5000),
+    queryFn: () => base44.entities.FinishedGood.list('-created_at', 5000),
   });
   const { data: warehouseStock = [] } = useQuery({
     queryKey: ['warehouseStock'],
-    queryFn: () => base44.entities.WarehouseStock.list('-updated_date', 5000),
+    queryFn: () => base44.entities.WarehouseStock.list('-created_at', 5000),
   });
   const { data: tanks = [] } = useQuery({
     queryKey: ['storageTanks'],
