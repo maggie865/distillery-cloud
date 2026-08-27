@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -55,6 +56,7 @@ function toCsv(rows, headers) {
 }
 
 export default function CustomerVisitReport({ rows }) {
+  const navigate = useNavigate();
   const [preset, setPreset] = useState('month');
   const [customFrom, setCustomFrom] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [customTo, setCustomTo] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -161,10 +163,14 @@ export default function CustomerVisitReport({ rows }) {
       ) : (
         <div className="space-y-4">
           {computed.visited.map((r) => (
-            <Card key={r.customer.id} className="p-4">
+            <Card
+              key={r.customer.id}
+              className="p-4 cursor-pointer transition-colors hover:border-primary/40"
+              onClick={() => navigate(`/customers/${r.customer.id}`)}
+            >
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>
-                  <p className="font-semibold text-foreground">{r.customer.business_name}</p>
+                  <p className="font-semibold text-foreground hover:underline">{r.customer.business_name}</p>
                   <p className="text-xs text-muted-foreground">{r.customer.region || '—'}</p>
                 </div>
                 <span className="text-xs text-muted-foreground shrink-0">{r.visitsInRange.length} visit{r.visitsInRange.length === 1 ? '' : 's'} in period</span>
