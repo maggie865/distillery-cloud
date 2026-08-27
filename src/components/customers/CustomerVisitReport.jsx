@@ -3,10 +3,30 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Download } from 'lucide-react';
 import { format, parseISO, startOfWeek, startOfMonth, endOfMonth, subMonths, startOfQuarter, startOfToday } from 'date-fns';
-import { daysSince, visitFrequencyLabel } from '@/lib/customerHealth';
+import { daysSince } from '@/lib/customerHealth';
+import { REQUEST_TYPES, REQUEST_STATUSES } from '@/components/customers/RequestDialog';
+
+const VISIT_TYPE_LABELS = {
+  sales_visit: 'Sales visit',
+  relationship_visit: 'Relationship visit',
+  stock_check: 'Stock check',
+  new_customer_visit: 'New customer visit',
+  promotion: 'Promotion',
+  product_presentation: 'Product presentation',
+  other: 'Other',
+};
+
+const OUTCOME_LABELS = {
+  no_action: 'No action required',
+  follow_up_required: 'Follow-up required',
+  order_placed: 'Order placed',
+  pricing_requested: 'Pricing requested',
+  product_requested: 'Product requested',
+  issue_raised: 'Issue raised',
+  other: 'Other',
+};
 
 const PRESETS = [
   { key: 'today', label: 'Today' },
@@ -49,36 +69,37 @@ export default function CustomerVisitReport({ rows }) {
 
   const computed = useMemo(() => {
     const perCustomer = rows.map((r) => {
-      const visitsInRange = r.activities.filter((a) => a.type === 'visit' && inRange(a.date));
+      const visitsInRange = r.activities.filter((a) => a.type === 'visit' && inRange(a.date)).sort((a, b) => (a.date < b.date ? 1 : -1));
       const contactsInRange = r.activities.filter((a) => inRange(a.date));
-      return { ...r, visitsInRange, contactsInRange };
+      const requestsInRange = r.requests.filter((req) => inRange(req.date_received));
+      return { ...r, visitsInRange, contactsInRange, requestsInRange };
     });
 
+    const visited = perCustomer.filter((r) => r.visitsInRange.length > 0);
     const totalVisits = perCustomer.reduce((s, r) => s + r.visitsInRange.length, 0);
-    const storesVisited = perCustomer.filter((r) => r.visitsInRange.length > 0).length;
+    const storesVisited = visited.length;
     const avgVisits = storesVisited > 0 ? totalVisits / storesVisited : 0;
-    const notVisited = perCustomer.filter((r) => r.visitsInRange.length === 0);
-    const overdueCustomers = perCustomer.filter((r) => r.visitOverdue);
     const totalContacts = perCustomer.reduce((s, r) => s + r.contactsInRange.length, 0);
-    const followUpsCompleted = perCustomer.reduce((s, r) => s + r.activities.filter((a) => inRange(a.date) && a.follow_up_required && a.status === 'resolved').length, 0);
-    const followUpsOverdue = perCustomer.filter((r) => r.followUp?.overdue).length;
-    const openRequests = perCustomer.reduce((s, r) => s + r.openRequests.length, 0);
-    const resolvedRequests = perCustomer.reduce((s, r) => s + r.requests.filter((req) => req.status === 'resolved' && req.date_resolved && inRange(req.date_resolved)).length, 0);
+    const followUpsOverdue = visited.filter((r) => r.followUp?.overdue).length;
+    const openRequests = visited.reduce((s, r) => s + r.requestsInRange.filter((req) => req.status !== 'resolved').length, 0);
 
-    return { perCustomer, totalVisits, storesVisited, avgVisits, notVisited, overdueCustomers, totalContacts, followUpsCompleted, followUpsOverdue, openRequests, resolvedRequests };
+    return { perCustomer, visited, totalVisits, storesVisited, avgVisits, totalContacts, followUpsOverdue, openRequests };
   }, [rows, range.from, range.to]);
 
   const exportCsv = () => {
-    const headers = ['Customer', 'Region', 'Last Visit', 'Visits During Period', 'Days Since Visit', 'Expected Frequency', 'Status'];
-    const csvRows = computed.perCustomer.map((r) => ({
+    const headers = ['Customer', 'Region', 'Visit Date', 'Visited By', 'Visit Type', 'Outcome', 'Notes', 'Follow-up Date', 'Follow-up Task', 'Requests'];
+    const csvRows = computed.visited.flatMap((r) => r.visitsInRange.map((v) => ({
       Customer: r.customer.business_name,
       Region: r.customer.region || '',
-      'Last Visit': r.lastVisit || '',
-      'Visits During Period': r.visitsInRange.length,
-      'Days Since Visit': r.lastVisit ? daysSince(r.lastVisit) : '',
-      'Expected Frequency': visitFrequencyLabel(r.customer.visit_frequency),
-      Status: r.visitOverdue ? 'Overdue' : 'OK',
-    }));
+      'Visit Date': v.date || '',
+      'Visited By': v.recorded_by || '',
+      'Visit Type': VISIT_TYPE_LABELS[v.subtype] || v.subtype || '',
+      Outcome: OUTCOME_LABELS[v.outcome] || v.outcome || '',
+      Notes: v.notes || '',
+      'Follow-up Date': v.follow_up_required ? (v.follow_up_date || '') : '',
+      'Follow-up Task': v.follow_up_required ? (v.follow_up_task || '') : '',
+      Requests: r.requestsInRange.map((req) => `${REQUEST_TYPES.find((t) => t.value === req.request_type)?.label || req.request_type} (${req.status})`).join('; '),
+    })));
     const csv = toCsv(csvRows, headers);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -124,8 +145,6 @@ export default function CustomerVisitReport({ rows }) {
           ['Visits', computed.totalVisits],
           ['Stores Visited', computed.storesVisited],
           ['Average Visits', computed.avgVisits.toFixed(2)],
-          ['Customers Not Visited', computed.notVisited.length],
-          ['Overdue Customers', computed.overdueCustomers.length],
           ['Contacts Made', computed.totalContacts],
           ['Follow-ups Overdue', computed.followUpsOverdue],
           ['Open Requests', computed.openRequests],
@@ -137,40 +156,61 @@ export default function CustomerVisitReport({ rows }) {
         ))}
       </div>
 
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Customer</TableHead>
-                <TableHead>Region</TableHead>
-                <TableHead>Last Visit</TableHead>
-                <TableHead>Visits During Period</TableHead>
-                <TableHead>Days Since Visit</TableHead>
-                <TableHead>Expected Frequency</TableHead>
-                <TableHead>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {computed.perCustomer.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No customers yet</TableCell></TableRow>
-              ) : computed.perCustomer.map((r) => (
-                <TableRow key={r.customer.id}>
-                  <TableCell className="font-medium">{r.customer.business_name}</TableCell>
-                  <TableCell className="text-muted-foreground">{r.customer.region || '—'}</TableCell>
-                  <TableCell className="text-sm">{r.lastVisit ? format(parseISO(r.lastVisit), 'd MMM yyyy') : '—'}</TableCell>
-                  <TableCell className="text-sm">{r.visitsInRange.length}</TableCell>
-                  <TableCell className="text-sm">{r.lastVisit ? daysSince(r.lastVisit) : '—'}</TableCell>
-                  <TableCell className="text-sm">{visitFrequencyLabel(r.customer.visit_frequency)}</TableCell>
-                  <TableCell>
-                    <span className={`inline-block w-2.5 h-2.5 rounded-full ${r.visitOverdue ? 'bg-destructive' : 'bg-success'}`} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+      {computed.visited.length === 0 ? (
+        <Card className="p-10 text-center text-sm text-muted-foreground">No customer visits logged in this period</Card>
+      ) : (
+        <div className="space-y-4">
+          {computed.visited.map((r) => (
+            <Card key={r.customer.id} className="p-4">
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div>
+                  <p className="font-semibold text-foreground">{r.customer.business_name}</p>
+                  <p className="text-xs text-muted-foreground">{r.customer.region || '—'}</p>
+                </div>
+                <span className="text-xs text-muted-foreground shrink-0">{r.visitsInRange.length} visit{r.visitsInRange.length === 1 ? '' : 's'} in period</span>
+              </div>
+
+              <div className="space-y-3">
+                {r.visitsInRange.map((v) => (
+                  <div key={v.id} className="border-l-2 border-border pl-3">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">{v.date ? format(parseISO(v.date), 'd MMM yyyy') : '—'}</span>
+                      {v.recorded_by && <span>· {v.recorded_by}</span>}
+                      <span>· {VISIT_TYPE_LABELS[v.subtype] || v.subtype}</span>
+                      {v.outcome && <span>· {OUTCOME_LABELS[v.outcome] || v.outcome}</span>}
+                    </div>
+                    {v.notes && <p className="text-sm text-foreground mt-1">{v.notes}</p>}
+                    {v.follow_up_required && (
+                      <p className="text-xs mt-1">
+                        <span className={v.follow_up_date && daysSince(v.follow_up_date) > 0 ? 'text-destructive font-medium' : 'text-warning font-medium'}>Follow-up</span>
+                        {v.follow_up_date && ` — ${format(parseISO(v.follow_up_date), 'd MMM yyyy')}`}
+                        {v.follow_up_task && `: ${v.follow_up_task}`}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {r.requestsInRange.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-border">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Orders / Requests</p>
+                  <div className="space-y-1">
+                    {r.requestsInRange.map((req) => (
+                      <div key={req.id} className="text-sm flex flex-wrap items-center gap-x-2">
+                        <span className="font-medium text-foreground">{REQUEST_TYPES.find((t) => t.value === req.request_type)?.label || req.request_type}</span>
+                        {req.description && <span className="text-muted-foreground">— {req.description}</span>}
+                        <span className={`ml-auto text-xs shrink-0 ${req.status === 'resolved' ? 'text-success' : 'text-warning'}`}>
+                          {REQUEST_STATUSES.find((s) => s.value === req.status)?.label || req.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          ))}
         </div>
-      </Card>
+      )}
     </div>
   );
 }
