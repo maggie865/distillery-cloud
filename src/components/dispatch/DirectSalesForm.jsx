@@ -77,7 +77,7 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
         if (an && bn) return an.localeCompare(bn, undefined, { numeric: true });
         if (an) return -1;
         if (bn) return 1;
-        return new Date(a.created_date) - new Date(b.created_date);
+        return new Date(a.created_at) - new Date(b.created_at);
       });
       return { ...opt, batches: batchesWithAvail, totalAvailable: batchesWithAvail.reduce((s, b) => s + b.available, 0) };
     }).filter(opt => opt.totalAvailable > 0);

@@ -15,7 +15,7 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
   const [destination, setDestination] = useState('Auckland 3PL');
   const [transferDate, setTransferDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [transferDistance, setTransferDistance] = useState('1500');
-  const [rows, setRows] = useState([{ productKey: '', qty: '' }]);
+  const [rows, setRows] = useState([{ productKey: '', qty: '', batchId: '' }]);
 
   // Group by product + bottle size — show totals, not individual batches
   const productOptions = useMemo(() => {
@@ -44,9 +44,14 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
     );
   }, [finishedGoods]);
 
-  const addRow = () => setRows(prev => [...prev, { productKey: '', qty: '' }]);
+  const addRow = () => setRows(prev => [...prev, { productKey: '', qty: '', batchId: '' }]);
   const removeRow = (idx) => setRows(prev => prev.filter((_, i) => i !== idx));
-  const updateRow = (idx, field, value) => setRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r));
+  const updateRow = (idx, field, value) => setRows(prev => prev.map((r, i) => {
+    if (i !== idx) return r;
+    // Changing product invalidates whatever batch was picked for the old one
+    if (field === 'productKey') return { ...r, productKey: value, batchId: '' };
+    return { ...r, [field]: value };
+  }));
 
   const validRows = rows.filter(r => r.productKey && parseInt(r.qty) > 0);
   const totalBottles = validRows.reduce((s, r) => s + (parseInt(r.qty) || 0), 0);
@@ -58,12 +63,18 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
     return weight / 1000 / 56 * distance * 0.21;
   })();
 
-  // Validate: qty doesn't exceed available
+  // Validate: qty doesn't exceed available — a manually-picked batch caps at
+  // that batch's own quantity, FIFO caps at the product's total across batches
   const hasInvalid = validRows.some(r => {
     const opt = productOptions.find(o => o.key === r.productKey);
+    if (!opt) return true;
+    if (r.batchId) {
+      const batch = opt.batches.find(b => b.id === r.batchId);
+      return !batch || parseInt(r.qty) > (batch.quantity_bottles || 0);
+    }
     // Also account for same productKey in other rows
     const totalAllocated = rows.filter(x => x.productKey === r.productKey).reduce((s, x) => s + (parseInt(x.qty) || 0), 0);
-    return !opt || totalAllocated > opt.totalAvailable;
+    return totalAllocated > opt.totalAvailable;
   });
 
   const transferMutation = useMutation({
@@ -72,70 +83,73 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
       if (validRows.length === 0) throw new Error('Add at least one item to transfer');
 
       // Generate packing slip number
-      const allSettings = await base44.entities.AppSettings.list('-created_date', 5000);
+      const allSettings = await base44.entities.AppSettings.list('-created_at', 5000);
       const lastNumSetting = allSettings.find(s => s.key === 'last_packing_slip_number');
       const lastNum = lastNumSetting ? parseInt(lastNumSetting.value) || 0 : 0;
       const newNum = lastNum + 1;
       const psYear = new Date().getFullYear();
       const packingSlipNumber = `PS-${psYear}-${String(newNum).padStart(4, '0')}`;
 
+      const transferFromBatch = async (fg, take) => {
+        const lalsPerBottle = (fg.quantity_bottles || 0) > 0 && fg.total_lals
+          ? fg.total_lals / fg.quantity_bottles : 0;
+        const transferLals = parseFloat((take * lalsPerBottle).toFixed(4));
+        const batchCo2e = (take * BOTTLE_WEIGHT_KG) / 1000 / 56 * parseFloat(transferDistance) * 0.21;
+        const bottlesPerCase = fg.bottles_per_case || 6;
+
+        // Deduct from FinishedGood
+        const newQty = fg.quantity_bottles - take;
+        const newLals = Math.max(0, (fg.total_lals || 0) - transferLals);
+        if (newQty <= 0) {
+          await base44.entities.FinishedGood.delete(fg.id);
+        } else {
+          await base44.entities.FinishedGood.update(fg.id, {
+            quantity_bottles: newQty,
+            total_lals: parseFloat(newLals.toFixed(4)),
+          });
+        }
+
+        // Always create a new WarehouseStock record per transfer (in_transit)
+        // rather than merging with existing — this lets us track each shipment separately
+        await base44.entities.WarehouseStock.create({
+          product_name: fg.product_name,
+          batch_number: fg.batch_number,
+          bottle_size_ml: fg.bottle_size_ml,
+          abv_percent: fg.abv_percent,
+          quantity_bottles: take,
+          total_lals: transferLals,
+          original_quantity_bottles: take,
+          original_total_lals: transferLals,
+          warehouse_location: destination,
+          date_transferred_in: transferDate,
+          transfer_date: transferDate,
+          co2e_kg: parseFloat(batchCo2e.toFixed(3)),
+          transport_distance_km: parseFloat(transferDistance),
+          packing_slip_number: packingSlipNumber,
+          bottles_per_case: bottlesPerCase,
+          status: 'in_transit',
+        });
+      };
+
       for (const row of validRows) {
         const opt = productOptions.find(o => o.key === row.productKey);
-        let remaining = parseInt(row.qty);
+        const qty = parseInt(row.qty);
+
+        if (row.batchId) {
+          // A specific batch was chosen — transfer only from that one
+          const fg = opt.batches.find(b => b.id === row.batchId);
+          const take = Math.min(qty, fg?.quantity_bottles || 0);
+          if (fg && take > 0) await transferFromBatch(fg, take);
+          continue;
+        }
 
         // FIFO: allocate from oldest batch first
+        let remaining = qty;
         for (const fg of opt.batches) {
           if (remaining <= 0) break;
           const take = Math.min(remaining, fg.quantity_bottles || 0);
           if (take <= 0) continue;
-
-          const lalsPerBottle = (fg.quantity_bottles || 0) > 0 && fg.total_lals
-            ? fg.total_lals / fg.quantity_bottles : 0;
-          const transferLals = parseFloat((take * lalsPerBottle).toFixed(4));
-          const batchCo2e = (take * BOTTLE_WEIGHT_KG) / 1000 / 56 * parseFloat(transferDistance) * 0.21;
-          const bottlesPerCase = fg.bottles_per_case || opt.bottles_per_case || 6;
-
-          // Deduct from FinishedGood
-          const newQty = fg.quantity_bottles - take;
-          const newLals = Math.max(0, (fg.total_lals || 0) - transferLals);
-          if (newQty <= 0) {
-            await base44.entities.FinishedGood.delete(fg.id);
-          } else {
-            await base44.entities.FinishedGood.update(fg.id, {
-              quantity_bottles: newQty,
-              total_lals: parseFloat(newLals.toFixed(4)),
-            });
-          }
-
-          // Create/update WarehouseStock
-          const allWS = await base44.entities.WarehouseStock.list('-date_transferred_in', 5000);
-          const existing = allWS.filter(w =>
-            w.product_name === fg.product_name &&
-            w.batch_number === fg.batch_number &&
-            Number(w.bottle_size_ml) === Number(fg.bottle_size_ml)
-          );
-
-          // Always create a new WarehouseStock record per transfer (in_transit)
-          // rather than merging with existing — this lets us track each shipment separately
-          await base44.entities.WarehouseStock.create({
-            product_name: fg.product_name,
-            batch_number: fg.batch_number,
-            bottle_size_ml: fg.bottle_size_ml,
-            abv_percent: fg.abv_percent,
-            quantity_bottles: take,
-            total_lals: transferLals,
-            original_quantity_bottles: take,
-            original_total_lals: transferLals,
-            warehouse_location: destination,
-            date_transferred_in: transferDate,
-            transfer_date: transferDate,
-            co2e_kg: parseFloat(batchCo2e.toFixed(3)),
-            transport_distance_km: parseFloat(transferDistance),
-            packing_slip_number: packingSlipNumber,
-            bottles_per_case: bottlesPerCase,
-            status: 'in_transit',
-          });
-
+          await transferFromBatch(fg, take);
           remaining -= take;
         }
       }
@@ -153,7 +167,7 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
       qc.invalidateQueries({ queryKey: ['finishedGoods'] });
       qc.invalidateQueries({ queryKey: ['warehouseStock'] });
       toast.success(`${totalBottles} bottles transferred to ${destination} — Packing Slip ${data?.packingSlipNumber || ''}`);
-      setRows([{ productKey: '', qty: '' }]);
+      setRows([{ productKey: '', qty: '', batchId: '' }]);
       setTransferDate(() => new Date().toISOString().split('T')[0]);
       setDestination('Auckland 3PL');
       setTransferDistance('1500');
@@ -163,7 +177,7 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
   });
 
   const handleClose = () => {
-    setRows([{ productKey: '', qty: '' }]);
+    setRows([{ productKey: '', qty: '', batchId: '' }]);
     setTransferDate(() => new Date().toISOString().split('T')[0]);
     setDestination('Auckland 3PL');
     setTransferDistance('1500');
@@ -223,8 +237,11 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
               </div>
               {rows.map((row, idx) => {
                 const opt = productOptions.find(o => o.key === row.productKey);
+                const selectedBatch = row.batchId ? opt?.batches.find(b => b.id === row.batchId) : null;
                 const totalAllocated = rows.filter(x => x.productKey === row.productKey).reduce((s, x) => s + (parseInt(x.qty) || 0), 0);
-                const available = opt ? opt.totalAvailable - totalAllocated + (parseInt(row.qty) || 0) : 0;
+                const available = selectedBatch
+                  ? (selectedBatch.quantity_bottles || 0)
+                  : (opt ? opt.totalAvailable - totalAllocated + (parseInt(row.qty) || 0) : 0);
                 const isOver = opt && parseInt(row.qty) > available;
                 const usedKeys = rows.map(r => r.productKey).filter(k => k && k !== row.productKey);
 
@@ -244,16 +261,27 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
                         ))}
                       </select>
                       {opt && (
-                        <p className="text-xs text-muted-foreground px-1">
-                          {opt.batches.length} batch{opt.batches.length !== 1 ? 'es' : ''} — FIFO allocated automatically
-                        </p>
+                        opt.batches.length > 1 ? (
+                          <select
+                            value={row.batchId}
+                            onChange={e => updateRow(idx, 'batchId', e.target.value)}
+                            className="w-full border border-border rounded-md px-2 py-1 text-xs bg-background"
+                          >
+                            <option value="">FIFO — oldest batch first ({opt.batches.length} batches)</option>
+                            {opt.batches.map(b => (
+                              <option key={b.id} value={b.id}>Batch {b.batch_number} — {b.quantity_bottles} available</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <p className="text-xs text-muted-foreground px-1">Batch {opt.batches[0]?.batch_number}</p>
+                        )
                       )}
                     </div>
                     <div />
                     <div className="space-y-1">
                       <Input
                         type="number" min="0"
-                        max={opt?.totalAvailable || undefined}
+                        max={available || undefined}
                         value={row.qty}
                         onChange={e => updateRow(idx, 'qty', e.target.value)}
                         disabled={!row.productKey}

@@ -30,7 +30,7 @@ export default function DataExportPanel() {
     ENTITY_NAMES.forEach(async (name) => {
       setStatus(s => ({ ...s, [name]: 'loading' }));
       try {
-        const records = await base44.entities[name].list('-created_date', 5000);
+        const records = await base44.entities[name].list('-created_at', 5000);
         if (cancelled) return;
         setData(d => ({ ...d, [name]: records }));
         setStatus(s => ({ ...s, [name]: 'ready' }));

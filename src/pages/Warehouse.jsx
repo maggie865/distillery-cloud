@@ -29,7 +29,7 @@ export default function Warehouse() {
 
   const { data: appSettings = [] } = useQuery({
     queryKey: ['appSettings'],
-    queryFn: () => base44.entities.AppSettings.list('-created_date', 5000),
+    queryFn: () => base44.entities.AppSettings.list('-created_at', 5000),
   });
 
   const getSetting = (key) => {
@@ -45,7 +45,7 @@ export default function Warehouse() {
       } else {
         packingSlipNumber = slipNumberOrRecord.packing_slip_number;
         if (!packingSlipNumber) {
-          const allSettings = await base44.entities.AppSettings.list('-created_date', 5000);
+          const allSettings = await base44.entities.AppSettings.list('-created_at', 5000);
           const lastNumSetting = allSettings.find(s => s.key === 'last_packing_slip_number');
           const lastNum = lastNumSetting ? parseInt(lastNumSetting.value) || 0 : 0;
           const newNum = lastNum + 1;
@@ -115,7 +115,7 @@ export default function Warehouse() {
     if (!confirm('This will remove this stock record. Are you sure?')) return;
 
     try {
-      const allFG = await base44.entities.FinishedGood.list('-created_date', 5000);
+      const allFG = await base44.entities.FinishedGood.list('-created_at', 5000);
       const fg = allFG.find(f =>
         f.product_name === record.product_name &&
         f.batch_number === record.batch_number &&
