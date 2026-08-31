@@ -74,7 +74,7 @@ export default function ExciseReturn({
   // Fetch AppSettings for excise rate
   const { data: appSettings = [] } = useQuery({
     queryKey: ['appSettings'],
-    queryFn: () => base44.entities.AppSettings.list('-created_date', 5000),
+    queryFn: () => base44.entities.AppSettings.list('-created_at', 5000),
   });
 
   const companyName = appSettings.find(s => s.key === 'company_name')?.value || '';
