@@ -19,6 +19,15 @@ const isBoxItem = pkg =>
 const normaliseName = (name) =>
   (name || '').replace(/\s*\d{3,4}ml\s*$/i, '').replace(/\s*\d{3,4}\s*$/i, '').trim();
 
+// Some imported dispatch rows (Xero line items, one-off entries like "Tour
+// Ticket" or "Shipping") have no bottle_size_ml — pull it out of the product
+// name if it's embedded there (e.g. "...6 x 700ml"), otherwise leave it
+// unclassifiable so the caller can skip it, rather than guessing a size.
+const parseSizeFromName = (name) => {
+  const m = (name || '').match(/(\d{3,4})\s*ml/i);
+  return m ? Number(m[1]) : null;
+};
+
 const STATUS = {
   critical: { label: 'Critical', cls: 'bg-red-100 text-red-700' },
   low:      { label: 'Low',      cls: 'bg-amber-100 text-amber-700' },
@@ -109,7 +118,12 @@ export default function ForecastReport({ dispatches = [], rawMaterials = [], fin
     const map = {};
     for (const d of dispatches) {
       if (!d.dispatch_date || d.sample_dispatch) continue;
-      const size = d.bottle_size_ml || 700;
+      // Dispatches with no bottle size and no size embedded in the product
+      // name (e.g. "Tour Ticket", "Shipping", "Catering") aren't bottle
+      // sales at all — including them used to silently default to 700ml,
+      // inflating that forecast with unrelated line items.
+      const size = d.bottle_size_ml || parseSizeFromName(d.product_name);
+      if (!size) continue;
       const normName = normaliseName(d.product_name);
       const key = `${normName}||${size}`;
       if (!map[key]) map[key] = { product_name: normName, size, byMonth: {} };
