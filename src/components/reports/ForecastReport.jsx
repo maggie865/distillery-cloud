@@ -334,30 +334,43 @@ export default function ForecastReport({ dispatches = [], rawMaterials = [], fin
       ? plan.batchesNeeded * plan.bottlesPerBatch
       : velocity.reduce((s, v) => s + v.forecastTotal, 0); // fallback to sales forecast
 
-    // Split by size — use manual override if set, otherwise fall back to velocity ratio
+    // Group sales forecast by bottle size first — velocity is per (product,
+    // size), and more than one product name can land on the same size (an
+    // oddly-named dispatch line, e.g. "BIDFOOD - Bluff London Dry Gin 6 x
+    // 700ml", normalises to its own distinct "product" once the size suffix
+    // is stripped). Summing per size here — rather than keying the split
+    // directly off each velocity row further down — is what stops one of
+    // those near-zero stray rows from clobbering the real total for a size.
+    const sizeForecastTotals = {};
+    for (const sv of velocity) {
+      const size = Number(sv.size);
+      sizeForecastTotals[size] = (sizeForecastTotals[size] || 0) + sv.forecastTotal;
+    }
+    const sizes = Object.keys(sizeForecastTotals).map(Number);
     const totalVelocityBottles = velocity.reduce((s, v) => s + v.forecastTotal, 0);
+
+    // Split by size — use manual override if set, otherwise fall back to velocity ratio
     const hasOverride = Object.keys(productionSplitOverride).length > 0;
     const productionBySize = {};
     if (hasOverride) {
       // Use manual splits
-      const totalOverridePct = Object.values(productionSplitOverride).reduce((s, v) => s + (parseFloat(v) || 0), 0);
-      for (const sv of velocity) {
-        const pct = parseFloat(productionSplitOverride[sv.size]) || 0;
+      const totalOverridePct = sizes.reduce((s, size) => s + (parseFloat(productionSplitOverride[size]) || 0), 0);
+      for (const size of sizes) {
+        const pct = parseFloat(productionSplitOverride[size]) || 0;
         // Normalise so splits always add to 100%
         const ratio = totalOverridePct > 0 ? pct / totalOverridePct : 0;
-        productionBySize[Number(sv.size)] = Math.round(totalProductionBottles * ratio);
+        productionBySize[size] = Math.round(totalProductionBottles * ratio);
       }
     } else {
       // Use velocity ratio
-      for (const sv of velocity) {
-        const ratio = totalVelocityBottles > 0 ? sv.forecastTotal / totalVelocityBottles : 0;
-        productionBySize[Number(sv.size)] = Math.round(totalProductionBottles * ratio);
+      for (const size of sizes) {
+        const ratio = totalVelocityBottles > 0 ? sizeForecastTotals[size] / totalVelocityBottles : 0;
+        productionBySize[size] = Math.round(totalProductionBottles * ratio);
       }
     }
 
-    for (const sv of velocity) {
-      const size = Number(sv.size);
-      const bottlesToProduce = productionBySize[size] || sv.forecastTotal;
+    for (const size of sizes) {
+      const bottlesToProduce = productionBySize[size] || sizeForecastTotals[size];
 
       // Find packaging recipe matching this bottle size
       const pkgRecipe = packagingRecipes.find(r => r.name?.toLowerCase().includes(String(size)));
@@ -365,6 +378,12 @@ export default function ForecastReport({ dispatches = [], rawMaterials = [], fin
 
       const bottlesPerCase = pkgRecipe.bottles_per_case || 6;
       const casesNeeded = Math.ceil(bottlesToProduce / bottlesPerCase);
+      // Finished goods on hand for this bottle size, across every product
+      // name variant — packaging materials are consumed per physical
+      // bottle of that size, not per differently-spelled dispatch line.
+      const fgOnHand = finishedGoods
+        .filter(g => Number(g.bottle_size_ml) === size)
+        .reduce((s, g) => s + (g.quantity_bottles || 0), 0);
 
       for (const pkg of pkgRecipe.packaging) {
         if (!pkg.name) continue;
@@ -373,33 +392,22 @@ export default function ForecastReport({ dispatches = [], rawMaterials = [], fin
           ? Math.ceil((pkg.quantity || 1) * casesNeeded)
           : Math.ceil((pkg.quantity || 1) * bottlesToProduce);
 
-        const key = `${pkg.name}||${size}`;
-        const existing = results.find(r => r.key === key);
-        if (existing) {
-          existing.totalNeeded += totalNeeded;
-          existing.casesNeeded += isBox ? casesNeeded : 0;
-        } else {
-          const rm = rawMaterials.find(r => (r.name || '').toLowerCase().trim() === (pkg.name || '').toLowerCase().trim())
-            || rawMaterials.find(r => { const n = (r.name || '').toLowerCase(); const p = (pkg.name || '').toLowerCase(); return n.includes(p) || p.includes(n); });
-          // On-hand for finished goods: sum across ALL name variants of this product+size
-          const fgOnHand = finishedGoods
-            .filter(g => normaliseName(g.product_name) === normaliseName(sv.product_name || '') && Number(g.bottle_size_ml) === size)
-            .reduce((s, g) => s + (g.quantity_bottles || 0), 0);
-          results.push({
-            key,
-            name: pkg.name,
-            size,
-            isBox,
-            unit: pkg.unit || 'units',
-            totalNeeded,
-            casesNeeded: isBox ? casesNeeded : null,
-            bottlesForecasted: bottlesToProduce,
-            bottlesPerCase,
-            onHand: rm?.quantity || 0,
-            fgOnHand,  // finished goods already in stock for this product
-            costPerUnit: rm?.cost_per_unit || 0,
-          });
-        }
+        const rm = rawMaterials.find(r => (r.name || '').toLowerCase().trim() === (pkg.name || '').toLowerCase().trim())
+          || rawMaterials.find(r => { const n = (r.name || '').toLowerCase(); const p = (pkg.name || '').toLowerCase(); return n.includes(p) || p.includes(n); });
+        results.push({
+          key: `${pkg.name}||${size}`,
+          name: pkg.name,
+          size,
+          isBox,
+          unit: pkg.unit || 'units',
+          totalNeeded,
+          casesNeeded: isBox ? casesNeeded : null,
+          bottlesForecasted: bottlesToProduce,
+          bottlesPerCase,
+          onHand: rm?.quantity || 0,
+          fgOnHand,  // finished goods already in stock for this size
+          costPerUnit: rm?.cost_per_unit || 0,
+        });
       }
     }
 
