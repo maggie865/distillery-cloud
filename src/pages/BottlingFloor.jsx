@@ -300,6 +300,7 @@ export default function BottlingFloor() {
         };
 
         const packagingCosts = [];
+        const unmatchedPackaging = [];
 
         for (const pkg of recipe.packaging) {
           if (!pkg.name) continue;
@@ -357,6 +358,7 @@ export default function BottlingFloor() {
               lot_number: fifoLotNumber || null,
             });
           } else {
+            unmatchedPackaging.push(pkg.name);
             toast.warning(`Packaging item "${pkg.name}" not found in inventory — please check your inventory records`);
           }
         }
@@ -364,6 +366,16 @@ export default function BottlingFloor() {
         // Save FIFO packaging costs to the bottling run for accurate COGS reporting
         if (packagingCosts.length > 0 && newRun?.id) {
           await db.BottlingRun.update(newRun.id, { packaging_costs: packagingCosts });
+        }
+
+        // A toast alone disappears and leaves no trace — if a packaging item
+        // couldn't be matched, its inventory was never deducted for this
+        // run, so record that permanently on the run itself rather than
+        // relying on someone having seen and remembered a toast at the time.
+        if (unmatchedPackaging.length > 0 && newRun?.id) {
+          await db.BottlingRun.update(newRun.id, {
+            notes: `${newRun.notes || ''}\n⚠ Not deducted from inventory (no matching raw material): ${unmatchedPackaging.join(', ')}`.trim(),
+          });
         }
       }
     },
