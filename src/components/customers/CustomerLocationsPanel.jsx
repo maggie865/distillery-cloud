@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, startOfMonth, subMonths } from 'date-fns';
 import { db } from '@/api/supabaseClient';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { MapPin, Plus, Pencil, Trash2, ChevronDown, Phone, Mail } from 'lucide-react';
+import { MapPin, Plus, Pencil, Trash2, ChevronDown, Phone, Mail, TrendingUp, TrendingDown } from 'lucide-react';
 import { toast } from 'sonner';
 
 const BLANK_FORM = { location_name: '', address: '', city: '', region: '', contact_name: '', contact_phone: '', contact_email: '', notes: '', active: true };
@@ -54,6 +54,90 @@ function LocationHistory({ location, dispatches }) {
   );
 }
 
+// Monthly bottle counts a multi-store customer reports back to us after the
+// fact, per location - not derived from dispatch records, since a bulk
+// master-order dispatch usually isn't tagged to any one store at all (see
+// migration 20260823000000). Shows a "last reported" figure with a trend
+// arrow right on the location card so performance is visible at a glance
+// without opening every location, plus a log of every month reported.
+function LocationAllocations({ location, allocations, onAdd, isAdding }) {
+  const [open, setOpen] = useState(false);
+  const [month, setMonth] = useState(() => format(startOfMonth(subMonths(new Date(), 1)), 'yyyy-MM'));
+  const [bottles, setBottles] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const sorted = allocations
+    .filter((a) => a.location_id === location.id)
+    .sort((a, b) => (b.period_month || '').localeCompare(a.period_month || ''));
+  const latest = sorted[0];
+  const previous = sorted[1];
+  const trend = latest && previous ? latest.quantity_bottles - previous.quantity_bottles : null;
+
+  const canSubmit = month && parseInt(bottles) >= 0;
+  const submit = () => {
+    onAdd({ location_id: location.id, period_month: `${month}-01`, quantity_bottles: parseInt(bottles) || 0, notes: notes.trim() || undefined });
+    setBottles('');
+    setNotes('');
+  };
+
+  return (
+    <div className="mt-2">
+      {latest && (
+        <p className="text-xs flex items-center gap-1.5 flex-wrap">
+          <span className="text-muted-foreground">Last reported:</span>
+          <span className="font-semibold text-foreground">{latest.quantity_bottles.toLocaleString()} bottles</span>
+          <span className="text-muted-foreground">({format(parseISO(latest.period_month), 'MMM yyyy')})</span>
+          {trend !== null && trend !== 0 && (
+            <span className={`inline-flex items-center gap-0.5 font-medium ${trend > 0 ? 'text-success' : 'text-destructive'}`}>
+              {trend > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+              {Math.abs(trend)} vs prior month
+            </span>
+          )}
+        </p>
+      )}
+      <Collapsible open={open} onOpenChange={setOpen} className="mt-1">
+        <CollapsibleTrigger className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+          <span>{sorted.length > 0 ? `${sorted.length} month${sorted.length === 1 ? '' : 's'} reported` : 'Log a monthly total'}</span>
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-2 space-y-2">
+          <div className="flex flex-wrap items-end gap-2 p-2 rounded-lg border border-dashed border-border">
+            <div>
+              <Label className="text-xs">Month</Label>
+              <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="h-8 text-sm" />
+            </div>
+            <div className="w-28">
+              <Label className="text-xs">Bottles</Label>
+              <Input type="number" min="0" value={bottles} onChange={(e) => setBottles(e.target.value)} className="h-8 text-sm" placeholder="0" />
+            </div>
+            <div className="flex-1 min-w-[140px]">
+              <Label className="text-xs">Notes (optional)</Label>
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} className="h-8 text-sm" placeholder="e.g. product breakdown" />
+            </div>
+            <Button size="sm" className="h-8" disabled={!canSubmit || isAdding} onClick={submit}>Add</Button>
+          </div>
+          {sorted.length > 0 && (
+            <div className="overflow-x-auto border rounded-lg">
+              <Table>
+                <TableHeader><TableRow><TableHead>Month</TableHead><TableHead className="text-right">Bottles</TableHead><TableHead>Notes</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {sorted.map((a) => (
+                    <TableRow key={a.id}>
+                      <TableCell className="text-sm whitespace-nowrap">{format(parseISO(a.period_month), 'MMM yyyy')}</TableCell>
+                      <TableCell className="text-sm text-right font-medium">{a.quantity_bottles.toLocaleString()}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{a.notes || '—'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
+  );
+}
+
 export default function CustomerLocationsPanel({ customerId, dispatches = [] }) {
   const qc = useQueryClient();
   const [formOpen, setFormOpen] = useState(false);
@@ -66,6 +150,19 @@ export default function CustomerLocationsPanel({ customerId, dispatches = [] }) 
     queryFn: async () => (await db.CustomerLocation.list('location_name', 500)).filter((l) => l.customer_id === customerId),
   });
   const locations = allLocations.filter((l) => showInactive || l.active);
+  const locationIds = allLocations.map((l) => l.id);
+
+  const { data: allAllocations = [] } = useQuery({
+    queryKey: ['customerLocationAllocations', customerId],
+    queryFn: async () => (await db.CustomerLocationAllocation.list('-period_month', 2000)).filter((a) => locationIds.includes(a.location_id)),
+    enabled: locationIds.length > 0,
+  });
+
+  const addAllocationMutation = useMutation({
+    mutationFn: (data) => db.CustomerLocationAllocation.create(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['customerLocationAllocations', customerId] }); toast.success('Monthly total logged'); },
+    onError: (e) => toast.error(e.message || 'Failed to log monthly total'),
+  });
 
   const createMutation = useMutation({
     mutationFn: () => db.CustomerLocation.create({
@@ -166,6 +263,12 @@ export default function CustomerLocationsPanel({ customerId, dispatches = [] }) 
                   <button onClick={() => { if (confirm(`Remove ${loc.location_name}? Past dispatches to it stay on record.`)) deleteMutation.mutate(loc.id); }} className="text-muted-foreground hover:text-destructive transition-colors p-1"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               </div>
+              <LocationAllocations
+                location={loc}
+                allocations={allAllocations}
+                onAdd={addAllocationMutation.mutate}
+                isAdding={addAllocationMutation.isPending}
+              />
               <LocationHistory location={loc} dispatches={dispatches} />
             </div>
           ))}
