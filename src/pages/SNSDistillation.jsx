@@ -32,6 +32,9 @@ const BLANK_FORM = {
   dumped_notes: '',
   status: 'completed',
   notes: '',
+  run_start_time: '',
+  run_end_time: '',
+  dephlegmator_water_litres: '',
 };
 
 export default function SNSDistillation() {
@@ -193,6 +196,9 @@ export default function SNSDistillation() {
       dumped_notes: run.dumped_notes || '',
       status: run.status || 'completed',
       notes: run.notes || '',
+      run_start_time: run.run_start_time || '',
+      run_end_time: (run.run_end_time || '').slice(0, 5),
+      dephlegmator_water_litres: run.dephlegmator_water_litres?.toString() || '',
     });
     setOpen(true);
   };
@@ -260,6 +266,9 @@ export default function SNSDistillation() {
         dumped_notes: form.dumped_notes,
         status: form.status,
         notes: form.notes,
+        run_start_time: form.run_start_time || undefined,
+        run_end_time: form.run_end_time || undefined,
+        dephlegmator_water_litres: form.dephlegmator_water_litres !== '' ? parseFloat(form.dephlegmator_water_litres) : undefined,
       };
 
       if (editingId) {
@@ -378,6 +387,25 @@ export default function SNSDistillation() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="rounded-lg border border-border p-4 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Run timing &amp; dephlegmator water</p>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <Label className="text-xs">Run Start (date &amp; time)</Label>
+                  <Input type="datetime-local" value={form.run_start_time} onChange={e => set('run_start_time', e.target.value)} className="text-sm" />
+                </div>
+                <div>
+                  <Label className="text-xs">Run End (time)</Label>
+                  <Input type="time" value={form.run_end_time} onChange={e => set('run_end_time', e.target.value)} className="text-sm" />
+                </div>
+                <div>
+                  <Label className="text-xs">Dephlegmator Water (L)</Label>
+                  <Input type="number" step="0.1" min="0" value={form.dephlegmator_water_litres} onChange={e => set('dephlegmator_water_litres', e.target.value)} placeholder="from water meter" className="text-sm" />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">Used to calculate still electricity and water use for EMS reporting — see Utilities. Leave dephlegmator water blank to estimate from its rated flow instead.</p>
             </div>
 
             <div className="rounded-lg border border-border p-4 space-y-3">
