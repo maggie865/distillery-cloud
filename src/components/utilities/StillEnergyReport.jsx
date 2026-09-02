@@ -15,10 +15,24 @@ import { distillationRunEnergy, snsRunEnergy, CONDENSER_LPH_MIN, CONDENSER_LPH_M
 // it deliberately isn't added into any CO2e total — it's here to show
 // which part of the bill the stills account for, and how much water the
 // closed-loop condenser avoids drawing from mains over time.
-export default function StillEnergyReport({ totalMeteredKwh = 0 }) {
+export default function StillEnergyReport({ totalMeteredKwh = 0, startDate = '', endDate = '' }) {
   const [open, setOpen] = useState(true);
-  const { data: distillationRuns = [] } = useQuery({ queryKey: ['distillationRuns'], queryFn: () => db.DistillationRun.list('-date', 5000) });
-  const { data: snsRuns = [] } = useQuery({ queryKey: ['snsRuns'], queryFn: () => db.SNSRun.list('-date', 5000) });
+  const { data: allDistillationRuns = [] } = useQuery({ queryKey: ['distillationRuns'], queryFn: () => db.DistillationRun.list('-date', 5000) });
+  const { data: allSnsRuns = [] } = useQuery({ queryKey: ['snsRuns'], queryFn: () => db.SNSRun.list('-date', 5000) });
+
+  // Matches whatever period the Utilities page has selected, so the "% of
+  // metered electricity" comparison below is apples-to-apples — comparing
+  // all-time still runs against one filtered billing period would be
+  // meaningless.
+  const inRange = (dateStr) => {
+    if (!dateStr) return false;
+    if (startDate && dateStr < startDate) return false;
+    if (endDate && dateStr > endDate) return false;
+    return true;
+  };
+  const hasDateFilter = !!(startDate || endDate);
+  const distillationRuns = hasDateFilter ? allDistillationRuns.filter((r) => inRange(r.date)) : allDistillationRuns;
+  const snsRuns = hasDateFilter ? allSnsRuns.filter((r) => inRange(r.date)) : allSnsRuns;
 
   const rows = useMemo(() => {
     const distRows = distillationRuns.map((r) => {
@@ -53,7 +67,7 @@ export default function StillEnergyReport({ totalMeteredKwh = 0 }) {
         <div className="rounded-lg bg-muted p-3">
           <p className="text-xs text-muted-foreground flex items-center gap-1"><Zap className="w-3 h-3" /> Estimated Still Electricity</p>
           <p className="text-xl font-bold text-primary">{totals.kwh.toFixed(1)} <span className="text-sm font-normal text-muted-foreground">kWh</span></p>
-          {sharePct !== null && <p className="text-xs text-muted-foreground mt-0.5">≈ {sharePct.toFixed(1)}% of metered electricity to date</p>}
+          {sharePct !== null && <p className="text-xs text-muted-foreground mt-0.5">≈ {sharePct.toFixed(1)}% of metered electricity {hasDateFilter ? 'in this period' : 'to date'}</p>}
         </div>
         <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3">
           <p className="text-xs text-emerald-800 flex items-center gap-1"><Droplets className="w-3 h-3" /> Water Saved — Closed-Loop Condenser</p>

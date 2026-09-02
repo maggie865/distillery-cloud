@@ -13,8 +13,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import MobileCard, { MobileCardGrid, MobileDetailRow } from '@/components/shared/MobileCard';
 import Pagination from '@/components/ui/Pagination';
 import { Plus, Search, Pencil, Trash2, Zap, Droplets, DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, startOfQuarter, endOfQuarter, startOfYear, subMonths } from 'date-fns';
 import StillEnergyReport from '@/components/utilities/StillEnergyReport';
+
+const PRESETS = [
+  ['thisQuarter', 'This Quarter'],
+  ['thisYear', 'YTD'],
+  ['last12', 'Last 12 Months'],
+  ['all', 'All Time'],
+];
 
 // NZ emission factors (kg CO2e) — mains electricity + town water supply
 export const ELECTRICITY_EF = 0.105; // kg CO2e / kWh (NZ grid)
@@ -24,6 +31,8 @@ export default function UtilityTracker() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -54,8 +63,36 @@ export default function UtilityTracker() {
     onError: (e) => toast({ title: 'Error', description: e.message, variant: 'destructive' }),
   });
 
+  const setPreset = (key) => {
+    const today = new Date();
+    let s, e;
+    switch (key) {
+      case 'thisQuarter': s = startOfQuarter(today); e = endOfQuarter(today); break;
+      case 'thisYear': s = startOfYear(today); e = today; break;
+      case 'last12': s = subMonths(today, 12); e = today; break;
+      case 'all': setStartDate(''); setEndDate(''); setPage(1); return;
+      default: return;
+    }
+    setStartDate(format(s, 'yyyy-MM-dd'));
+    setEndDate(format(e, 'yyyy-MM-dd'));
+    setPage(1);
+  };
+
+  const inRange = (dateStr) => {
+    if (!dateStr) return false;
+    if (startDate && dateStr < startDate) return false;
+    if (endDate && dateStr > endDate) return false;
+    return true;
+  };
+  const hasDateFilter = !!(startDate || endDate);
+
+  const dateFiltered = useMemo(
+    () => hasDateFilter ? logs.filter(l => inRange(l.reading_date)) : logs,
+    [logs, startDate, endDate]
+  );
+
   const filtered = useMemo(() => {
-    let r = logs;
+    let r = dateFiltered;
     if (search.trim()) {
       const q = search.toLowerCase();
       r = r.filter(l =>
@@ -64,18 +101,18 @@ export default function UtilityTracker() {
       );
     }
     return r;
-  }, [logs, search]);
+  }, [dateFiltered, search]);
 
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   const stats = useMemo(() => {
-    const totalKwh = logs.reduce((s, l) => s + (l.electricity_kwh || 0), 0);
-    const totalWater = logs.reduce((s, l) => s + (l.water_litres || 0), 0);
-    const totalElecCost = logs.reduce((s, l) => s + (l.electricity_cost || 0), 0);
-    const totalWaterCost = logs.reduce((s, l) => s + (l.water_cost || 0), 0);
+    const totalKwh = dateFiltered.reduce((s, l) => s + (l.electricity_kwh || 0), 0);
+    const totalWater = dateFiltered.reduce((s, l) => s + (l.water_litres || 0), 0);
+    const totalElecCost = dateFiltered.reduce((s, l) => s + (l.electricity_cost || 0), 0);
+    const totalWaterCost = dateFiltered.reduce((s, l) => s + (l.water_cost || 0), 0);
     const totalCo2e = totalKwh * ELECTRICITY_EF + (totalWater / 1000) * WATER_EF;
-    return { count: logs.length, totalKwh, totalWater, totalElecCost, totalWaterCost, totalCo2e };
-  }, [logs]);
+    return { count: dateFiltered.length, totalKwh, totalWater, totalElecCost, totalWaterCost, totalCo2e };
+  }, [dateFiltered]);
 
   // Unit price per reading — cost ÷ consumption, calculated at read time
   // rather than stored, so it always reflects whatever cost/consumption was
@@ -85,14 +122,14 @@ export default function UtilityTracker() {
   const waterRate = (l) => (l.water_cost && l.water_litres) ? l.water_cost / (l.water_litres / 1000) : null;
 
   const rateTrend = useMemo(() => {
-    const byDateDesc = [...logs].filter(l => l.reading_date).sort((a, b) => (b.reading_date || '').localeCompare(a.reading_date || ''));
+    const byDateDesc = [...dateFiltered].filter(l => l.reading_date).sort((a, b) => (b.reading_date || '').localeCompare(a.reading_date || ''));
     const withElecRate = byDateDesc.filter(l => elecRate(l) !== null);
     const withWaterRate = byDateDesc.filter(l => waterRate(l) !== null);
     return {
       elec: { latest: withElecRate[0] ? elecRate(withElecRate[0]) : null, previous: withElecRate[1] ? elecRate(withElecRate[1]) : null },
       water: { latest: withWaterRate[0] ? waterRate(withWaterRate[0]) : null, previous: withWaterRate[1] ? waterRate(withWaterRate[1]) : null },
     };
-  }, [logs]);
+  }, [dateFiltered]);
 
   const openNew = () => {
     setEditing(null);
@@ -139,6 +176,34 @@ export default function UtilityTracker() {
           <Plus className="w-4 h-4" /> Add Reading
         </Button>
       </PageHeader>
+
+      <Card className="p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <Label className="text-xs">Period</Label>
+            <div className="flex gap-1.5 mt-1 flex-wrap">
+              {PRESETS.map(([key, label]) => (
+                <Button
+                  key={key}
+                  size="sm"
+                  variant={key === 'all' ? (!hasDateFilter ? 'default' : 'outline') : 'outline'}
+                  onClick={() => setPreset(key)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label className="text-xs whitespace-nowrap">From</Label>
+            <Input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); setPage(1); }} className="w-36 text-sm" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Label className="text-xs whitespace-nowrap">To</Label>
+            <Input type="date" value={endDate} onChange={e => { setEndDate(e.target.value); setPage(1); }} className="w-36 text-sm" />
+          </div>
+        </div>
+      </Card>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Card><CardContent className="p-4">
@@ -194,7 +259,7 @@ export default function UtilityTracker() {
         </CardContent></Card>
       </div>
 
-      <StillEnergyReport totalMeteredKwh={stats.totalKwh} />
+      <StillEnergyReport totalMeteredKwh={stats.totalKwh} startDate={startDate} endDate={endDate} />
 
       <div className="relative">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -206,7 +271,9 @@ export default function UtilityTracker() {
       ) : filtered.length === 0 ? (
         <Card><CardContent className="py-12 text-center text-muted-foreground">
           <Zap className="w-10 h-10 mx-auto mb-3 opacity-40" />
-          No readings logged yet. Click "Add Reading" to record a billing period.
+          {logs.length === 0
+            ? 'No readings logged yet. Click "Add Reading" to record a billing period.'
+            : 'No readings in this period — try a different range.'}
         </CardContent></Card>
       ) : (
         <>
