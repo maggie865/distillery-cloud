@@ -104,6 +104,7 @@ export const db = {
   CustomerGroup:     makeEntity('CustomerGroup'),
   CustomerGroupMember: makeEntity('CustomerGroupMember'),
   CustomerLocation:  makeEntity('CustomerLocation'),
+  CustomerLocationAllocation: makeEntity('CustomerLocationAllocation'),
   CustomerOrder:     makeEntity('CustomerOrder'),
   CustomerParLevel:  makeEntity('CustomerParLevel'),
   CustomerRequest:   makeEntity('CustomerRequest'),
