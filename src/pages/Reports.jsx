@@ -16,6 +16,7 @@ import PageHeader from '@/components/shared/PageHeader';
 import StatCard from '@/components/shared/StatCard';
 import Pagination from '@/components/ui/Pagination';
 import InventoryReport from '@/components/reports/InventoryReport';
+import SalesReport from '@/components/reports/SalesReport';
 import CostOfGoodsReport from '@/components/reports/CostOfGoodsReport';
 import ExciseReturn from '@/components/reports/ExciseReturn';
 import ForecastReport from '@/components/reports/ForecastReport';
@@ -375,6 +376,9 @@ export default function Reports() {
           exportCSV(`iso_lifecycle_${label}.csv`, rows, ['scope', 'source', 'factor', 'quantity', 'co2e_kg', 'share_pct']);
           break;
         }
+        case 'sales':
+          toast.info('Use the Export CSV button within the Sales tab to export your current filters.');
+          break;
         case 'forecast':
           toast.info('Use the browser print function (Ctrl+P) to save the forecast as a PDF.');
           break;
@@ -421,6 +425,7 @@ export default function Reports() {
       <Tabs defaultValue="overview" className="space-y-6" onValueChange={setActiveTab}>
         <TabsList>
            <TabsTrigger value="overview">Inventory Snapshot</TabsTrigger>
+           <TabsTrigger value="sales">Sales</TabsTrigger>
            <TabsTrigger value="cogs">Cost of Goods</TabsTrigger>
            <TabsTrigger value="movements">Movements</TabsTrigger>
            <TabsTrigger value="carbon">Carbon Footprint</TabsTrigger>
@@ -440,6 +445,15 @@ export default function Reports() {
             tanks={tanks}
           />
         </TabsContent>
+
+          {/* ── SALES ── */}
+          <TabsContent value="sales" className="space-y-6">
+            <SalesReport
+              dispatches={dispatches}
+              startDate={startDate}
+              endDate={endDate}
+            />
+          </TabsContent>
 
           {/* ── COST OF GOODS ── */}
           <TabsContent value="cogs" className="space-y-6">
