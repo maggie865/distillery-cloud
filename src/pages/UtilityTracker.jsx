@@ -12,7 +12,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import MobileCard, { MobileCardGrid, MobileDetailRow } from '@/components/shared/MobileCard';
 import Pagination from '@/components/ui/Pagination';
-import { Plus, Search, Pencil, Trash2, Zap, Droplets, DollarSign } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Zap, Droplets, DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import StillEnergyReport from '@/components/utilities/StillEnergyReport';
 
@@ -75,6 +75,23 @@ export default function UtilityTracker() {
     const totalWaterCost = logs.reduce((s, l) => s + (l.water_cost || 0), 0);
     const totalCo2e = totalKwh * ELECTRICITY_EF + (totalWater / 1000) * WATER_EF;
     return { count: logs.length, totalKwh, totalWater, totalElecCost, totalWaterCost, totalCo2e };
+  }, [logs]);
+
+  // Unit price per reading — cost ÷ consumption, calculated at read time
+  // rather than stored, so it always reflects whatever cost/consumption was
+  // last entered for that reading. $/kWh for power, $/m³ for water (litres
+  // makes for an unreadably small number).
+  const elecRate = (l) => (l.electricity_cost && l.electricity_kwh) ? l.electricity_cost / l.electricity_kwh : null;
+  const waterRate = (l) => (l.water_cost && l.water_litres) ? l.water_cost / (l.water_litres / 1000) : null;
+
+  const rateTrend = useMemo(() => {
+    const byDateDesc = [...logs].filter(l => l.reading_date).sort((a, b) => (b.reading_date || '').localeCompare(a.reading_date || ''));
+    const withElecRate = byDateDesc.filter(l => elecRate(l) !== null);
+    const withWaterRate = byDateDesc.filter(l => waterRate(l) !== null);
+    return {
+      elec: { latest: withElecRate[0] ? elecRate(withElecRate[0]) : null, previous: withElecRate[1] ? elecRate(withElecRate[1]) : null },
+      water: { latest: withWaterRate[0] ? waterRate(withWaterRate[0]) : null, previous: withWaterRate[1] ? waterRate(withWaterRate[1]) : null },
+    };
   }, [logs]);
 
   const openNew = () => {
@@ -142,6 +159,41 @@ export default function UtilityTracker() {
         </CardContent></Card>
       </div>
 
+      <div className="grid grid-cols-2 gap-3">
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground flex items-center gap-1"><Zap className="w-3 h-3" /> Electricity Rate</p>
+          {rateTrend.elec.latest === null ? (
+            <p className="text-sm text-muted-foreground mt-1">Enter both cost and kWh on a reading to see the rate</p>
+          ) : (
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <p className="text-2xl font-bold font-display text-primary">${rateTrend.elec.latest.toFixed(3)}<span className="text-sm font-normal text-muted-foreground">/kWh</span></p>
+              {rateTrend.elec.previous !== null && Math.abs(rateTrend.elec.latest - rateTrend.elec.previous) >= 0.0005 && (
+                <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${rateTrend.elec.latest > rateTrend.elec.previous ? 'text-destructive' : 'text-success'}`}>
+                  {rateTrend.elec.latest > rateTrend.elec.previous ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                  ${Math.abs(rateTrend.elec.latest - rateTrend.elec.previous).toFixed(3)} vs prior reading
+                </span>
+              )}
+            </div>
+          )}
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground flex items-center gap-1"><Droplets className="w-3 h-3" /> Water Rate</p>
+          {rateTrend.water.latest === null ? (
+            <p className="text-sm text-muted-foreground mt-1">Enter both cost and litres on a reading to see the rate</p>
+          ) : (
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <p className="text-2xl font-bold font-display text-primary">${rateTrend.water.latest.toFixed(2)}<span className="text-sm font-normal text-muted-foreground">/m³</span></p>
+              {rateTrend.water.previous !== null && Math.abs(rateTrend.water.latest - rateTrend.water.previous) >= 0.005 && (
+                <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${rateTrend.water.latest > rateTrend.water.previous ? 'text-destructive' : 'text-success'}`}>
+                  {rateTrend.water.latest > rateTrend.water.previous ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                  ${Math.abs(rateTrend.water.latest - rateTrend.water.previous).toFixed(2)} vs prior reading
+                </span>
+              )}
+            </div>
+          )}
+        </CardContent></Card>
+      </div>
+
       <StillEnergyReport totalMeteredKwh={stats.totalKwh} />
 
       <div className="relative">
@@ -167,7 +219,9 @@ export default function UtilityTracker() {
                   <TableHead className="text-right">Electricity (kWh)</TableHead>
                   <TableHead className="text-right">Water (L)</TableHead>
                   <TableHead className="text-right">Elec Cost</TableHead>
+                  <TableHead className="text-right">$/kWh</TableHead>
                   <TableHead className="text-right">Water Cost</TableHead>
+                  <TableHead className="text-right">$/m³</TableHead>
                   <TableHead className="text-right">CO₂e (kg)</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -175,6 +229,8 @@ export default function UtilityTracker() {
               <TableBody>
                 {paginated.map(l => {
                   const co2e = (l.electricity_kwh || 0) * ELECTRICITY_EF + ((l.water_litres || 0) / 1000) * WATER_EF;
+                  const eRate = elecRate(l);
+                  const wRate = waterRate(l);
                   return (
                     <TableRow key={l.id}>
                       <TableCell className="font-mono font-semibold">{l.period}</TableCell>
@@ -182,7 +238,9 @@ export default function UtilityTracker() {
                       <TableCell className="text-right">{(l.electricity_kwh || 0).toLocaleString()}</TableCell>
                       <TableCell className="text-right">{(l.water_litres || 0).toLocaleString()}</TableCell>
                       <TableCell className="text-right">{l.electricity_cost ? `$${Number(l.electricity_cost).toLocaleString()}` : '—'}</TableCell>
+                      <TableCell className="text-right text-muted-foreground">{eRate !== null ? `$${eRate.toFixed(3)}` : '—'}</TableCell>
                       <TableCell className="text-right">{l.water_cost ? `$${Number(l.water_cost).toLocaleString()}` : '—'}</TableCell>
+                      <TableCell className="text-right text-muted-foreground">{wRate !== null ? `$${wRate.toFixed(2)}` : '—'}</TableCell>
                       <TableCell className="text-right font-semibold text-primary">{co2e.toFixed(2)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
@@ -200,6 +258,8 @@ export default function UtilityTracker() {
           <MobileCardGrid>
             {paginated.map(l => {
               const co2e = (l.electricity_kwh || 0) * ELECTRICITY_EF + ((l.water_litres || 0) / 1000) * WATER_EF;
+              const eRate = elecRate(l);
+              const wRate = waterRate(l);
               return (
                 <MobileCard
                   key={l.id}
@@ -215,8 +275,8 @@ export default function UtilityTracker() {
                 >
                   <MobileDetailRow label="Electricity" value={`${(l.electricity_kwh || 0).toLocaleString()} kWh`} />
                   <MobileDetailRow label="Water" value={`${(l.water_litres || 0).toLocaleString()} L`} />
-                  {l.electricity_cost != null && <MobileDetailRow label="Elec cost" value={`$${Number(l.electricity_cost).toLocaleString()}`} />}
-                  {l.water_cost != null && <MobileDetailRow label="Water cost" value={`$${Number(l.water_cost).toLocaleString()}`} />}
+                  {l.electricity_cost != null && <MobileDetailRow label="Elec cost" value={`$${Number(l.electricity_cost).toLocaleString()}${eRate !== null ? ` ($${eRate.toFixed(3)}/kWh)` : ''}`} />}
+                  {l.water_cost != null && <MobileDetailRow label="Water cost" value={`$${Number(l.water_cost).toLocaleString()}${wRate !== null ? ` ($${wRate.toFixed(2)}/m³)` : ''}`} />}
                   {l.notes && <MobileDetailRow label="Notes" value={l.notes} />}
                 </MobileCard>
               );
