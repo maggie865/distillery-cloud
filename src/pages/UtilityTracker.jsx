@@ -14,6 +14,7 @@ import MobileCard, { MobileCardGrid, MobileDetailRow } from '@/components/shared
 import Pagination from '@/components/ui/Pagination';
 import { Plus, Search, Pencil, Trash2, Zap, Droplets, DollarSign } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
+import StillEnergyReport from '@/components/utilities/StillEnergyReport';
 
 // NZ emission factors (kg CO2e) — mains electricity + town water supply
 export const ELECTRICITY_EF = 0.105; // kg CO2e / kWh (NZ grid)
@@ -140,6 +141,8 @@ export default function UtilityTracker() {
           <p className="text-2xl font-bold font-display text-primary">{stats.totalCo2e.toFixed(1)}<span className="text-sm font-normal text-muted-foreground"> kg</span></p>
         </CardContent></Card>
       </div>
+
+      <StillEnergyReport totalMeteredKwh={stats.totalKwh} />
 
       <div className="relative">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
