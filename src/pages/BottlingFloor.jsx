@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, BarChart3, Pencil, Trash2, FlaskConical, CheckCircle2, Clock, PackageCheck, AlertTriangle } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Plus, BarChart3, Pencil, Trash2, FlaskConical, CheckCircle2, Clock, PackageCheck, AlertTriangle, ChevronDown, ChevronRight, Wrench } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -17,6 +18,7 @@ import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import BottlingRunTracker from '@/components/bottling/BottlingRunTracker';
 import Pagination from '@/components/ui/Pagination';
+import PreUseChecksTab from '@/components/maintenance/PreUseChecksTab';
 import { isBoxOrCase, findPackagingMaterial, checkPackagingStock } from '@/lib/packagingStock';
 
 const ACTIVE_RUN_KEY = 'bottling_active_run';
@@ -35,6 +37,8 @@ export default function BottlingFloor() {
   const [deletingRun, setDeletingRun] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [preUseExpanded, setPreUseExpanded] = useState(false);
+  const [preUseSaving, setPreUseSaving] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -84,6 +88,23 @@ export default function BottlingFloor() {
     queryKey: ['rawMaterials'],
     queryFn: () => db.RawMaterial.list('name', 5000),
   });
+
+  const { data: maintenanceRecords = [] } = useQuery({
+    queryKey: ['maintenanceRecords'],
+    queryFn: () => db.MaintenanceRecord.list('-date', 5000),
+  });
+
+  const createPreUseRecords = async (recordsList) => {
+    setPreUseSaving(true);
+    try {
+      for (const data of recordsList) {
+        await db.MaintenanceRecord.create(data);
+      }
+      await queryClient.invalidateQueries({ queryKey: ['maintenanceRecords'] });
+    } finally {
+      setPreUseSaving(false);
+    }
+  };
 
   // Only tanks that are final_product_storage, in_use, AND admin-marked as ready for bottling
   const finishingTanks = tanks.filter(t =>
@@ -772,6 +793,27 @@ export default function BottlingFloor() {
           </div>
         );
       })()}
+
+      {/* Bottle Washer Pre-Use Check — optional, no compliance tracking */}
+      <Collapsible open={preUseExpanded} onOpenChange={setPreUseExpanded} className="mb-4">
+        <Card className="overflow-hidden">
+          <CollapsibleTrigger asChild>
+            <button className="w-full flex items-center justify-between px-5 py-3 hover:bg-muted/50 transition-colors">
+              <span className="font-semibold text-sm flex items-center gap-2">
+                {preUseExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                <Wrench className="w-4 h-4 text-muted-foreground" />
+                Bottle Washer Pre-Use Check
+              </span>
+              <span className="text-xs text-muted-foreground">Optional · Click to expand</span>
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="border-t p-4">
+              <PreUseChecksTab records={maintenanceRecords} onCreate={createPreUseRecords} saving={preUseSaving} />
+            </div>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       {/* Bottling History */}
       <div className="space-y-4">

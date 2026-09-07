@@ -7,12 +7,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CheckSquare, Square, Plus, Trash2, ChevronDown, ChevronRight, ClipboardList, RotateCcw, GripVertical, Wrench } from 'lucide-react';
+import { CheckSquare, Square, Plus, Trash2, ChevronDown, ChevronRight, ClipboardList, RotateCcw, GripVertical } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
-import PreUseChecksTab from '@/components/maintenance/PreUseChecksTab';
 
 // ── Checklist templates stored as a single AppSettings JSON blob ──────────────
 const TEMPLATES_KEY = 'checklist_templates';
@@ -418,47 +416,13 @@ function ChecklistsPanel() {
   );
 }
 
-// ── Main Page — Checklists + the bottle washer's pre-use check share this
-// page and one permission gate since they're both "things the team runs
-// through before/during a shift", even though the data behind them is
-// unrelated (user-defined templates vs. a fixed maintenance form) ──────────
+// ── Main Page — team checklist templates and runs ───────────────────────────
 export default function DailyChecks() {
-  const queryClient = useQueryClient();
-  const [saving, setSaving] = useState(false);
-
-  const { data: records = [] } = useQuery({
-    queryKey: ['maintenanceRecords'],
-    queryFn: () => base44.entities.MaintenanceRecord.list('-date', 5000),
-  });
-
-  const createRecords = async (recordsList) => {
-    setSaving(true);
-    try {
-      for (const data of recordsList) {
-        await base44.entities.MaintenanceRecord.create(data);
-      }
-      await queryClient.invalidateQueries({ queryKey: ['maintenanceRecords'] });
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <div className="space-y-5">
-      <PageHeader title="Daily Checks" subtitle="Team checklists and the bottle washer's pre-use check" />
-
-      <Tabs defaultValue="checklists">
-        <TabsList className="w-full justify-start overflow-x-auto">
-          <TabsTrigger value="checklists" className="gap-1.5"><ClipboardList className="w-4 h-4" /> Checklists</TabsTrigger>
-          <TabsTrigger value="pre_use" className="gap-1.5"><Wrench className="w-4 h-4" /> Pre-Use Checks</TabsTrigger>
-        </TabsList>
-        <TabsContent value="checklists" className="mt-4">
-          <ChecklistsPanel />
-        </TabsContent>
-        <TabsContent value="pre_use" className="mt-4">
-          <PreUseChecksTab records={records} onCreate={createRecords} saving={saving} />
-        </TabsContent>
-      </Tabs>
+      <PageHeader title="Daily Checks" subtitle="Team checklists for daily, weekly, and monthly routines" />
+      <p className="text-xs text-muted-foreground -mt-3">Looking for the bottle washer's pre-use check? That's moved to Bottling Floor.</p>
+      <ChecklistsPanel />
     </div>
   );
 }
