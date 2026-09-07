@@ -53,7 +53,7 @@ export default function UserDashboard({ userName }) {
     {
       key: 'checklists',
       label: 'Daily Checks',
-      description: 'Checklists and the bottle washer pre-use check',
+      description: 'Team checklists for daily, weekly, and monthly routines',
       path: '/daily-checks',
       icon: CheckSquare,
       tone: 'bg-info/10 text-info',

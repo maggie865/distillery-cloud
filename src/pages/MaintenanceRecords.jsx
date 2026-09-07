@@ -43,7 +43,7 @@ export default function MaintenanceRecords() {
       <div>
         <h1 className="text-2xl font-display font-bold">Maintenance</h1>
         <p className="text-sm text-muted-foreground">Monthly inspections and annual safety certifications</p>
-        <p className="text-xs text-muted-foreground">Looking for the bottle washer's pre-use check? That's moved to Daily Checks.</p>
+        <p className="text-xs text-muted-foreground">Looking for the bottle washer's pre-use check? That's moved to Bottling Floor.</p>
       </div>
 
       <Tabs defaultValue="monthly">

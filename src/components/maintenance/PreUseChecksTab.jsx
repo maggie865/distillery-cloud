@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import Pagination from '@/components/ui/Pagination';
-import { CheckCircle2, AlertTriangle, Wrench, FlaskConical, Droplets, Filter, User, ChevronDown, RotateCcw } from 'lucide-react';
+import { CheckCircle2, Wrench, FlaskConical, Droplets, Filter, User, ChevronDown, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 
 const SPRINGS_DISPLAY = {
@@ -99,13 +99,13 @@ export default function PreUseChecksTab({ records, onCreate, saving }) {
 
   return (
     <div className="space-y-4">
-      <Card className={`p-4 ${todayCheck ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`}>
+      <Card className={`p-4 ${todayCheck ? 'border-emerald-300 bg-emerald-50' : 'border-border bg-muted/40'}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {todayCheck ? <CheckCircle2 className="w-6 h-6 text-emerald-600" /> : <AlertTriangle className="w-6 h-6 text-amber-600" />}
+            {todayCheck ? <CheckCircle2 className="w-6 h-6 text-emerald-600" /> : <Wrench className="w-6 h-6 text-muted-foreground" />}
             <div>
-              <p className="font-semibold text-sm">{todayCheck ? '✅ Check completed today' : '⚠ Check not yet completed'}</p>
-              <p className="text-xs text-muted-foreground">{format(new Date(), 'EEEE, d MMMM yyyy')}</p>
+              <p className="font-semibold text-sm">{todayCheck ? '✅ Check completed today' : 'Not completed yet today'}</p>
+              <p className="text-xs text-muted-foreground">{format(new Date(), 'EEEE, d MMMM yyyy')} — optional, no compliance tracking</p>
             </div>
           </div>
           {todayCheck && !showForm && (
