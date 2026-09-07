@@ -2,7 +2,8 @@ import React from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Plus, Trash2, Clock } from 'lucide-react';
+import { Plus, Trash2, Clock, Timer } from 'lucide-react';
+import { nowDateTimeLocal, nowTime } from '@/lib/timeInput';
 
 /**
  * Detailed run timeline + ABV readings log for a distillation run.
@@ -81,23 +82,33 @@ export default function RunTimeline({ form, set }) {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <div>
           <Label className="text-xs">{dateField.label}</Label>
-          <Input
-            type="datetime-local"
-            value={form[dateField.key] || ''}
-            onChange={e => set(dateField.key, e.target.value)}
-            className="text-sm"
-          />
+          <div className="flex gap-1.5">
+            <Input
+              type="datetime-local"
+              value={form[dateField.key] || ''}
+              onChange={e => set(dateField.key, e.target.value)}
+              className="text-sm"
+            />
+            <Button type="button" variant="outline" size="icon" className="shrink-0" title="Set to now" onClick={() => set(dateField.key, nowDateTimeLocal())}>
+              <Timer className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
         {/* Cut timing — time only */}
         {timeFields.map(f => (
           <div key={f.key}>
             <Label className="text-xs">{f.label}</Label>
-            <Input
-              type="time"
-              value={(form[f.key] || '').slice(0, 5)}
-              onChange={e => set(f.key, e.target.value)}
-              className="text-sm"
-            />
+            <div className="flex gap-1.5">
+              <Input
+                type="time"
+                value={(form[f.key] || '').slice(0, 5)}
+                onChange={e => set(f.key, e.target.value)}
+                className="text-sm"
+              />
+              <Button type="button" variant="outline" size="icon" className="shrink-0" title="Set to now" onClick={() => set(f.key, nowTime())}>
+                <Timer className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
         ))}
       </div>

@@ -10,12 +10,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Pencil, Trash2, Calculator, Zap } from 'lucide-react';
+import { Plus, Pencil, Trash2, Calculator, Zap, Timer } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import Pagination from '@/components/ui/Pagination';
+import { nowDateTimeLocal, nowTime } from '@/lib/timeInput';
 
 const BLANK_FORM = {
   date: new Date().toISOString().split('T')[0],
@@ -394,11 +395,21 @@ export default function SNSDistillation() {
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <Label className="text-xs">Run Start (date &amp; time)</Label>
-                  <Input type="datetime-local" value={form.run_start_time} onChange={e => set('run_start_time', e.target.value)} className="text-sm" />
+                  <div className="flex gap-1.5">
+                    <Input type="datetime-local" value={form.run_start_time} onChange={e => set('run_start_time', e.target.value)} className="text-sm" />
+                    <Button type="button" variant="outline" size="icon" className="shrink-0" title="Set to now" onClick={() => set('run_start_time', nowDateTimeLocal())}>
+                      <Timer className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
                 <div>
                   <Label className="text-xs">Run End (time)</Label>
-                  <Input type="time" value={form.run_end_time} onChange={e => set('run_end_time', e.target.value)} className="text-sm" />
+                  <div className="flex gap-1.5">
+                    <Input type="time" value={form.run_end_time} onChange={e => set('run_end_time', e.target.value)} className="text-sm" />
+                    <Button type="button" variant="outline" size="icon" className="shrink-0" title="Set to now" onClick={() => set('run_end_time', nowTime())}>
+                      <Timer className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
                 <div>
                   <Label className="text-xs">Dephlegmator Water (L)</Label>

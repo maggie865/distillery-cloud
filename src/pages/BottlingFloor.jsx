@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, BarChart3, Pencil, Trash2, FlaskConical, CheckCircle2, Clock, PackageCheck } from 'lucide-react';
+import { Plus, BarChart3, Pencil, Trash2, FlaskConical, CheckCircle2, Clock, PackageCheck, AlertTriangle } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -17,6 +17,7 @@ import PageHeader from '@/components/shared/PageHeader';
 import StatusBadge from '@/components/shared/StatusBadge';
 import BottlingRunTracker from '@/components/bottling/BottlingRunTracker';
 import Pagination from '@/components/ui/Pagination';
+import { isBoxOrCase, findPackagingMaterial, checkPackagingStock } from '@/lib/packagingStock';
 
 const ACTIVE_RUN_KEY = 'bottling_active_run';
 
@@ -79,6 +80,11 @@ export default function BottlingFloor() {
     queryFn: () => db.BottlingRun.list('-date', 5000),
   });
 
+  const { data: rawMaterials = [] } = useQuery({
+    queryKey: ['rawMaterials'],
+    queryFn: () => db.RawMaterial.list('name', 5000),
+  });
+
   // Only tanks that are final_product_storage, in_use, AND admin-marked as ready for bottling
   const finishingTanks = tanks.filter(t =>
     t.purpose === 'final_product_storage' &&
@@ -125,6 +131,20 @@ export default function BottlingFloor() {
 
   const selectedRecipe = packagingRecipes.find(r => r.id === selectedPackagingRecipeId);
   const bottlesPerCase = selectedRecipe?.bottles_per_case || 6;
+
+  // Rough expected yield from the selected tank's volume — the actual count
+  // isn't known until the run is finished (cases/extras are tallied live on
+  // the bottling floor), so this is only ever an estimate to flag an
+  // obvious shortfall before spirit gets committed to bottles, not a
+  // precise prediction.
+  const estimatedBottles = selectedTank?.current_volume && selectedRecipe?.bottle_size_ml
+    ? Math.floor((selectedTank.current_volume * 1000) / selectedRecipe.bottle_size_ml)
+    : 0;
+  const estimatedCases = Math.floor(estimatedBottles / bottlesPerCase);
+  const packagingStockCheck = selectedRecipe
+    ? checkPackagingStock(selectedRecipe, rawMaterials, { bottles: estimatedBottles, cases: estimatedCases })
+    : [];
+  const packagingShortfalls = packagingStockCheck.filter(p => p.shortfall > 0 || !p.found);
 
   const resetForm = () => {
     setSelectedBatchId('');
@@ -280,25 +300,6 @@ export default function BottlingFloor() {
       if (recipe?.packaging?.length && totalBottles > 0) {
         const allRM = await db.RawMaterial.list('name', 5000);
 
-        // Fuzzy name match — handles minor naming differences
-        const findRM = (pkgName) => {
-          const target = (pkgName || '').toLowerCase().trim();
-          // Exact match first
-          let match = allRM.find(r => (r.name || '').toLowerCase().trim() === target);
-          if (match) return match;
-          // Partial match — one contains the other
-          match = allRM.find(r => {
-            const name = (r.name || '').toLowerCase().trim();
-            return name.includes(target) || target.includes(name);
-          });
-          return match;
-        };
-
-        const isBoxOrCase = (name) => {
-          const n = (name || '').toLowerCase();
-          return n.includes('box') || n.includes('case') || n.includes('carton') || n.includes('shipper');
-        };
-
         const packagingCosts = [];
         const unmatchedPackaging = [];
 
@@ -308,7 +309,7 @@ export default function BottlingFloor() {
             ? (pkg.quantity || 1) * cases
             : (pkg.quantity || 1) * totalBottles;
           if (totalNeeded <= 0) continue;
-          const rm = findRM(pkg.name);
+          const rm = findPackagingMaterial(allRM, pkg.name);
           if (rm) {
             const newQty = Math.max(0, (rm.quantity || 0) - totalNeeded);
 
@@ -481,24 +482,14 @@ export default function BottlingFloor() {
       const runRecipe = recipes.find(r => r.id === run.recipe_id);
       if (runRecipe?.packaging?.length && run.bottles_produced > 0) {
         const allRM = await db.RawMaterial.list('name', 5000);
-        const findRM2 = (pkgName) => {
-          const target = (pkgName || '').toLowerCase().trim();
-          let match = allRM.find(r => (r.name || '').toLowerCase().trim() === target);
-          if (!match) match = allRM.find(r => { const name = (r.name || '').toLowerCase().trim(); return name.includes(target) || target.includes(name); });
-          return match;
-        };
-        const isBoxOrCase2 = (name) => {
-          const n = (name || '').toLowerCase();
-          return n.includes('box') || n.includes('case') || n.includes('carton') || n.includes('shipper');
-        };
         // Work out how many cases were in this run
         const casesInRun = Math.floor((run.bottles_produced || 0) / (runRecipe.bottles_per_case || 6));
         for (const pkg of runRecipe.packaging) {
           if (!pkg.name) continue;
-          const totalToRestore = isBoxOrCase2(pkg.name)
+          const totalToRestore = isBoxOrCase(pkg.name)
             ? (pkg.quantity || 1) * casesInRun
             : (pkg.quantity || 1) * run.bottles_produced;
-          const rm = findRM2(pkg.name);
+          const rm = findPackagingMaterial(allRM, pkg.name);
           if (rm) {
             await db.RawMaterial.update(rm.id, {
               quantity: parseFloat(((rm.quantity || 0) + totalToRestore).toFixed(4)),
@@ -652,17 +643,36 @@ export default function BottlingFloor() {
               </Select>
               {selectedRecipe && (
                 <div className="mt-2 rounded-lg border border-border px-4 py-3">
-                  <p className="text-xs text-muted-foreground">{selectedRecipe.bottle_size_ml}ml · {selectedRecipe.bottles_per_case || 6} bottles per case</p>
-                  {selectedRecipe.packaging?.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {selectedRecipe.bottle_size_ml}ml · {selectedRecipe.bottles_per_case || 6} bottles per case
+                    {estimatedBottles > 0 && ` · ~${estimatedBottles.toLocaleString()} bottles expected from this tank`}
+                  </p>
+                  {packagingStockCheck.length > 0 && (
                     <div className="mt-2 pt-2 border-t border-border space-y-0.5">
-                      {selectedRecipe.packaging.map((p, i) => (
-                        <div key={i} className="flex justify-between text-xs text-muted-foreground">
-                          <span>{p.name}</span>
-                          <span>{p.quantity} {p.unit}</span>
-                        </div>
-                      ))}
+                      {packagingStockCheck.map((p, i) => {
+                        const short = p.shortfall > 0 || !p.found;
+                        return (
+                          <div key={i} className={`flex justify-between text-xs ${short ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+                            <span>{p.name}</span>
+                            <span>{p.found ? `${p.onHand.toLocaleString()} in stock${p.needed > 0 ? ` / ${p.needed.toLocaleString()} needed` : ''}` : 'not in inventory'}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
+                </div>
+              )}
+              {selectedRecipe && estimatedBottles > 0 && packagingShortfalls.length > 0 && (
+                <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+                  <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Not enough packaging on hand for the expected yield
+                  </p>
+                  <ul className="text-xs text-amber-700 mt-1 space-y-0.5 list-disc list-inside">
+                    {packagingShortfalls.map((p, i) => (
+                      <li key={i}>{p.name}{p.found ? ` — short by ${p.shortfall.toLocaleString()}` : ' — not found in inventory'}</li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-amber-700/80 mt-1">This is an estimate based on the tank's volume — you can still start the run, but you may need to order more before finishing it.</p>
                 </div>
               )}
             </div>
