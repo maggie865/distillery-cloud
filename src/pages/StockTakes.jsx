@@ -9,14 +9,20 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Plus, ClipboardCheck, CheckCircle2, Trash2, ChevronDown, ChevronRight, AlertTriangle, TrendingUp, TrendingDown, Minus, Package, Wine, Droplets } from 'lucide-react';
+import { Plus, ClipboardCheck, CheckCircle2, Trash2, ChevronDown, ChevronRight, AlertTriangle, TrendingUp, TrendingDown, Minus, Package, Boxes, Wine, Droplets } from 'lucide-react';
 import MobileCard, { MobileCardGrid, MobileDetailRow } from '@/components/shared/MobileCard';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 import Pagination from '@/components/ui/Pagination';
 
+// 'packaging' is a display-only split of raw_material lines (item_type in
+// the DB stays 'raw_material' for both) — a raw_material row counts as
+// packaging based on its current RawMaterial.type, looked up at render
+// time, so this works for stock takes created before this split existed
+// too, without a migration.
 const CATEGORY_META = {
+  packaging: { label: 'Packaging Materials', icon: Boxes, color: 'text-teal-600', bg: 'bg-teal-50', border: 'border-teal-200' },
   raw_material: { label: 'Raw Materials', icon: Package, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-200' },
   finished_good: { label: 'Finished Goods', icon: Wine, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-200' },
   tank: { label: 'Tanks', icon: Droplets, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200' },
@@ -26,7 +32,7 @@ export default function StockTakes() {
   const [newOpen, setNewOpen] = useState(false);
   const [conductedBy, setConductedBy] = useState('');
   const [notes, setNotes] = useState('');
-  const [scope, setScope] = useState({ raw_material: true, finished_good: true, tank: true });
+  const [scope, setScope] = useState({ packaging: true, raw_material: true, finished_good: true, tank: true });
   const [activeStockTake, setActiveStockTake] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
@@ -70,8 +76,20 @@ export default function StockTakes() {
 
       const lines = [];
 
+      if (scope.packaging) {
+        for (const mat of rawMaterials.filter(m => m.type === 'packaging')) {
+          lines.push({
+            stock_take_id: stockTake.id, item_type: 'raw_material',
+            raw_material_id: mat.id,
+            material_name: mat.name,
+            unit: mat.unit,
+            system_quantity: mat.quantity || 0,
+          });
+        }
+      }
+
       if (scope.raw_material) {
-        for (const mat of rawMaterials) {
+        for (const mat of rawMaterials.filter(m => m.type !== 'packaging')) {
           lines.push({
             stock_take_id: stockTake.id, item_type: 'raw_material',
             raw_material_id: mat.id,
@@ -122,7 +140,7 @@ export default function StockTakes() {
       setNewOpen(false);
       setConductedBy('');
       setNotes('');
-      setScope({ raw_material: true, finished_good: true, tank: true });
+      setScope({ packaging: true, raw_material: true, finished_good: true, tank: true });
       setActiveStockTake(stockTake.id);
       toast.success('Stock take created — enter your counted quantities');
     },
@@ -221,10 +239,15 @@ export default function StockTakes() {
   };
 
   const groupLinesByCategory = (lines) => {
-    const groups = { raw_material: [], finished_good: [], tank: [] };
+    const groups = { packaging: [], raw_material: [], finished_good: [], tank: [] };
     for (const line of lines) {
       const type = line.item_type || 'raw_material';
-      if (groups[type]) groups[type].push(line);
+      if (type === 'raw_material') {
+        const mat = rawMaterials.find(m => m.id === line.raw_material_id);
+        (mat?.type === 'packaging' ? groups.packaging : groups.raw_material).push(line);
+      } else if (groups[type]) {
+        groups[type].push(line);
+      }
     }
     return groups;
   };
@@ -399,12 +422,13 @@ export default function StockTakes() {
   };
 
   const scopeCounts = useMemo(() => ({
-    raw_material: scope.raw_material ? rawMaterials.length : 0,
+    packaging: scope.packaging ? rawMaterials.filter(m => m.type === 'packaging').length : 0,
+    raw_material: scope.raw_material ? rawMaterials.filter(m => m.type !== 'packaging').length : 0,
     finished_good: scope.finished_good ? finishedGoods.filter(f => !(f.product_name || '').toLowerCase().includes('tasting')).length : 0,
     tank: scope.tank ? tanks.filter(t => !(t.status === 'empty' && !t.current_product)).length : 0,
   }), [scope, rawMaterials, finishedGoods, tanks]);
 
-  const totalScoped = scopeCounts.raw_material + scopeCounts.finished_good + scopeCounts.tank;
+  const totalScoped = scopeCounts.packaging + scopeCounts.raw_material + scopeCounts.finished_good + scopeCounts.tank;
 
   return (
     <div>
@@ -456,6 +480,7 @@ export default function StockTakes() {
               </div>
             </div>
             <div className="p-2">
+              {renderCategorySection('packaging', grouped.packaging)}
               {renderCategorySection('raw_material', grouped.raw_material)}
               {renderCategorySection('finished_good', grouped.finished_good)}
               {renderCategorySection('tank', grouped.tank)}
@@ -529,6 +554,7 @@ export default function StockTakes() {
                 const grouped = groupLinesByCategory(lines);
                 return (
                   <div className="border-t border-border p-2">
+                    {renderCategorySection('packaging', grouped.packaging, true)}
                     {renderCategorySection('raw_material', grouped.raw_material, true)}
                     {renderCategorySection('finished_good', grouped.finished_good, true)}
                     {renderCategorySection('tank', grouped.tank, true)}
@@ -541,7 +567,7 @@ export default function StockTakes() {
       </div>
       <Pagination total={stockTakes.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={(s) => { setPageSize(s); setPage(1); }} />
 
-      <Dialog open={newOpen} onOpenChange={v => { setNewOpen(v); if (!v) { setConductedBy(''); setNotes(''); setScope({ raw_material: true, finished_good: true, tank: true }); } }}>
+      <Dialog open={newOpen} onOpenChange={v => { setNewOpen(v); if (!v) { setConductedBy(''); setNotes(''); setScope({ packaging: true, raw_material: true, finished_good: true, tank: true }); } }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="font-display flex items-center gap-2">
