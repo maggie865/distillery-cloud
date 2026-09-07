@@ -15,6 +15,7 @@ import Pagination from '@/components/ui/Pagination';
 import { Plus, Search, Pencil, Trash2, Zap, Droplets, DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
 import { format, parseISO, startOfQuarter, endOfQuarter, startOfYear, subMonths } from 'date-fns';
 import StillEnergyReport from '@/components/utilities/StillEnergyReport';
+import WaterUsagePerLitre from '@/components/utilities/WaterUsagePerLitre';
 
 const PRESETS = [
   ['thisQuarter', 'This Quarter'],
@@ -260,6 +261,8 @@ export default function UtilityTracker() {
       </div>
 
       <StillEnergyReport totalMeteredKwh={stats.totalKwh} startDate={startDate} endDate={endDate} />
+
+      <WaterUsagePerLitre totalWaterLitres={stats.totalWater} startDate={startDate} endDate={endDate} />
 
       <div className="relative">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
