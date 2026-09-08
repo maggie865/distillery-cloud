@@ -109,7 +109,7 @@ export default function ExciseReturn({
     monthDistillations, monthDispatches, monthWastage,
     lalsProduced, lalsWasted, allDispatchedLals,
     bluffDispatchLals, dutyFreeFromBluff, exportFromBluff, bluffExemptLals,
-    transferLals, ukBondedExportLals, dutyFreeFrom3PL, exportFrom3PL, exemptFrom3PL, net3PLTaxableLals,
+    transferLals, ukBondedExportLals, dutyFreeFrom3PL, exportFrom3PL, net3PLTaxableLals,
     totalTaxableLals, exciseDueGSTExcl, gstAmount, exciseDueGSTIncl,
     standard3PLDispatchLals, lalsSamples, lals3PLSamples,
     bluffTaxableBreakdown, bluffDutyFreeBreakdown, bluffExportBreakdown,
@@ -160,8 +160,8 @@ export default function ExciseReturn({
       `3PL Transfers:`,
       `  Transferred to 3PL:            ${transferLals.toFixed(3)} LALs`,
       `  Less duty free from 3PL:      (${dutyFreeFrom3PL.toFixed(3)} LALs)`,
-      `  Less export from 3PL:         (${exportFrom3PL.toFixed(3)} LALs)`,
       `  Net taxable (3PL):             ${net3PLTaxableLals.toFixed(3)} LALs`,
+      `  (export from 3PL — ${exportFrom3PL.toFixed(3)} LALs — duty already paid at transfer, not deducted)`,
       ``,
       `TOTAL TAXABLE LALs:              ${totalTaxableLals.toFixed(3)} LALs`,
       `Excise Rate:                     $${exciseRate.toFixed(3)} per LAL (GST excl.)`,
@@ -287,23 +287,12 @@ export default function ExciseReturn({
               ))}
             </div>
           )}
-          <ExciseRow label="Less: Export / Overseas from 3PL" value={exportFrom3PL} displayValue={exportFrom3PL > 0 ? `(${exportFrom3PL.toFixed(3)})` : '0.000'} sub="exempt — deducted from payable" indent />
-          {threePLExportBreakdown.length > 0 && (
-            <div className="px-8 py-1 bg-green-50 space-y-0.5">
-              {threePLExportBreakdown.map(([size, d]) => (
-                <div key={size} className="flex justify-between text-xs text-green-600">
-                  <span>{size} — {d.bottles} bottles</span>
-                  <span className="font-mono">({d.lals.toFixed(4)} LALs)</span>
-                </div>
-              ))}
-            </div>
-          )}
           {net3PLTaxableLals < 0 && (
             <div className="px-6 py-2 bg-blue-50 border-l-4 border-blue-400">
-              <p className="text-xs text-blue-700">ℹ No 3PL transfer this month — duty free/export dispatches ({exemptFrom3PL.toFixed(3)} LALs) are deducted from total payable as a credit against prior transfer excise.</p>
+              <p className="text-xs text-blue-700">ℹ No 3PL transfer this month — duty free dispatches ({dutyFreeFrom3PL.toFixed(3)} LALs) are deducted from total payable as a credit against prior transfer excise.</p>
             </div>
           )}
-          <ExciseRow label="Net 3PL Taxable LALs" value={net3PLTaxableLals} displayValue={net3PLTaxableLals < 0 ? `(${Math.abs(net3PLTaxableLals).toFixed(3)}) credit` : net3PLTaxableLals.toFixed(3)} sub={transferLals === 0 && exemptFrom3PL > 0 ? "credit — exempt dispatches exceed transfers" : "transfers minus exempt dispatches"} indent />
+          <ExciseRow label="Net 3PL Taxable LALs" value={net3PLTaxableLals} displayValue={net3PLTaxableLals < 0 ? `(${Math.abs(net3PLTaxableLals).toFixed(3)}) credit` : net3PLTaxableLals.toFixed(3)} sub={transferLals === 0 && dutyFreeFrom3PL > 0 ? "credit — duty free dispatches exceed transfers" : "transfers minus duty free dispatches"} indent />
 
           {/* Total */}
           <ExciseRow label="TOTAL EXCISE PAYABLE LALs" value={totalTaxableLals} sub="Net distillery + Net 3PL taxable" highlight />
@@ -364,6 +353,17 @@ export default function ExciseReturn({
               ))}
             </div>
           )}
+          <ExciseRow label="Export / Overseas from 3PL" value={exportFrom3PL} sub="duty already paid at transfer — not deducted" indent />
+          {threePLExportBreakdown.length > 0 && (
+            <div className="px-8 py-1 bg-muted/30 space-y-0.5">
+              {threePLExportBreakdown.map(([size, d]) => (
+                <div key={size} className="flex justify-between text-xs text-muted-foreground">
+                  <span>{size} — {d.bottles} bottles</span>
+                  <span className="font-mono">{d.lals.toFixed(4)} LALs</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Wastage and closing */}
           <ExciseRow label="LALs Wasted" value={lalsWasted} sub={`${monthWastage.length} wastage record(s)`} />
@@ -373,7 +373,7 @@ export default function ExciseReturn({
         <div className="px-4 py-3 border-t border-border bg-muted/20 space-y-1">
           <p className="text-xs text-muted-foreground">Current system stock (right now): {currentTotalLALs.toFixed(3)} LALs</p>
           <p className="text-xs text-muted-foreground">LALs Bottled (no net LAL change): {lalsBottled.toFixed(3)} LALs across {monthBottlings.length} run(s)</p>
-          <p className="text-xs text-amber-600">Distillery standard sales and samples are taxable. Duty free and export from Bluff are exempt. Duty free and export from 3PL are deducted from transfer LALs.</p>
+          <p className="text-xs text-amber-600">Distillery standard sales and samples are taxable. Duty free and export from Bluff are exempt. For 3PL, only duty free dispatches are deducted from transfer LALs — export from 3PL is duty already paid at transfer and is not deducted.</p>
         </div>
       </Card>
 
