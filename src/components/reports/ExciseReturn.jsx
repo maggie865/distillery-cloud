@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Copy, CheckCircle2, AlertTriangle, FileText } from 'lucide-react';
-import { format, parseISO, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
+import { Copy, Info, FileText } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
 import { toast } from 'sonner';
-import { getExciseRate } from '@/lib/exciseRates';
+import { computeExciseReturn } from '@/lib/exciseCalc';
 
 function ExciseRow({ label, value, sub, highlight, indent, displayValue }) {
   return (
@@ -33,6 +33,9 @@ function SectionHeader({ label }) {
   );
 }
 
+// selectedMonth/onMonthChange are normally owned by the Reports page (so the
+// "Export CSV" button uses exactly the same period shown here) — the local
+// fallback below only kicks in if this is ever rendered without that prop.
 export default function ExciseReturn({
   finishedGoods,
   warehouseStock,
@@ -41,37 +44,40 @@ export default function ExciseReturn({
   distillationRuns,
   bottlingRuns,
   wastage,
-  tankMovements,
+  selectedMonth: selectedMonthProp,
+  onMonthChange,
 }) {
   const now = new Date();
   const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const [selectedMonth, setSelectedMonth] = useState(`${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`);
+  const [localMonth, setLocalMonth] = useState(`${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`);
+  const selectedMonth = selectedMonthProp ?? localMonth;
+  const setSelectedMonth = onMonthChange ?? setLocalMonth;
 
   const monthDate = parseISO(selectedMonth + '-01');
-  const monthStart = startOfMonth(monthDate);
-  const monthEnd = endOfMonth(monthDate);
   const monthLabel = format(monthDate, 'MMMM yyyy');
+  const isCurrentMonth = selectedMonth === format(now, 'yyyy-MM');
 
   const inMonth = (dateStr) => {
     if (!dateStr) return false;
-    try {
-      return isWithinInterval(parseISO(dateStr), { start: monthStart, end: monthEnd });
-    } catch { return false; }
+    try { return format(parseISO(dateStr), 'yyyy-MM') === selectedMonth; } catch { return false; }
   };
 
-  // Fetch WarehouseStock for transfer LALs
+  // Fetch WarehouseStock for transfer LALs (full history — needed to find
+  // every transfer in the selected month, not just current holdings)
   const { data: warehouseStockAll = [] } = useQuery({
     queryKey: ['warehouseStock'],
     queryFn: () => base44.entities.WarehouseStock.list('-transfer_date', 5000),
   });
 
-  // Fetch Receiving for LALs received (ethanol inbound)
+  // Fetch Receiving for LALs received (ethanol inbound) — informational only,
+  // not part of the excise calculation (raw ethanol not yet distilled is not
+  // counted toward reportable LAL stock).
   const { data: receivingsAll = [] } = useQuery({
     queryKey: ['receiving'],
     queryFn: () => base44.entities.Receiving.list('-date_received', 5000),
   });
 
-  // Fetch AppSettings for excise rate
+  // Fetch AppSettings for company name
   const { data: appSettings = [] } = useQuery({
     queryKey: ['appSettings'],
     queryFn: () => base44.entities.AppSettings.list('-created_at', 5000),
@@ -79,191 +85,39 @@ export default function ExciseReturn({
 
   const companyName = appSettings.find(s => s.key === 'company_name')?.value || '';
 
-  // Excise rate is date-aware: uses the NZ Customs rate applicable to the selected month
-  const [selectedYear, selectedMonthNum] = selectedMonth.split('-').map(Number);
-  const monthStartDate = new Date(selectedYear, selectedMonthNum - 1, 1);
-  const rateInfo = getExciseRate(monthStartDate);
-  const exciseRate = rateInfo.rate;
-  const rateLabel = rateInfo.label;
-
-  // --- Current total LALs (all stock locations) ---
-  const currentFinishedLALs = finishedGoods.reduce((s, g) => s + (g.total_lals || 0), 0);
-  const currentWarehouseLALs = warehouseStock.reduce((s, w) => s + (w.total_lals || 0), 0);
-  const currentTankLALs = tanks.reduce((s, t) => s + ((t.current_volume || 0) * (t.current_abv || 0) / 100), 0);
-  const currentTotalLALs = currentFinishedLALs + currentWarehouseLALs + currentTankLALs;
-
-  // --- LALs Produced (hearts from distillation runs in month) ---
-  const monthDistillations = distillationRuns.filter(r => inMonth(r.date));
-  const lalsProduced = monthDistillations.reduce((s, r) => s + (r.hearts_lals || 0), 0);
-
-  // --- LALs Received (ethanol inbound) ---
   const monthReceivings = receivingsAll.filter(r => inMonth(r.date_received) && r.material_type === 'Ethanol');
   const lalsReceived = monthReceivings.reduce((s, r) => s + (r.lals || 0), 0);
 
-  // --- LALs Bottled (input_lals from bottling runs in month) ---
-  const monthBottlings = bottlingRuns.filter(r => inMonth(r.date));
+  const monthBottlings = (bottlingRuns || []).filter(r => inMonth(r.date));
   const lalsBottled = monthBottlings.reduce((s, r) => s + (r.input_lals || 0), 0);
 
-  // --- LALs Wasted ---
-  const monthWastage = wastage.filter(w => inMonth(w.date));
-  const lalsWasted = monthWastage.reduce((s, w) => s + (w.lals || 0), 0);
+  // Everything else — same calculation the Reports page's CSV export uses,
+  // so the two can never diverge for the same month again.
+  const calc = useMemo(() => computeExciseReturn({
+    monthDate,
+    dispatches,
+    warehouseStockAll,
+    distillationRuns,
+    wastage,
+    finishedGoods,
+    warehouseStock,
+    tanks,
+  }), [monthDate, dispatches, warehouseStockAll, distillationRuns, wastage, finishedGoods, warehouseStock, tanks]);
 
-  // --- Dispatches in month ---
-  const monthDispatches = dispatches.filter(d => inMonth(d.dispatch_date));
-
-  // === EXCISE CALCULATION ===
-
-  // 1. Taxable distillery dispatches — must be explicitly from Bluff (not 3PL, not UK, not unknown)
-  // Duty free and export dispatches from Bluff are excise exempt
-  // UK Bonded dispatches are entirely excluded from excise (stock is under bond, no NZ excise)
-  const isBluffDispatch = (d) => {
-    const from = (d.dispatched_from || '').toLowerCase().trim();
-    // Exclude anything from a 3PL warehouse (Auckland or UK Bonded) — everything else is Bluff
-    // This correctly handles null/blank dispatched_from (older records = Bluff)
-    return !from.includes('auckland') && !from.includes('3pl') && !from.includes('uk') && !from.includes('bonded');
-  };
-
-  const isUKBonded = (d) => {
-    const from = (d.dispatched_from || '').toLowerCase().trim();
-    return from.includes('uk') || from.includes('bonded');
-  };
-
-  const bluffDispatchLals = monthDispatches
-    .filter(d =>
-      isBluffDispatch(d) &&
-      d.duty_free !== true &&
-      d.is_export !== true
-    )
-    .reduce((s, d) => s + (d.total_lals || 0), 0);
-
-  // Exempt distillery dispatches — duty free and export from Bluff
-  const dutyFreeFromBluff = monthDispatches
-    .filter(d => isBluffDispatch(d) && d.duty_free === true)
-    .reduce((s, d) => s + (d.total_lals || 0), 0);
-  const exportFromBluff = monthDispatches
-    .filter(d => isBluffDispatch(d) && d.is_export === true)
-    .reduce((s, d) => s + (d.total_lals || 0), 0);
-  const bluffExemptLals = dutyFreeFromBluff + exportFromBluff;
-
-  // 2. LALs transferred to Auckland 3PL this month — taxable at point of transfer.
-  const transfersToWarehouse = warehouseStockAll.filter(ws => {
-    const d = ws.transfer_date || ws.date_transferred_in;
-    return d && inMonth(d) && (ws.warehouse_location || 'Auckland 3PL') === 'Auckland 3PL';
-  });
-  const transferLals = transfersToWarehouse.reduce((s, ws) => s + (ws.total_lals || 0), 0);
-
-  // 2b. LALs transferred to UK Bonded warehouse this month — treated as overseas exports (excise exempt).
-  const transfersToUKBonded = warehouseStockAll.filter(ws => {
-    const d = ws.transfer_date || ws.date_transferred_in;
-    return d && inMonth(d) && (ws.warehouse_location || '') === 'UK Bonded';
-  });
-  const ukBondedExportLals = transfersToUKBonded.reduce((s, ws) => s + (ws.total_lals || 0), 0);
-
-  // 3. Duty free OR export dispatches from 3PL this month — both are excise exempt
-  const dutyFreeFrom3PL = monthDispatches
-    .filter(d => (d.dispatched_from || '').includes('Auckland') && d.duty_free === true)
-    .reduce((s, d) => s + (d.total_lals || 0), 0);
-  const exportFrom3PL = monthDispatches
-    .filter(d => (d.dispatched_from || '').includes('Auckland') && d.is_export === true)
-    .reduce((s, d) => s + (d.total_lals || 0), 0);
-  const exemptFrom3PL = dutyFreeFrom3PL + exportFrom3PL;
-
-  // 4. Net taxable 3PL LALs
-  // If there was a transfer this month: taxable = transfer LALs minus exempt dispatches from 3PL
-  // If there was NO transfer this month: the exempt dispatches are still a deduction (excise
-  // was pre-paid when stock was originally transferred — duty free/export dispatches get a credit)
-  const net3PLTaxableLals = transferLals - exemptFrom3PL;
-  // Note: net3PLTaxableLals can be negative (credit) when exempt dispatches exceed transfers
-
-  // 5. Bottle size breakdowns for each category
-  const breakdownBySize = (dispatchList) => {
-    const sizes = {};
-    dispatchList.forEach(d => {
-      const size = d.bottle_size_ml ? `${d.bottle_size_ml}ml` : 'Unknown';
-      if (!sizes[size]) sizes[size] = { bottles: 0, lals: 0 };
-      sizes[size].bottles += d.quantity_bottles || 0;
-      sizes[size].lals += d.total_lals || 0;
-    });
-    return Object.entries(sizes).sort(([a],[b]) => parseInt(b) - parseInt(a));
-  };
-
-  const bluffTaxableDispatches = monthDispatches.filter(d => isBluffDispatch(d) && d.duty_free !== true && d.is_export !== true);
-  const bluffDutyFreeDispatches = monthDispatches.filter(d => isBluffDispatch(d) && d.duty_free === true);
-  const bluffExportDispatches = monthDispatches.filter(d => isBluffDispatch(d) && d.is_export === true);
-  const threePLDutyFreeDispatches = monthDispatches.filter(d => (d.dispatched_from||'').includes('Auckland') && d.duty_free === true);
-  const threePLExportDispatches = monthDispatches.filter(d => (d.dispatched_from||'').includes('Auckland') && d.is_export === true);
-
-  const bluffTaxableBreakdown = breakdownBySize(bluffTaxableDispatches);
-  const bluffDutyFreeBreakdown = breakdownBySize(bluffDutyFreeDispatches);
-  const bluffExportBreakdown = breakdownBySize(bluffExportDispatches);
-  const threePLTransferBreakdown = breakdownBySize(transfersToWarehouse.map(ws => ({ bottle_size_ml: ws.bottle_size_ml, quantity_bottles: ws.quantity_bottles, total_lals: ws.total_lals })));
-  const threePLDutyFreeBreakdown = breakdownBySize(threePLDutyFreeDispatches);
-  const threePLExportBreakdown = breakdownBySize(threePLExportDispatches);
-  const ukBondedTransferBreakdown = breakdownBySize(transfersToUKBonded.map(ws => ({ bottle_size_ml: ws.bottle_size_ml, quantity_bottles: ws.quantity_bottles, total_lals: ws.total_lals })));
-
-  // Debug — log exempt records to find what's being incorrectly flagged
-  const exportRecords = monthDispatches.filter(d => isBluffDispatch(d) && d.is_export === true);
-  const dutyFreeRecords = monthDispatches.filter(d => isBluffDispatch(d) && d.duty_free === true);
-  const df3PLRecords = monthDispatches.filter(d => (d.dispatched_from||'').includes('Auckland') && d.duty_free === true);
-
-
-
-  // Debug — log all dispatch records contributing to bluffDispatchLals
-
-  const bluffDispatches = monthDispatches.filter(d => isBluffDispatch(d) && d.duty_free !== true && d.is_export !== true);
-  console.log('[ExciseReturn] Bluff taxable dispatches:', bluffDispatches.map(d => ({
-    date: d.dispatch_date,
-    customer: d.customer_name,
-    product: d.product_name,
-    bottles: d.quantity_bottles,
-    lals: d.total_lals,
-    from: d.dispatched_from,
-  })));
-
-
-  // 5. Total excise payable LALs
-  // Total taxable = bluff taxable + net 3PL (net3PL can be negative = credit when no transfer this month)
-  const totalTaxableLals = Math.max(0, bluffDispatchLals + net3PLTaxableLals);
-
-  // Excise due (GST exclusive + GST inclusive at 15%)
-  const exciseDueGSTExcl = totalTaxableLals * exciseRate;
-  const gstAmount = exciseDueGSTExcl * 0.15;
-  const exciseDueGSTIncl = exciseDueGSTExcl + gstAmount;
-
-  // --- Non-taxable categories (for info only) ---
-  const standard3PLDispatchLals = monthDispatches
-    .filter(d => (d.dispatched_from || '').includes('Auckland') && !d.duty_free && !d.is_export && !d.sample_dispatch)
-    .reduce((s, d) => s + (d.total_lals || 0), 0);
-
-  const lalsSamples = monthDispatches
-    .filter(d => d.sample_dispatch && isBluffDispatch(d))
-    .reduce((s, d) => s + (d.total_lals || 0), 0);
-
-  const lals3PLSamples = monthDispatches
-    .filter(d => d.sample_dispatch && (d.dispatched_from || '').includes('Auckland'))
-    .reduce((s, d) => s + (d.total_lals || 0), 0);
-
-  // Bottle size breakdowns for information section
-  const sampleBluffBreakdown = breakdownBySize(
-    monthDispatches.filter(d => d.sample_dispatch && isBluffDispatch(d))
-  );
-  const standard3PLBreakdown = breakdownBySize(
-    monthDispatches.filter(d => (d.dispatched_from || '').includes('Auckland') && !d.duty_free && !d.is_export && !d.sample_dispatch)
-  );
-  const sample3PLBreakdown = breakdownBySize(
-    monthDispatches.filter(d => d.sample_dispatch && (d.dispatched_from || '').includes('Auckland'))
-  );
-
-  // --- All dispatched LALs (for mass balance) ---
-  const allDispatchedLals = monthDispatches.reduce((s, d) => s + (d.total_lals || 0), 0);
-
-  // --- Opening / Closing LALs ---
-  const openingLALs = currentTotalLALs + allDispatchedLals + lalsWasted - lalsProduced;
-  const closingLALs = openingLALs + lalsProduced - allDispatchedLals - lalsWasted;
-
-  // --- Mass balance check ---
-  const discrepancy = Math.abs(closingLALs - currentTotalLALs);
-  const isBalanced = discrepancy < 0.5;
+  const {
+    rateInfo, exciseRate,
+    monthDistillations, monthDispatches, monthWastage,
+    lalsProduced, lalsWasted, allDispatchedLals,
+    bluffDispatchLals, dutyFreeFromBluff, exportFromBluff, bluffExemptLals,
+    transferLals, ukBondedExportLals, dutyFreeFrom3PL, exportFrom3PL, exemptFrom3PL, net3PLTaxableLals,
+    totalTaxableLals, exciseDueGSTExcl, gstAmount, exciseDueGSTIncl,
+    standard3PLDispatchLals, lalsSamples, lals3PLSamples,
+    bluffTaxableBreakdown, bluffDutyFreeBreakdown, bluffExportBreakdown,
+    threePLTransferBreakdown, threePLDutyFreeBreakdown, threePLExportBreakdown, ukBondedTransferBreakdown,
+    sampleBluffBreakdown, standard3PLBreakdown, sample3PLBreakdown,
+    currentTotalLALs, closingLALs, openingLALs,
+  } = calc;
+  const rateLabel = rateInfo.label;
 
   // --- Breakdown: LALs dispatched by customer ---
   const dispatchByCustomer = useMemo(() => {
@@ -362,7 +216,7 @@ export default function ExciseReturn({
         </div>
         <div className="divide-y divide-border">
           <ExciseRow label="LALs Produced (hearts)" value={lalsProduced} sub={`${monthDistillations.length} distillation run(s)`} />
-          <ExciseRow label="LALs Received (ethanol inbound)" value={lalsReceived} sub={`${monthReceivings.length} ethanol receiving(s)`} />
+          <ExciseRow label="LALs Received (ethanol inbound)" value={lalsReceived} sub={`${monthReceivings.length} ethanol receiving(s) — informational, not yet distilled so not counted in stock below`} />
 
           {/* Taxable Dispatches section */}
           <SectionHeader label="Taxable Dispatches" />
@@ -513,33 +367,31 @@ export default function ExciseReturn({
 
           {/* Wastage and closing */}
           <ExciseRow label="LALs Wasted" value={lalsWasted} sub={`${monthWastage.length} wastage record(s)`} />
-          <ExciseRow label="Opening Stock LALs" value={openingLALs} sub={`Total stock at start of ${monthLabel}`} />
+          <ExciseRow label="Opening Stock LALs" value={openingLALs} sub={`Calculated stock at start of ${monthLabel}`} />
           <ExciseRow label="Closing Stock LALs" value={closingLALs} sub="Opening + Produced - Dispatched - Wasted" highlight />
         </div>
         <div className="px-4 py-3 border-t border-border bg-muted/20 space-y-1">
-          <p className="text-xs text-muted-foreground">Current system stock (for reference): {currentTotalLALs.toFixed(3)} LALs</p>
+          <p className="text-xs text-muted-foreground">Current system stock (right now): {currentTotalLALs.toFixed(3)} LALs</p>
           <p className="text-xs text-muted-foreground">LALs Bottled (no net LAL change): {lalsBottled.toFixed(3)} LALs across {monthBottlings.length} run(s)</p>
           <p className="text-xs text-amber-600">Distillery standard sales and samples are taxable. Duty free and export from Bluff are exempt. Duty free and export from 3PL are deducted from transfer LALs.</p>
         </div>
       </Card>
 
-      {/* Mass Balance Check */}
-      <Card className={`p-5 border-2 ${isBalanced ? 'border-emerald-300 bg-emerald-50' : 'border-red-300 bg-red-50'}`}>
+      {/* Stock Reconciliation — Opening/Closing are derived from today's live
+          system stock by undoing every recorded movement back to the end of
+          the selected month, so they're correct for whichever month is
+          selected — but they aren't an independent physical check (there's
+          no stored stock-take reading from that date to compare against),
+          so this is deliberately informational rather than a pass/fail badge. */}
+      <Card className="p-5 border-2 border-border bg-muted/20">
         <div className="flex items-center gap-3">
-          {isBalanced ? (
-            <CheckCircle2 className="w-8 h-8 text-emerald-600 flex-shrink-0" />
-          ) : (
-            <AlertTriangle className="w-8 h-8 text-red-600 flex-shrink-0" />
-          )}
+          <Info className="w-6 h-6 text-muted-foreground flex-shrink-0" />
           <div>
-            <p className={`font-semibold ${isBalanced ? 'text-emerald-800' : 'text-red-800'}`}>
-              {isBalanced ? 'Mass Balance: Balanced ✓' : 'Mass Balance: Discrepancy Detected'}
-            </p>
-            <p className={`text-sm ${isBalanced ? 'text-emerald-700' : 'text-red-700'}`}>
-              {isBalanced
-                ? `Closing LALs (${closingLALs.toFixed(3)}) matches current stock (${currentTotalLALs.toFixed(3)}) within 0.5 LAL tolerance.`
-                : `Closing LALs (${closingLALs.toFixed(3)}) differs from current stock (${currentTotalLALs.toFixed(3)}) by ${discrepancy.toFixed(3)} LALs. Check for missing or unrecorded movements.`
-              }
+            <p className="font-semibold text-foreground">Stock Reconciliation</p>
+            <p className="text-sm text-muted-foreground">
+              {isCurrentMonth
+                ? `Closing stock for ${monthLabel} (in progress) is today's live system stock: ${closingLALs.toFixed(3)} LALs.`
+                : `Closing stock for ${monthLabel} is calculated by working back from today's live system stock (${currentTotalLALs.toFixed(3)} LALs) through every recorded movement since — not an independent stock-take reading from that date.`}
             </p>
           </div>
         </div>
