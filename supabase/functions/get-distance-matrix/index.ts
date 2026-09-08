@@ -53,6 +53,7 @@ Deno.serve(async (req: Request) => {
 
     const res = await fetch(url.toString());
     if (!res.ok) {
+      console.error('get-distance-matrix: Google HTTP error', res.status, await res.text().catch(() => ''));
       return jsonResponse({ success: false, error: `Google Distance Matrix API error (${res.status})` }, 502);
     }
     const body = await res.json();
@@ -61,12 +62,14 @@ Deno.serve(async (req: Request) => {
       // REQUEST_DENIED usually means Distance Matrix API isn't enabled for
       // this key (or billing isn't set up) in Google Cloud Console — most
       // likely first-time-setup issue, worth calling out specifically.
+      console.error('get-distance-matrix: Google status not OK', body.status, body.error_message, JSON.stringify(body));
       const hint = body.status === 'REQUEST_DENIED' ? ' — check that the Distance Matrix API is enabled for this key in Google Cloud Console' : '';
       return jsonResponse({ success: false, error: `Google Distance Matrix API: ${body.status}${body.error_message ? ` (${body.error_message})` : ''}${hint}` }, 502);
     }
 
     const element = body.rows?.[0]?.elements?.[0];
     if (!element || element.status !== 'OK') {
+      console.error('get-distance-matrix: element status not OK', JSON.stringify(body));
       return jsonResponse({ success: false, error: `Could not find a route between those addresses (${element?.status || 'no result'})` }, 404);
     }
 
