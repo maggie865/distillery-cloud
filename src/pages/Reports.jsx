@@ -25,11 +25,18 @@ import CarbonReport from '@/components/reports/CarbonReport';
 import IsoLifecycleReport from '@/components/reports/IsoLifecycleReport';
 import BatchTraceReport from '@/components/reports/BatchTraceReport';
 import { useRawMaterialsNetStock } from '@/hooks/useRawMaterialsNetStock';
+import { computeExciseReturn } from '@/lib/exciseCalc';
 
 export default function Reports() {
   const now = new Date();
   const [startDate, setStartDate] = useState(format(startOfMonth(now), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(now, 'yyyy-MM-dd'));
+  // Owned here (not inside ExciseReturn) so the "Export CSV" button always
+  // exports exactly the month shown on screen in the Excise Return tab —
+  // previously the export used this page's own startDate/endDate range
+  // instead, which could silently be a different period.
+  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const [exciseMonth, setExciseMonth] = useState(`${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`);
   const [exporting, setExporting] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [recvPage, setRecvPage] = useState(1);
@@ -319,36 +326,39 @@ export default function Reports() {
           break;
         }
         case 'excise': {
-          // Export the excise summary as CSV
-          // Pull the calculated values from the ExciseReturn component via the shared data
+          // Export the exact same figures shown in the Excise Return tab —
+          // same shared calculation, same selected month (exciseMonth, not
+          // this page's own startDate/endDate range) — so the CSV can never
+          // show different numbers than the screen for the same period.
           const headers = ['description', 'lals', 'amount_nzd'];
-          const exciseRate = new Date(startDate) >= new Date('2026-07-01') ? 71.034 : 68.915;
-          const monthD = dispatches.filter(d => {
-            const dd = d.dispatch_date || '';
-            return dd >= startDate && dd <= endDate;
+          const monthDate = parseISO(exciseMonth + '-01');
+          const calc = computeExciseReturn({
+            monthDate,
+            dispatches,
+            warehouseStockAll: warehouseStock,
+            distillationRuns,
+            wastage,
+            finishedGoods,
+            warehouseStock,
+            tanks,
           });
-          const bluffTaxable = monthD.filter(d => !(d.dispatched_from||'').includes('Auckland') && d.duty_free !== true && d.is_export !== true).reduce((s,d)=>s+(d.total_lals||0),0);
-          const bluffExempt = monthD.filter(d => !(d.dispatched_from||'').includes('Auckland') && (d.duty_free===true||d.is_export===true)).reduce((s,d)=>s+(d.total_lals||0),0);
-          const transferLals = warehouseStock ? warehouseStock.filter(ws => { const t = ws.transfer_date||ws.date_transferred_in||''; return t >= startDate && t <= endDate; }).reduce((s,ws)=>s+(ws.total_lals||0),0) : 0;
-          const exempt3PL = monthD.filter(d => (d.dispatched_from||'').includes('Auckland') && (d.duty_free===true||d.is_export===true)).reduce((s,d)=>s+(d.total_lals||0),0);
-          const net3PL = Math.max(0, transferLals - exempt3PL);
-          const totalTaxable = bluffTaxable + net3PL;
-          const exciseDue = totalTaxable * exciseRate;
-          const gst = exciseDue * 0.15;
           const rows = [
-            { description: `Excise Return ${startDate} to ${endDate}`, lals: '', amount_nzd: '' },
-            { description: 'Distillery dispatches (taxable)', lals: bluffTaxable.toFixed(4), amount_nzd: '' },
-            { description: 'Less: Duty free / export from Distillery', lals: `-${bluffExempt.toFixed(4)}`, amount_nzd: '' },
-            { description: 'Transferred to 3PL', lals: transferLals.toFixed(4), amount_nzd: '' },
-            { description: 'Less: Duty free / export from 3PL', lals: `-${exempt3PL.toFixed(4)}`, amount_nzd: '' },
-            { description: 'Net 3PL taxable LALs', lals: net3PL.toFixed(4), amount_nzd: '' },
-            { description: 'TOTAL TAXABLE LALs', lals: totalTaxable.toFixed(4), amount_nzd: '' },
-            { description: `Excise rate (spirits >23% vol)`, lals: '', amount_nzd: `$${exciseRate}/LAL` },
-            { description: 'Excise due (GST excl.)', lals: '', amount_nzd: `$${exciseDue.toFixed(2)}` },
-            { description: 'GST (15%)', lals: '', amount_nzd: `$${gst.toFixed(2)}` },
-            { description: 'Total excise due (GST incl.)', lals: '', amount_nzd: `$${(exciseDue+gst).toFixed(2)}` },
+            { description: `Excise Return ${format(monthDate, 'MMMM yyyy')}`, lals: '', amount_nzd: '' },
+            { description: 'Distillery dispatches (taxable)', lals: calc.bluffDispatchLals.toFixed(4), amount_nzd: '' },
+            { description: 'Less: Duty free from Distillery', lals: `-${calc.dutyFreeFromBluff.toFixed(4)}`, amount_nzd: '' },
+            { description: 'Less: Export/overseas from Distillery', lals: `-${calc.exportFromBluff.toFixed(4)}`, amount_nzd: '' },
+            { description: 'Export/overseas: UK Bonded transfers', lals: `-${calc.ukBondedExportLals.toFixed(4)}`, amount_nzd: '' },
+            { description: 'Transferred to 3PL', lals: calc.transferLals.toFixed(4), amount_nzd: '' },
+            { description: 'Less: Duty free from 3PL', lals: `-${calc.dutyFreeFrom3PL.toFixed(4)}`, amount_nzd: '' },
+            { description: 'Less: Export/overseas from 3PL', lals: `-${calc.exportFrom3PL.toFixed(4)}`, amount_nzd: '' },
+            { description: 'Net 3PL taxable LALs', lals: calc.net3PLTaxableLals.toFixed(4), amount_nzd: '' },
+            { description: 'TOTAL TAXABLE LALs', lals: calc.totalTaxableLals.toFixed(4), amount_nzd: '' },
+            { description: `Excise rate (spirits >23% vol, ${calc.rateInfo.label})`, lals: '', amount_nzd: `$${calc.exciseRate}/LAL` },
+            { description: 'Excise due (GST excl.)', lals: '', amount_nzd: `$${calc.exciseDueGSTExcl.toFixed(2)}` },
+            { description: 'GST (15%)', lals: '', amount_nzd: `$${calc.gstAmount.toFixed(2)}` },
+            { description: 'Total excise due (GST incl.)', lals: '', amount_nzd: `$${calc.exciseDueGSTIncl.toFixed(2)}` },
           ];
-          exportCSV(`excise_return_${label}.csv`, rows, headers);
+          exportCSV(`excise_return_${exciseMonth}.csv`, rows, headers);
           break;
         }
         case 'iso': {
@@ -575,7 +585,8 @@ export default function Reports() {
             distillationRuns={distillationRuns}
             bottlingRuns={bottlingRuns}
             wastage={wastage}
-            tankMovements={tankMovements}
+            selectedMonth={exciseMonth}
+            onMonthChange={setExciseMonth}
           />
         </TabsContent>
 
