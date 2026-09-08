@@ -75,19 +75,30 @@ export function computeExciseReturn({
     .reduce((s, d) => s + (d.total_lals || 0), 0);
   const bluffExemptLals = dutyFreeFromBluff + exportFromBluff;
 
+  // quantity_bottles/total_lals on a WarehouseStock row deplete as that lot
+  // is later dispatched out of the 3PL warehouse (see DispatchHub.jsx) — so
+  // by the time this report is viewed, a row can show far less than what
+  // was actually transferred that month. Excise is due on the amount
+  // transferred, not on whatever happens to remain in that lot today, so
+  // this must always use the original_* fields (immutable at transfer
+  // time), falling back to the live fields only for older records that
+  // predate original_* being recorded.
+  const origBottles = (ws) => ws.original_quantity_bottles ?? ws.quantity_bottles ?? 0;
+  const origLals = (ws) => ws.original_total_lals ?? ws.total_lals ?? 0;
+
   // 2. LALs transferred to Auckland 3PL this month — taxable at point of transfer.
   const transfersToWarehouse = warehouseStockAll.filter(ws => {
     const d = ws.transfer_date || ws.date_transferred_in;
     return d && inMonth(d) && (ws.warehouse_location || 'Auckland 3PL') === 'Auckland 3PL';
   });
-  const transferLals = transfersToWarehouse.reduce((s, ws) => s + (ws.total_lals || 0), 0);
+  const transferLals = transfersToWarehouse.reduce((s, ws) => s + origLals(ws), 0);
 
   // 2b. LALs transferred to UK Bonded warehouse this month — overseas export (excise exempt).
   const transfersToUKBonded = warehouseStockAll.filter(ws => {
     const d = ws.transfer_date || ws.date_transferred_in;
     return d && inMonth(d) && (ws.warehouse_location || '') === 'UK Bonded';
   });
-  const ukBondedExportLals = transfersToUKBonded.reduce((s, ws) => s + (ws.total_lals || 0), 0);
+  const ukBondedExportLals = transfersToUKBonded.reduce((s, ws) => s + origLals(ws), 0);
 
   // 3. Duty free OR export dispatches from 3PL this month — both excise exempt.
   const dutyFreeFrom3PL = monthDispatches
@@ -112,10 +123,10 @@ export function computeExciseReturn({
   const bluffTaxableBreakdown = breakdownBySize(bluffTaxableDispatches);
   const bluffDutyFreeBreakdown = breakdownBySize(bluffDutyFreeDispatches);
   const bluffExportBreakdown = breakdownBySize(bluffExportDispatches);
-  const threePLTransferBreakdown = breakdownBySize(transfersToWarehouse.map(ws => ({ bottle_size_ml: ws.bottle_size_ml, quantity_bottles: ws.quantity_bottles, total_lals: ws.total_lals })));
+  const threePLTransferBreakdown = breakdownBySize(transfersToWarehouse.map(ws => ({ bottle_size_ml: ws.bottle_size_ml, quantity_bottles: origBottles(ws), total_lals: origLals(ws) })));
   const threePLDutyFreeBreakdown = breakdownBySize(threePLDutyFreeDispatches);
   const threePLExportBreakdown = breakdownBySize(threePLExportDispatches);
-  const ukBondedTransferBreakdown = breakdownBySize(transfersToUKBonded.map(ws => ({ bottle_size_ml: ws.bottle_size_ml, quantity_bottles: ws.quantity_bottles, total_lals: ws.total_lals })));
+  const ukBondedTransferBreakdown = breakdownBySize(transfersToUKBonded.map(ws => ({ bottle_size_ml: ws.bottle_size_ml, quantity_bottles: origBottles(ws), total_lals: origLals(ws) })));
 
   // Total excise payable LALs — Bluff taxable + net 3PL (net3PL can be
   // negative = credit when no transfer this month).
