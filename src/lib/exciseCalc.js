@@ -100,18 +100,23 @@ export function computeExciseReturn({
   });
   const ukBondedExportLals = transfersToUKBonded.reduce((s, ws) => s + origLals(ws), 0);
 
-  // 3. Duty free OR export dispatches from 3PL this month — both excise exempt.
+  // 3. Excise is due on everything transferred to Auckland 3PL this month —
+  // the only deduction is duty free dispatches from 3PL (a formally exempt
+  // channel). Export dispatches from 3PL do NOT reduce it: the transfer
+  // excise is based on what left Bluff and arrived at the domestic
+  // warehouse that month, not on where it's later sold — a later export
+  // sale doesn't retroactively cancel that liability (confirmed with the
+  // user). Export from 3PL is tracked separately, for information only.
   const dutyFreeFrom3PL = monthDispatches
     .filter(d => (d.dispatched_from || '').includes('Auckland') && d.duty_free === true)
     .reduce((s, d) => s + (d.total_lals || 0), 0);
   const exportFrom3PL = monthDispatches
     .filter(d => (d.dispatched_from || '').includes('Auckland') && d.is_export === true)
     .reduce((s, d) => s + (d.total_lals || 0), 0);
-  const exemptFrom3PL = dutyFreeFrom3PL + exportFrom3PL;
 
-  // 4. Net taxable 3PL LALs — can be negative (a credit) when exempt
+  // 4. Net taxable 3PL LALs — can be negative (a credit) when duty free
   // dispatches this month exceed transfers this month.
-  const net3PLTaxableLals = transferLals - exemptFrom3PL;
+  const net3PLTaxableLals = transferLals - dutyFreeFrom3PL;
 
   // 5. Bottle size breakdowns for each category
   const bluffTaxableDispatches = monthDispatches.filter(d => isBluffDispatch(d) && d.duty_free !== true && d.is_export !== true);
@@ -181,7 +186,7 @@ export function computeExciseReturn({
     lalsProduced, lalsWasted, allDispatchedLals,
     bluffDispatchLals, dutyFreeFromBluff, exportFromBluff, bluffExemptLals,
     transfersToWarehouse, transferLals, transfersToUKBonded, ukBondedExportLals,
-    dutyFreeFrom3PL, exportFrom3PL, exemptFrom3PL, net3PLTaxableLals,
+    dutyFreeFrom3PL, exportFrom3PL, net3PLTaxableLals,
     totalTaxableLals, exciseDueGSTExcl, gstAmount, exciseDueGSTIncl,
     standard3PLDispatchLals, lalsSamples, lals3PLSamples,
     bluffTaxableBreakdown, bluffDutyFreeBreakdown, bluffExportBreakdown,
