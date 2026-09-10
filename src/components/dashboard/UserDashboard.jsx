@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Wine, CheckSquare, Wrench, ChevronRight } from 'lucide-react';
 import { isBefore, startOfToday, format } from 'date-fns';
 import PageHeader from '@/components/shared/PageHeader';
+import InProgressRuns from '@/components/dashboard/InProgressRuns';
 
 const CHECKLIST_TEMPLATES_KEY = 'checklist_templates';
 
@@ -78,6 +79,8 @@ export default function UserDashboard({ userName }) {
         title={`Welcome back${userName ? `, ${userName.split(' ')[0]}` : ''}`}
         subtitle={format(new Date(), 'EEEE, MMMM d')}
       />
+
+      <InProgressRuns />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         {links.map((l) => (
