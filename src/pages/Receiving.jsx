@@ -163,6 +163,15 @@ async function receiveLine({ header, line, allRM }) {
       lals: parseFloat(((existingRM.lals || 0) + (payload.lals || 0)).toFixed(4)),
       cost_per_unit: payload.cost_per_unit || existingRM.cost_per_unit,
       date_received: payload.date_received,
+      // Each receiving's batch number is always recorded correctly inside
+      // its own lot (lot_number, above) — but this top-level field, shown
+      // as "Batch #" on the Inventory row and in its Edit dialog, was only
+      // ever set once, by create() below, the very first time this material
+      // was received. Every later receiving into an existing item left it
+      // untouched, so it went stale (or stayed null) the moment a second
+      // batch came in — keep it pointed at whichever batch most recently
+      // arrived, matching the newest lot.
+      batch_number: payload.batch_number || existingRM.batch_number,
       lots: [...existingLots, ...backfillLot, newLot],
     });
   }
