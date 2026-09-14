@@ -4,7 +4,7 @@ import { Menu, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { usePagePermissions } from '@/hooks/usePagePermissions';
-import { PAGES } from '@/lib/pages';
+import { PAGES, NAV_GROUPS } from '@/lib/pages';
 import {
   Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose,
 } from '@/components/ui/drawer';
@@ -14,6 +14,12 @@ import {
 // rather than mirroring every top-nav entry - everything else lives behind
 // "More".
 const PRIMARY_KEYS = ['dashboard', 'production', 'inventory-hub', 'sales'];
+
+// Order sections appear in the "More" drawer, and what to call the
+// catch-all group for pages that aren't part of any nav group (Reports,
+// Settings — navGroup: 'bottom').
+const MORE_GROUP_ORDER = [...NAV_GROUPS, 'bottom'];
+const MORE_GROUP_LABELS = { bottom: 'General' };
 
 /**
  * Mobile-only bottom tab bar (hidden md:up, where HubSidebar/TopNav's row 2
@@ -42,6 +48,18 @@ export default function BottomNav() {
   );
   const moreActive = !primaryPaths.has(location.pathname) &&
     morePages.some((p) => p.path === location.pathname);
+
+  // Group by nav group (Production/Stock/Sales/Compliance/EMS/General)
+  // instead of one long flat list — the un-grouped version mixed all ~16+
+  // Compliance/EMS pages together with no way to visually scan for the
+  // one you want.
+  const groupedMore = MORE_GROUP_ORDER
+    .map((name) => ({
+      name,
+      label: MORE_GROUP_LABELS[name] || name,
+      pages: morePages.filter((p) => p.navGroup === name),
+    }))
+    .filter((g) => g.pages.length > 0);
 
   return (
     <>
@@ -81,22 +99,29 @@ export default function BottomNav() {
           <DrawerHeader className="text-left pb-2">
             <DrawerTitle>More</DrawerTitle>
           </DrawerHeader>
-          <div className="overflow-y-auto px-4 pb-4 space-y-1">
-            {morePages.map((p) => (
-              <DrawerClose asChild key={p.key}>
-                <Link
-                  to={p.path}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-3 rounded-lg text-sm min-h-[44px] transition-colors",
-                    location.pathname === p.path
-                      ? "bg-primary text-primary-foreground font-medium"
-                      : "text-foreground hover:bg-muted"
-                  )}
-                >
-                  <p.icon className="w-4 h-4 shrink-0" />
-                  {p.label}
-                </Link>
-              </DrawerClose>
+          <div className="overflow-y-auto px-4 pb-4">
+            {groupedMore.map((g) => (
+              <div key={g.name} className="mb-3 last:mb-0">
+                <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{g.label}</p>
+                <div className="space-y-1">
+                  {g.pages.map((p) => (
+                    <DrawerClose asChild key={p.key}>
+                      <Link
+                        to={p.path}
+                        className={cn(
+                          "flex items-center gap-3 px-3 py-3 rounded-lg text-sm min-h-[44px] transition-colors",
+                          location.pathname === p.path
+                            ? "bg-primary text-primary-foreground font-medium"
+                            : "text-foreground hover:bg-muted"
+                        )}
+                      >
+                        <p.icon className="w-4 h-4 shrink-0" />
+                        {p.label === g.label ? 'Overview' : p.label}
+                      </Link>
+                    </DrawerClose>
+                  ))}
+                </div>
+              </div>
             ))}
             <div className="h-px bg-border my-2" />
             <button
