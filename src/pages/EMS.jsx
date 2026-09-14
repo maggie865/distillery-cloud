@@ -12,6 +12,14 @@ const DESCRIPTIONS = {
   'utilities': 'Power, water, and gas usage tracking',
 };
 
+// Same rationale as Compliance.jsx's SECTIONS: Waste/Utilities get logged
+// routinely, while the ISO 14001 registers and reports are set up once and
+// revisited periodically rather than daily.
+const SECTIONS = [
+  { label: 'Daily / Routine', keys: ['waste-tracker', 'utilities'] },
+  { label: 'Registers & Reporting', keys: ['aspects-register', 'objectives', 'legal-register', 'management-review', 'lifecycle-report'] },
+];
+
 export default function EMS() {
   return (
     <NavGroupHub
@@ -20,6 +28,7 @@ export default function EMS() {
       navGroup="EMS"
       ownKey="ems"
       descriptions={DESCRIPTIONS}
+      sections={SECTIONS}
     />
   );
 }

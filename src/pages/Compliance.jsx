@@ -14,6 +14,16 @@ const DESCRIPTIONS = {
   'sop-library': 'Standard operating procedures, synced from Notion',
 };
 
+// Ordered tile sections by how often each page gets used, so the flat
+// 7-tile grid reads as "what do I open daily" vs "what's a periodic
+// inspection" vs "records I look up occasionally" rather than one
+// undifferentiated block.
+const SECTIONS = [
+  { label: 'Daily / Routine', keys: ['checklists', 'temperature-logs'] },
+  { label: 'Periodic Inspections', keys: ['maintenance', 'pest-control'] },
+  { label: 'Records', keys: ['staff-training', 'sop-library', 'food-recall'] },
+];
+
 export default function Compliance() {
   return (
     <NavGroupHub
@@ -22,6 +32,7 @@ export default function Compliance() {
       navGroup="Compliance"
       ownKey="compliance"
       descriptions={DESCRIPTIONS}
+      sections={SECTIONS}
     />
   );
 }
