@@ -12,6 +12,7 @@ const DESCRIPTIONS = {
   'food-recall': 'Recall register and traceability records',
   'staff-training': 'Staff roster and training sign-off progress',
   'sop-library': 'Standard operating procedures, synced from Notion',
+  'team-hub': 'SOPs, training, and quick links for the whole team, in one place',
 };
 
 export default function Compliance() {

@@ -10,9 +10,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { GraduationCap, Plus, ChevronRight } from 'lucide-react';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { GraduationCap, Plus, ChevronRight, ChevronDown, HelpCircle, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
+import QuizEditorDialog from '@/components/training/QuizEditorDialog';
 
 const EMPLOYMENT_LABELS = { permanent: 'Permanent', part_time: 'Part-time', casual: 'Casual' };
 
@@ -33,11 +35,15 @@ export default function StaffTraining() {
   const [showForm, setShowForm] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [form, setForm] = useState(BLANK_FORM);
+  const [quizManagerOpen, setQuizManagerOpen] = useState(false);
+  const [editingQuizFor, setEditingQuizFor] = useState(null); // { item, quiz } | null
 
   const { data: staff = [], isLoading } = useQuery({ queryKey: ['staffMembers'], queryFn: () => db.StaffMember.list('full_name', 1000) });
   const { data: programs = [] } = useQuery({ queryKey: ['trainingPrograms'], queryFn: () => db.TrainingProgram.list('sort_order', 100) });
   const { data: items = [] } = useQuery({ queryKey: ['trainingItems'], queryFn: () => db.TrainingItem.list('sort_order', 1000) });
   const { data: signoffs = [] } = useQuery({ queryKey: ['trainingSignoffs'], queryFn: () => db.TrainingSignoff.list('-updated_at', 5000) });
+  const { data: quizzes = [] } = useQuery({ queryKey: ['trainingQuizzes'], queryFn: () => db.TrainingQuiz.list('created_at', 1000) });
+  const quizByItemId = useMemo(() => new Map(quizzes.map(q => [q.training_item_id, q])), [quizzes]);
 
   const itemsByProgram = useMemo(() => {
     const map = new Map();
@@ -94,6 +100,52 @@ export default function StaffTraining() {
           {showInactive ? 'Hide inactive' : 'Show inactive'}
         </Button>
       </div>
+
+      <Card className="mb-4 overflow-hidden">
+        <Collapsible open={quizManagerOpen} onOpenChange={setQuizManagerOpen}>
+          <CollapsibleTrigger className="w-full flex items-center justify-between gap-2 p-4 text-left hover:bg-muted/30 transition-colors">
+            <span className="text-sm font-semibold flex items-center gap-2"><HelpCircle className="w-4 h-4" /> Manage Quizzes</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">{quizzes.length} quiz{quizzes.length === 1 ? '' : 'zes'} set up</span>
+              <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${quizManagerOpen ? 'rotate-180' : ''}`} />
+            </div>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="px-4 pb-4 space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Attach a multiple-choice quiz to a training item — a staff member who passes it (from their own Staff Training page) gets that item signed off automatically.
+              </p>
+              {programs.map(program => {
+                const programItems = items.filter(i => i.program_id === program.id);
+                if (programItems.length === 0) return null;
+                return (
+                  <div key={program.id}>
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">{program.name}</h4>
+                    <div className="space-y-1">
+                      {programItems.map(item => {
+                        const quiz = quizByItemId.get(item.id);
+                        return (
+                          <div key={item.id} className="flex items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
+                            <span className="text-sm truncate">{item.label}</span>
+                            <Button
+                              size="sm"
+                              variant={quiz ? 'outline' : 'ghost'}
+                              className="gap-1.5 shrink-0 text-xs h-7"
+                              onClick={() => setEditingQuizFor({ item, quiz: quiz || null })}
+                            >
+                              {quiz ? <><Pencil className="w-3 h-3" /> {quiz.title}</> : <><Plus className="w-3 h-3" /> Add Quiz</>}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      </Card>
 
       {isLoading ? (
         <Card className="p-8 text-center text-sm text-muted-foreground">Loading…</Card>
@@ -177,6 +229,15 @@ export default function StaffTraining() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {editingQuizFor && (
+        <QuizEditorDialog
+          trainingItem={editingQuizFor.item}
+          existingQuiz={editingQuizFor.quiz}
+          open={!!editingQuizFor}
+          onOpenChange={(v) => !v && setEditingQuizFor(null)}
+        />
+      )}
     </div>
   );
 }
