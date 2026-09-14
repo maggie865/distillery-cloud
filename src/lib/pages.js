@@ -26,7 +26,7 @@ import {
   Warehouse, Building2, FileText, Settings as SettingsIcon, PackagePlus,
   Truck, ClipboardList, Thermometer, Wrench, Bug, AlertTriangle, CheckSquare,
   Leaf, Archive, Zap, ShieldCheck, Activity, ClipboardCheck, Recycle, Target, Scale, ClipboardPen, Globe2,
-  Factory, Boxes, CalendarDays, GraduationCap, BookOpen, Compass,
+  Factory, Boxes, CalendarDays, GraduationCap, BookOpen,
 } from 'lucide-react';
 
 import Compliance from '@/pages/Compliance';
@@ -71,7 +71,6 @@ import StaffTraining from '@/pages/StaffTraining';
 import StaffTrainingDetail from '@/pages/StaffTrainingDetail';
 import SOPLibrary from '@/pages/SOPLibrary';
 import SOPDetail from '@/pages/SOPDetail';
-import TeamHub from '@/pages/TeamHub';
 
 export const NAV_GROUPS = ['Production', 'Stock', 'Sales', 'Compliance', 'EMS'];
 
@@ -111,7 +110,6 @@ export const PAGES = [
   { key: 'staff-training-detail', label: 'Staff Training Detail', path: '/staff-training/:staffId', icon: GraduationCap, component: StaffTrainingDetail, navGroup: null },
   { key: 'sop-library',       label: 'SOPs',              path: '/sops',              icon: BookOpen,      component: SOPLibrary,        navGroup: 'Compliance' },
   { key: 'sop-detail',        label: 'SOP Detail',        path: '/sops/:pageId',      icon: BookOpen,      component: SOPDetail,         navGroup: null },
-  { key: 'team-hub',          label: 'Team Hub',          path: '/team-hub',          icon: Compass,       component: TeamHub,           navGroup: 'Compliance' },
 
   { key: 'ems',               label: 'EMS',               path: '/ems',               icon: Recycle,       component: EMS,               navGroup: 'EMS', isHub: true },
   { key: 'aspects-register',  label: 'Aspects & Impacts Register', path: '/aspects-register', icon: FileText, component: AspectsRegister, navGroup: 'EMS' },

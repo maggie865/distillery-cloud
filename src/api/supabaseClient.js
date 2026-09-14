@@ -145,8 +145,6 @@ export const db = {
   TemperatureLog:    makeEntity('TemperatureLog'),
   TrainingItem:      makeEntity('TrainingItem'),
   TrainingProgram:   makeEntity('TrainingProgram'),
-  TrainingQuiz:      makeEntity('TrainingQuiz'),
-  TrainingQuizAttempt: makeEntity('TrainingQuizAttempt'),
   TrainingRefresherLog: makeEntity('TrainingRefresherLog'),
   TrainingSignoff:   makeEntity('TrainingSignoff'),
   UtilityLog:        makeEntity('UtilityLog'),

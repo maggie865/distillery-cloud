@@ -13,10 +13,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
-import { ArrowLeft, Pencil, GraduationCap, StickyNote, AlertTriangle, RefreshCw, Plus, ChevronDown, HelpCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { ArrowLeft, Pencil, GraduationCap, StickyNote, AlertTriangle, RefreshCw, Plus, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
-import TakeQuizDialog from '@/components/training/TakeQuizDialog';
 
 const EMPLOYMENT_LABELS = { permanent: 'Permanent', part_time: 'Part-time', casual: 'Casual' };
 const todayStr = () => new Date().toISOString().split('T')[0];
@@ -38,7 +37,7 @@ function expiryBadge(expiryDate) {
 // No per-item trainer field - the trainer is assumed the same for the
 // whole form (see the Trainer field on the program card above) and gets
 // carried into every item's signoff automatically when it's ticked.
-function TrainingItemRow({ item, signoff, onToggle, onFieldSave, saving, quiz, lastAttempt, onTakeQuiz }) {
+function TrainingItemRow({ item, signoff, onToggle, onFieldSave, saving }) {
   const [dateCompleted, setDateCompleted] = useState(signoff?.date_completed || '');
   const [initials, setInitials] = useState(signoff?.staff_initials || '');
   const [expiry, setExpiry] = useState(signoff?.expiry_date || '');
@@ -73,18 +72,6 @@ function TrainingItemRow({ item, signoff, onToggle, onFieldSave, saving, quiz, l
           </div>
         )}
         {signoff?.requires_followup && <Badge className="bg-red-100 text-red-700 text-xs gap-1"><AlertTriangle className="w-3 h-3" /> Follow-up</Badge>}
-        {quiz && (
-          <div className="flex items-center gap-1.5 shrink-0">
-            {lastAttempt && (
-              <Badge className={`text-xs gap-1 ${lastAttempt.passed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                {lastAttempt.passed ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />} {lastAttempt.score_pct}%
-              </Badge>
-            )}
-            <Button type="button" size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={onTakeQuiz}>
-              <HelpCircle className="w-3 h-3" /> {lastAttempt ? 'Retake Quiz' : 'Take Quiz'}
-            </Button>
-          </div>
-        )}
         <button
           type="button" onClick={() => setNotesOpen(v => !v)} title="Notes / follow-up"
           className={`shrink-0 p-1.5 rounded-md transition-colors ${hasNoteContent ? 'text-amber-600 hover:text-amber-700' : 'text-muted-foreground hover:text-foreground'}`}
@@ -221,7 +208,6 @@ export default function StaffTrainingDetail() {
   // (every program, at a glance) fits without scrolling through 27+ rows
   // per program - expand only the one you're working on.
   const [openPrograms, setOpenPrograms] = useState({});
-  const [takingQuizFor, setTakingQuizFor] = useState(null); // { item, quiz } | null
 
   const { data: staffList = [] } = useQuery({ queryKey: ['staffMembers'], queryFn: () => db.StaffMember.list('full_name', 1000) });
   const staff = staffList.find(s => s.id === staffId);
@@ -233,22 +219,6 @@ export default function StaffTrainingDetail() {
     queryFn: async () => (await db.TrainingSignoff.list('-updated_at', 5000)).filter(s => s.staff_member_id === staffId),
   });
   const signoffByItemId = useMemo(() => new Map(signoffs.map(s => [s.training_item_id, s])), [signoffs]);
-
-  const { data: quizzes = [] } = useQuery({ queryKey: ['trainingQuizzes'], queryFn: () => db.TrainingQuiz.list('created_at', 1000) });
-  const quizByItemId = useMemo(() => new Map(quizzes.map(q => [q.training_item_id, q])), [quizzes]);
-  const { data: quizAttempts = [] } = useQuery({
-    queryKey: ['trainingQuizAttemptsForStaff', staffId],
-    queryFn: async () => (await db.TrainingQuizAttempt.list('-attempted_at', 2000)).filter(a => a.staff_member_id === staffId),
-  });
-  // Most recent attempt per quiz — the one shown as the current result.
-  const lastAttemptByQuizId = useMemo(() => {
-    const map = new Map();
-    for (const a of quizAttempts) {
-      const existing = map.get(a.quiz_id);
-      if (!existing || new Date(a.attempted_at) > new Date(existing.attempted_at)) map.set(a.quiz_id, a);
-    }
-    return map;
-  }, [quizAttempts]);
 
   const upsertMutation = useMutation({
     mutationFn: ({ signoffId, payload }) => signoffId ? db.TrainingSignoff.update(signoffId, payload) : db.TrainingSignoff.create(payload),
@@ -353,15 +323,11 @@ export default function StaffTrainingDetail() {
                       <div className="space-y-0.5">
                         {programItems.filter(i => i.section === section).map(item => {
                           const signoff = signoffByItemId.get(item.id);
-                          const quiz = quizByItemId.get(item.id);
                           return (
                             <TrainingItemRow
                               key={`${item.id}-${signoff?.updated_at || 'new'}`}
                               item={item} signoff={signoff}
                               saving={upsertMutation.isPending}
-                              quiz={quiz}
-                              lastAttempt={quiz ? lastAttemptByQuizId.get(quiz.id) : null}
-                              onTakeQuiz={() => setTakingQuizFor({ item, quiz })}
                               onToggle={(checked) => upsertFor(item, signoff, {
                                 completed: checked,
                                 date_completed: checked && !signoff?.date_completed ? todayStr() : (signoff?.date_completed ?? null),
@@ -443,17 +409,6 @@ export default function StaffTrainingDetail() {
             </div>
           </DialogContent>
         </Dialog>
-      )}
-
-      {takingQuizFor && (
-        <TakeQuizDialog
-          quiz={takingQuizFor.quiz}
-          trainingItem={takingQuizFor.item}
-          staffId={staffId}
-          existingSignoff={signoffByItemId.get(takingQuizFor.item.id)}
-          open={!!takingQuizFor}
-          onOpenChange={(v) => !v && setTakingQuizFor(null)}
-        />
       )}
     </div>
   );
