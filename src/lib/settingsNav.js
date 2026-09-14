@@ -19,7 +19,7 @@
 import {
   User, Building2, Users, Cylinder, FlaskConical, Link2, Boxes, Truck, Upload,
   CheckSquare, Wrench, MapPin, ShieldCheck, LayoutDashboard, Database, Factory,
-  Package, PackagePlus, ClipboardList, Lock, Activity, RefreshCw, Leaf,
+  Package, PackagePlus, ClipboardList, Lock, Activity, RefreshCw, Leaf, BookOpen,
 } from 'lucide-react';
 
 import MyProfilePanel from '@/components/settings/MyProfilePanel';
@@ -40,6 +40,7 @@ import CustomerImportPanel from '@/components/customers/CustomerImportPanel';
 import XeroConnectionPanel from '@/components/settings/XeroConnectionPanel';
 import XeroMappingManager from '@/components/settings/XeroMappingManager';
 import PermissionsPanel from '@/components/settings/PermissionsPanel';
+import NotionConnectionPanel from '@/components/settings/NotionConnectionPanel';
 
 export const SETTINGS_NAV = [
   {
@@ -101,6 +102,7 @@ export const SETTINGS_NAV = [
     icon: ShieldCheck,
     items: [
       { key: 'compliance-settings', label: 'Compliance Settings', description: 'Manage compliance and operational requirements.', icon: ShieldCheck, kind: 'embed', component: ComplianceSettings },
+      { key: 'sop-library-settings', label: 'SOP Library', description: 'Connect your private Notion SOP database so staff can browse it from the SOPs page.', icon: BookOpen, kind: 'embed', component: NotionConnectionPanel },
     ],
   },
   {
