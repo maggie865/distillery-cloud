@@ -11,6 +11,7 @@ const DESCRIPTIONS = {
   'pest-control': 'Bait station checks and pest activity records',
   'food-recall': 'Recall register and traceability records',
   'staff-training': 'Staff roster and training sign-off progress',
+  'sop-library': 'Standard operating procedures, synced from Notion',
 };
 
 export default function Compliance() {

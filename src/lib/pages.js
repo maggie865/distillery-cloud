@@ -26,7 +26,7 @@ import {
   Warehouse, Building2, FileText, Settings as SettingsIcon, PackagePlus,
   Truck, ClipboardList, Thermometer, Wrench, Bug, AlertTriangle, CheckSquare,
   Leaf, Archive, Zap, ShieldCheck, Activity, ClipboardCheck, Recycle, Target, Scale, ClipboardPen, Globe2,
-  Factory, Boxes, CalendarDays, GraduationCap,
+  Factory, Boxes, CalendarDays, GraduationCap, BookOpen,
 } from 'lucide-react';
 
 import Compliance from '@/pages/Compliance';
@@ -69,6 +69,8 @@ import CustomerDetail from '@/pages/CustomerDetail';
 import OrderDetail from '@/pages/OrderDetail';
 import StaffTraining from '@/pages/StaffTraining';
 import StaffTrainingDetail from '@/pages/StaffTrainingDetail';
+import SOPLibrary from '@/pages/SOPLibrary';
+import SOPDetail from '@/pages/SOPDetail';
 
 export const NAV_GROUPS = ['Production', 'Stock', 'Sales', 'Compliance', 'EMS'];
 
@@ -106,6 +108,8 @@ export const PAGES = [
   { key: 'food-recall',       label: 'Food Recall',       path: '/food-recall',       icon: AlertTriangle, component: FoodRecallManager, navGroup: 'Compliance' },
   { key: 'staff-training',    label: 'Staff Training',    path: '/staff-training',    icon: GraduationCap, component: StaffTraining,     navGroup: 'Compliance' },
   { key: 'staff-training-detail', label: 'Staff Training Detail', path: '/staff-training/:staffId', icon: GraduationCap, component: StaffTrainingDetail, navGroup: null },
+  { key: 'sop-library',       label: 'SOPs',              path: '/sops',              icon: BookOpen,      component: SOPLibrary,        navGroup: 'Compliance' },
+  { key: 'sop-detail',        label: 'SOP Detail',        path: '/sops/:pageId',      icon: BookOpen,      component: SOPDetail,         navGroup: null },
 
   { key: 'ems',               label: 'EMS',               path: '/ems',               icon: Recycle,       component: EMS,               navGroup: 'EMS', isHub: true },
   { key: 'aspects-register',  label: 'Aspects & Impacts Register', path: '/aspects-register', icon: FileText, component: AspectsRegister, navGroup: 'EMS' },
