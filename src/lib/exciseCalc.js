@@ -34,6 +34,11 @@ const sumBottles = (breakdown) => breakdown.reduce((s, [, d]) => s + d.bottles, 
 // unfiltered history (not just the target month) — Opening/Closing stock
 // needs everything up to today to correctly roll back to the month's actual
 // end date. finishedGoods/warehouseStock/tanks are current live snapshots.
+// distillationRuns must include EVERY LALs-producing run, not just
+// DistillationRun records — SNS runs (a separate table/shape) also add
+// hearts_lals to tank stock and must be merged in by the caller (see
+// `productionRunsForExcise` in Reports.jsx), or LALs Produced and the
+// Opening/Closing stock rollback will silently miss that production.
 export function computeExciseReturn({
   monthDate,
   dispatches = [],

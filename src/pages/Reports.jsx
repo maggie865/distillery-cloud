@@ -71,6 +71,18 @@ export default function Reports() {
   const { data: finishedGoods = [] } = useQuery({ queryKey: ['finishedGoods'], queryFn: () => db.FinishedGood.list('product_name', 5000) });
   const { data: warehouseStock = [] } = useQuery({ queryKey: ['warehouseStock'], queryFn: () => db.WarehouseStock.list('-date_transferred_in', 5000) });
   const { data: distillationRuns = [] } = useQuery({ queryKey: ['distillationRuns'], queryFn: () => db.DistillationRun.list('-date', 5000) });
+  // SNS runs also produce hearts_lals but live in a separate table with a
+  // different shape (no batch_number, different column set) than
+  // DistillationRun, so they're kept out of `distillationRuns` itself —
+  // every other report consuming that prop (CostOfGoods, Movements,
+  // Forecast) expects real DistillationRun records. Only the excise
+  // calculation needs every LALs-producing run regardless of source, so
+  // it gets its own combined list below.
+  const { data: snsRuns = [] } = useQuery({ queryKey: ['snsRuns'], queryFn: () => db.SNSRun.list('-date', 5000) });
+  const productionRunsForExcise = [
+    ...distillationRuns,
+    ...snsRuns.map(r => ({ ...r, batch_number: r.batch_number || 'SNS Distillation' })),
+  ];
   const { data: bottlingRuns = [] } = useQuery({ queryKey: ['bottlingRuns'], queryFn: () => db.BottlingRun.list('-date', 5000) });
   const { data: masterBatches = [] } = useQuery({ queryKey: ['masterBatches'], queryFn: () => db.MasterBatch.list('-date_started', 5000) });
   const { data: dilutions = [] } = useQuery({ queryKey: ['dilutions'], queryFn: () => db.Dilution.list('-date', 5000) });
@@ -338,7 +350,7 @@ export default function Reports() {
             monthDate,
             dispatches,
             warehouseStockAll: warehouseStock,
-            distillationRuns,
+            distillationRuns: productionRunsForExcise,
             wastage,
             finishedGoods,
             warehouseStock,
@@ -584,7 +596,7 @@ export default function Reports() {
             warehouseStock={warehouseStock}
             tanks={tanks}
             dispatches={dispatches}
-            distillationRuns={distillationRuns}
+            distillationRuns={productionRunsForExcise}
             bottlingRuns={bottlingRuns}
             wastage={wastage}
             selectedMonth={exciseMonth}
