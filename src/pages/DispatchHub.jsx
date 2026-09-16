@@ -100,16 +100,17 @@ export default function DispatchHub() {
   // (entered into Xero well after the actual sale date) syncs in as a
   // pending dispatch even if that same sale is already sitting here as a
   // completed one, so flag any pending Xero-synced row whose customer,
-  // date, and product exactly match an existing non-Xero dispatch — if
-  // approved as-is it would double-deduct stock and double-count excise.
+  // date, product, AND bottle size match an existing non-Xero dispatch —
+  // a customer ordering both the 700ml and 200ml on the same day is a real,
+  // non-duplicate case, so size has to be part of the match key or that
+  // gets flagged incorrectly. If approved as-is a real duplicate would
+  // double-deduct stock and double-count excise.
+  const dispatchKey = (d) => `${d.customer_name}|${d.dispatch_date}|${d.product_name}|${d.bottle_size_ml || ''}`;
   const manualDispatchKeys = new Set(
-    allDispatches
-      .filter(d => !d.xero_invoice_id)
-      .map(d => `${d.customer_name}|${d.dispatch_date}|${d.product_name}`)
+    allDispatches.filter(d => !d.xero_invoice_id).map(dispatchKey)
   );
   const isPossibleXeroDuplicate = (d) =>
-    !!d.xero_invoice_id && d.status === 'pending' &&
-    manualDispatchKeys.has(`${d.customer_name}|${d.dispatch_date}|${d.product_name}`);
+    !!d.xero_invoice_id && d.status === 'pending' && manualDispatchKeys.has(dispatchKey(d));
 
   const filtered = allDispatches
     .filter(d => { if (!search) return true; const s = search.toLowerCase(); return d.customer_name?.toLowerCase().includes(s) || d.product_name?.toLowerCase().includes(s) || d.batch_number?.toLowerCase().includes(s); })
