@@ -296,7 +296,10 @@ export default function Reports() {
           };
           const byBatch = {};
           for (const br of bottlingRuns) {
-            if (!br.batch_number || !(br.bottles_produced > 0)) continue;
+            // Matches the on-screen Per-Batch COGS table — batches bottled
+            // in the selected date range, not the report's own Current
+            // Inventory snapshot (which is always live, see CostOfGoodsReport.jsx).
+            if (!br.batch_number || !(br.bottles_produced > 0) || !inRange(br.date)) continue;
             if (!byBatch[br.batch_number]) byBatch[br.batch_number] = [];
             byBatch[br.batch_number].push(br);
           }
@@ -490,6 +493,8 @@ export default function Reports() {
               distillationRuns={distillationRuns}
               bottlingRuns={bottlingRuns}
               masterBatches={masterBatches}
+              startDate={startDate}
+              endDate={endDate}
             />
           </TabsContent>
 
