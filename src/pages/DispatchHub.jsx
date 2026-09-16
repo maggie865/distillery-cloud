@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Truck, PackageCheck, MapPin, Trash2, Search, Map as MapIcon, Pencil, RotateCcw, ArrowRightLeft, Plus, Store, FileCheck, RefreshCw } from 'lucide-react';
+import { Truck, PackageCheck, MapPin, Trash2, Search, Map as MapIcon, Pencil, RotateCcw, ArrowRightLeft, Plus, Store, FileCheck, RefreshCw, AlertTriangle } from 'lucide-react';
 import MobileCard, { MobileCardGrid, MobileDetailRow } from '@/components/shared/MobileCard';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -93,6 +93,23 @@ export default function DispatchHub() {
   const totalCO2e = allDispatches.reduce((s, d) => s + (d.co2e_kg || 0), 0);
   const bluffBottles = finishedGoods.reduce((s, fg) => s + (fg.quantity_bottles || 0), 0);
   const warehouseBottles = warehouseStock.reduce((s, w) => s + (w.quantity_bottles || 0), 0);
+
+  // Xero sync only dedupes against rows it created itself (matching on the
+  // Xero line item ID) — it has no way to know a sale was already logged
+  // manually before or alongside connecting Xero. A back-dated invoice
+  // (entered into Xero well after the actual sale date) syncs in as a
+  // pending dispatch even if that same sale is already sitting here as a
+  // completed one, so flag any pending Xero-synced row whose customer,
+  // date, and product exactly match an existing non-Xero dispatch — if
+  // approved as-is it would double-deduct stock and double-count excise.
+  const manualDispatchKeys = new Set(
+    allDispatches
+      .filter(d => !d.xero_invoice_id)
+      .map(d => `${d.customer_name}|${d.dispatch_date}|${d.product_name}`)
+  );
+  const isPossibleXeroDuplicate = (d) =>
+    !!d.xero_invoice_id && d.status === 'pending' &&
+    manualDispatchKeys.has(`${d.customer_name}|${d.dispatch_date}|${d.product_name}`);
 
   const filtered = allDispatches
     .filter(d => { if (!search) return true; const s = search.toLowerCase(); return d.customer_name?.toLowerCase().includes(s) || d.product_name?.toLowerCase().includes(s) || d.batch_number?.toLowerCase().includes(s); })
@@ -428,6 +445,20 @@ export default function DispatchHub() {
         />
       )}
 
+      {allDispatches.some(isPossibleXeroDuplicate) && (
+        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-red-800">
+              {allDispatches.filter(isPossibleXeroDuplicate).length} possible duplicate{allDispatches.filter(isPossibleXeroDuplicate).length === 1 ? '' : 's'} from Xero sync
+            </p>
+            <p className="text-xs text-red-700 mt-0.5">
+              These pending dispatches (marked "Possible Duplicate" below) match the customer, date, and product of a dispatch that already exists outside Xero — likely the same sale entered twice. Delete the duplicate or the pending row before approving, or it'll double-deduct stock and double-count excise.
+            </p>
+          </div>
+        </div>
+      )}
+
       <Card className="p-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-3">
           <h2 className="text-lg font-semibold">Dispatch History</h2>
@@ -502,6 +533,14 @@ export default function DispatchHub() {
                       {d.sample_dispatch === true && <span className="px-1.5 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700 font-medium">Sample</span>}
                       {d.duty_free === true && <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700 font-medium">Duty Free</span>}
                       {d.is_export === true && <span className="px-1.5 py-0.5 text-xs rounded-full bg-green-100 text-green-700 font-medium">Export</span>}
+                      {isPossibleXeroDuplicate(d) && (
+                        <span
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-xs rounded-full bg-red-100 text-red-700 font-medium"
+                          title="A dispatch with this customer, date, and product already exists outside Xero — check it isn't the same sale before approving."
+                        >
+                          <AlertTriangle className="w-3 h-3" /> Possible Duplicate
+                        </span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -543,6 +582,14 @@ export default function DispatchHub() {
                   {d.sample_dispatch === true && <span className="px-1.5 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700 font-medium">Sample</span>}
                   {d.duty_free === true && <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700 font-medium">Duty Free</span>}
                   {d.is_export === true && <span className="px-1.5 py-0.5 text-xs rounded-full bg-green-100 text-green-700 font-medium">Export</span>}
+                  {isPossibleXeroDuplicate(d) && (
+                    <span
+                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-xs rounded-full bg-red-100 text-red-700 font-medium"
+                      title="A dispatch with this customer, date, and product already exists outside Xero — check it isn't the same sale before approving."
+                    >
+                      <AlertTriangle className="w-3 h-3" /> Possible Duplicate
+                    </span>
+                  )}
                   {d.xero_invoice_id && (
                     <button onClick={() => toast.info(`Xero Invoice ID: ${d.xero_invoice_id}`)}>
                       <FileCheck className="w-3.5 h-3.5 text-sky-600" />
