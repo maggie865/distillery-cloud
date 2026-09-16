@@ -3,11 +3,32 @@ import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Wine, Droplets, Boxes, DollarSign, FlaskConical } from 'lucide-react';
+import { format, startOfMonth, parseISO } from 'date-fns';
 import StatCard from '@/components/shared/StatCard';
 
 const COGS_COLORS = ['#8B5CF6', '#F97316', '#06B6D4', '#10B981', '#3B82F6', '#F59E0B'];
 
-export default function CostOfGoodsReport({ rawMaterialsNetStock, rawMaterials, finishedGoodsWithStock, tanks, recipes, distillationRuns, bottlingRuns, masterBatches }) {
+export default function CostOfGoodsReport({ rawMaterialsNetStock, rawMaterials, finishedGoodsWithStock, tanks, recipes, distillationRuns, bottlingRuns, masterBatches, startDate, endDate }) {
+  // Current Inventory (summary cards, finished goods, tanks, unused stock)
+  // is a live snapshot — the app doesn't record historical stock levels, so
+  // "inventory value as of last month" isn't something it can answer. Only
+  // the Per-Batch COGS table below (keyed off bottling run dates) is
+  // actually a historical ledger, so that's the one filtered by the date
+  // range picked on the Reports page — same rangeStart/rangeEnd/inRange
+  // pattern as MovementsReport.jsx.
+  const rangeStart = startDate ? parseISO(startDate) : startOfMonth(new Date());
+  const rangeEnd = endDate ? parseISO(endDate) : new Date();
+  const rangeEndInclusive = new Date(rangeEnd);
+  rangeEndInclusive.setHours(23, 59, 59, 999);
+  const inRange = (dateStr) => {
+    if (!dateStr) return false;
+    try {
+      const d = parseISO(dateStr);
+      return d >= rangeStart && d <= rangeEndInclusive;
+    } catch { return false; }
+  };
+  const periodLabel = `${format(rangeStart, 'dd MMM yyyy')} – ${format(rangeEnd, 'dd MMM yyyy')}`;
+
   const avgEthanolCostPerLal = useMemo(() => {
     const ethanolMats = rawMaterialsNetStock.filter(m => m.type === 'ethanol' && m.cost_per_unit);
     if (ethanolMats.length === 0) return 3.5;
@@ -44,10 +65,10 @@ export default function CostOfGoodsReport({ rawMaterialsNetStock, rawMaterials, 
   const batchCogs = useMemo(() => {
     if (!bottlingRuns || bottlingRuns.length === 0) return [];
 
-    // Group all bottling runs by batch_number
+    // Group all bottling runs in the selected period by batch_number
     const byBatch = {};
     for (const br of bottlingRuns) {
-      if (!br.batch_number || !(br.bottles_produced > 0)) continue;
+      if (!br.batch_number || !(br.bottles_produced > 0) || !inRange(br.date)) continue;
       if (!byBatch[br.batch_number]) byBatch[br.batch_number] = [];
       byBatch[br.batch_number].push(br);
     }
@@ -136,7 +157,7 @@ export default function CostOfGoodsReport({ rawMaterialsNetStock, rawMaterials, 
         sellingPrice200: fg200?.product_price || 0,
       };
     }).sort((a, b) => a.batch_number.localeCompare(b.batch_number));
-  }, [bottlingRuns, masterBatches, recipes, distillationRuns, finishedGoodsWithStock, avgEthanolCostPerLal, findCostPerUnit]);
+  }, [bottlingRuns, masterBatches, recipes, distillationRuns, finishedGoodsWithStock, avgEthanolCostPerLal, findCostPerUnit, startDate, endDate]);
 
   const finishedGoodsCosts = useMemo(() => {
     return finishedGoodsWithStock
@@ -307,7 +328,10 @@ export default function CostOfGoodsReport({ rawMaterialsNetStock, rawMaterials, 
 
   return (
     <div className="space-y-6">
-      <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Cost of Goods — Current Inventory</h3>
+      <div>
+        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Cost of Goods — Current Inventory</h3>
+        <p className="text-xs text-muted-foreground mt-0.5">Always shows stock on hand right now — the date range above only applies to the Per-Batch COGS table below, since this app doesn't keep a historical record of past stock levels to value.</p>
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Finished Goods" value={money(totalFinishedGoodsCost)} sub={`${finishedGoodsCosts.length} products`} color="text-purple-600" bg="bg-purple-50 border-purple-200" icon={<Wine className="w-4 h-4" />} />
@@ -372,8 +396,8 @@ export default function CostOfGoodsReport({ rawMaterialsNetStock, rawMaterials, 
 
       {/* Per-Batch COGS Analysis */}
       <Card className="p-4">
-        <h4 className="text-sm font-semibold mb-4 flex items-center gap-2"><FlaskConical className="w-4 h-4 text-primary" /> Per-Batch COGS Analysis</h4>
-        <p className="text-xs text-muted-foreground mb-3">Full batch cost: ethanol (from actual LALs used) + botanicals (scaled to distillation input) + packaging (from recipe × bottles produced)</p>
+        <h4 className="text-sm font-semibold mb-4 flex items-center gap-2"><FlaskConical className="w-4 h-4 text-primary" /> Per-Batch COGS Analysis — {periodLabel}</h4>
+        <p className="text-xs text-muted-foreground mb-3">Batches bottled in the selected period. Full batch cost: ethanol (from actual LALs used) + botanicals (scaled to distillation input) + packaging (from recipe × bottles produced)</p>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -391,7 +415,7 @@ export default function CostOfGoodsReport({ rawMaterialsNetStock, rawMaterials, 
             </TableHeader>
             <TableBody>
               {batchCogs.length === 0 ? (
-                <TableRow><TableCell colSpan={9} className="text-center py-4 text-muted-foreground text-sm">No bottling runs with production data</TableCell></TableRow>
+                <TableRow><TableCell colSpan={9} className="text-center py-4 text-muted-foreground text-sm">No bottling runs with production data in this period</TableCell></TableRow>
               ) : batchCogs.map(b => (
                 <TableRow key={b.batch_number}>
                   <TableCell className="font-mono text-xs font-semibold">{b.batch_number}</TableCell>
