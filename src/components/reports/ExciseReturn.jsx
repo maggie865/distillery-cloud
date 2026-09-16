@@ -11,16 +11,21 @@ import { format, parseISO } from 'date-fns';
 import { toast } from 'sonner';
 import { computeExciseReturn } from '@/lib/exciseCalc';
 
-function ExciseRow({ label, value, sub, highlight, indent, displayValue }) {
+function ExciseRow({ label, value, sub, highlight, indent, displayValue, bottles }) {
   return (
     <div className={`flex items-center justify-between px-4 py-3 ${highlight ? 'bg-accent/30' : ''} ${indent ? 'pl-8' : ''}`}>
       <div>
         <p className="text-sm font-medium">{label}</p>
         {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
       </div>
-      <p className={`font-bold font-mono ${highlight ? 'text-primary text-lg' : 'text-base'}`}>
-        {displayValue !== undefined ? displayValue : value.toFixed(3)}
-      </p>
+      <div className="text-right">
+        <p className={`font-bold font-mono ${highlight ? 'text-primary text-lg' : 'text-base'}`}>
+          {displayValue !== undefined ? displayValue : value.toFixed(3)}
+        </p>
+        {bottles !== undefined && (
+          <p className="text-xs text-muted-foreground font-mono">{bottles.toLocaleString()} bottles</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -115,6 +120,9 @@ export default function ExciseReturn({
     bluffTaxableBreakdown, bluffDutyFreeBreakdown, bluffExportBreakdown,
     threePLTransferBreakdown, threePLDutyFreeBreakdown, threePLExportBreakdown, ukBondedTransferBreakdown,
     sampleBluffBreakdown, standard3PLBreakdown, sample3PLBreakdown,
+    bluffTaxableBottles, bluffDutyFreeBottles, bluffExportBottles,
+    threePLTransferBottles, threePLDutyFreeBottles, threePLExportBottles, ukBondedTransferBottles,
+    sampleBluffBottles, standard3PLBottles, sample3PLBottles, totalTaxableBottles,
     currentTotalLALs, closingLALs, openingLALs,
   } = calc;
   const rateLabel = rateInfo.label;
@@ -220,7 +228,7 @@ export default function ExciseReturn({
 
           {/* Taxable Dispatches section */}
           <SectionHeader label="Taxable Dispatches" />
-          <ExciseRow label="Gross Distillery Dispatches" value={bluffDispatchLals + bluffExemptLals} sub="all dispatches incl. exempt" indent />
+          <ExciseRow label="Gross Distillery Dispatches" value={bluffDispatchLals + bluffExemptLals} bottles={bluffTaxableBottles + bluffDutyFreeBottles + bluffExportBottles} sub="all dispatches incl. exempt" indent />
           {bluffTaxableBreakdown.length > 0 && (
             <div className="px-8 py-1.5 bg-muted/30 space-y-0.5">
               {bluffTaxableBreakdown.map(([size, d]) => (
@@ -231,7 +239,7 @@ export default function ExciseReturn({
               ))}
             </div>
           )}
-          <ExciseRow label="Less: Duty Free from Distillery" value={dutyFreeFromBluff} displayValue={dutyFreeFromBluff > 0 ? `(${dutyFreeFromBluff.toFixed(3)})` : '0.000'} sub="exempt" indent />
+          <ExciseRow label="Less: Duty Free from Distillery" value={dutyFreeFromBluff} displayValue={dutyFreeFromBluff > 0 ? `(${dutyFreeFromBluff.toFixed(3)})` : '0.000'} bottles={bluffDutyFreeBottles} sub="exempt" indent />
           {bluffDutyFreeBreakdown.length > 0 && (
             <div className="px-8 py-1 bg-amber-50 space-y-0.5">
               {bluffDutyFreeBreakdown.map(([size, d]) => (
@@ -242,7 +250,7 @@ export default function ExciseReturn({
               ))}
             </div>
           )}
-          <ExciseRow label="Less: Export from Distillery" value={exportFromBluff} displayValue={exportFromBluff > 0 ? `(${exportFromBluff.toFixed(3)})` : '0.000'} sub="exempt" indent />
+          <ExciseRow label="Less: Export from Distillery" value={exportFromBluff} displayValue={exportFromBluff > 0 ? `(${exportFromBluff.toFixed(3)})` : '0.000'} bottles={bluffExportBottles} sub="exempt" indent />
           {bluffExportBreakdown.length > 0 && (
             <div className="px-8 py-1 bg-green-50 space-y-0.5">
               {bluffExportBreakdown.map(([size, d]) => (
@@ -253,8 +261,8 @@ export default function ExciseReturn({
               ))}
             </div>
           )}
-          <ExciseRow label="Net Distillery Taxable LALs" value={bluffDispatchLals} sub="gross minus duty free and export" indent />
-          <ExciseRow label="Export / Overseas: UK Bonded Transfers" value={ukBondedExportLals} displayValue={ukBondedExportLals > 0 ? `(${ukBondedExportLals.toFixed(3)})` : '0.000'} sub="excise exempt — exported under bond" indent />
+          <ExciseRow label="Net Distillery Taxable LALs" value={bluffDispatchLals} bottles={bluffTaxableBottles} sub="gross minus duty free and export" indent />
+          <ExciseRow label="Export / Overseas: UK Bonded Transfers" value={ukBondedExportLals} displayValue={ukBondedExportLals > 0 ? `(${ukBondedExportLals.toFixed(3)})` : '0.000'} bottles={ukBondedTransferBottles} sub="excise exempt — exported under bond" indent />
           {ukBondedTransferBreakdown.length > 0 && (
             <div className="px-8 py-1 bg-green-50 space-y-0.5">
               {ukBondedTransferBreakdown.map(([size, d]) => (
@@ -265,7 +273,7 @@ export default function ExciseReturn({
               ))}
             </div>
           )}
-          <ExciseRow label="Transferred to 3PL" value={transferLals} sub={transferLals === 0 ? "no transfer this month" : "taxable at point of transfer"} indent />
+          <ExciseRow label="Transferred to 3PL" value={transferLals} bottles={threePLTransferBottles} sub={transferLals === 0 ? "no transfer this month" : "taxable at point of transfer"} indent />
           {threePLTransferBreakdown.length > 0 && (
             <div className="px-8 py-1.5 bg-muted/30 space-y-0.5">
               {threePLTransferBreakdown.map(([size, d]) => (
@@ -276,7 +284,7 @@ export default function ExciseReturn({
               ))}
             </div>
           )}
-          <ExciseRow label="Less: Duty Free from 3PL" value={dutyFreeFrom3PL} displayValue={dutyFreeFrom3PL > 0 ? `(${dutyFreeFrom3PL.toFixed(3)})` : '0.000'} sub="exempt — deducted from payable" indent />
+          <ExciseRow label="Less: Duty Free from 3PL" value={dutyFreeFrom3PL} displayValue={dutyFreeFrom3PL > 0 ? `(${dutyFreeFrom3PL.toFixed(3)})` : '0.000'} bottles={threePLDutyFreeBottles} sub="exempt — deducted from payable" indent />
           {threePLDutyFreeBreakdown.length > 0 && (
             <div className="px-8 py-1 bg-amber-50 space-y-0.5">
               {threePLDutyFreeBreakdown.map(([size, d]) => (
@@ -292,10 +300,10 @@ export default function ExciseReturn({
               <p className="text-xs text-blue-700">ℹ No 3PL transfer this month — duty free dispatches ({dutyFreeFrom3PL.toFixed(3)} LALs) are deducted from total payable as a credit against prior transfer excise.</p>
             </div>
           )}
-          <ExciseRow label="Net 3PL Taxable LALs" value={net3PLTaxableLals} displayValue={net3PLTaxableLals < 0 ? `(${Math.abs(net3PLTaxableLals).toFixed(3)}) credit` : net3PLTaxableLals.toFixed(3)} sub={transferLals === 0 && dutyFreeFrom3PL > 0 ? "credit — duty free dispatches exceed transfers" : "transfers minus duty free dispatches"} indent />
+          <ExciseRow label="Net 3PL Taxable LALs" value={net3PLTaxableLals} displayValue={net3PLTaxableLals < 0 ? `(${Math.abs(net3PLTaxableLals).toFixed(3)}) credit` : net3PLTaxableLals.toFixed(3)} bottles={threePLTransferBottles - threePLDutyFreeBottles} sub={transferLals === 0 && dutyFreeFrom3PL > 0 ? "credit — duty free dispatches exceed transfers" : "transfers minus duty free dispatches"} indent />
 
           {/* Total */}
-          <ExciseRow label="TOTAL EXCISE PAYABLE LALs" value={totalTaxableLals} sub="Net distillery + Net 3PL taxable" highlight />
+          <ExciseRow label="TOTAL EXCISE PAYABLE LALs" value={totalTaxableLals} bottles={totalTaxableBottles} sub="Net distillery + Net 3PL taxable" highlight />
           <div className="flex items-center justify-between px-4 py-3">
             <p className="text-sm font-medium">Excise Rate</p>
             <p className="text-sm font-mono">${exciseRate.toFixed(3)} per LAL <span className="text-muted-foreground">({rateLabel})</span></p>
@@ -320,7 +328,7 @@ export default function ExciseReturn({
 
           {/* For information only section */}
           <SectionHeader label="For Information Only (not deducted)" />
-          <ExciseRow label="Samples (Bluff)" value={lalsSamples} sub="taxable — included in distillery total above" indent />
+          <ExciseRow label="Samples (Bluff)" value={lalsSamples} bottles={sampleBluffBottles} sub="taxable — included in distillery total above" indent />
           {sampleBluffBreakdown.length > 0 && (
             <div className="px-8 py-1 bg-blue-50 space-y-0.5">
               {sampleBluffBreakdown.map(([size, d]) => (
@@ -331,7 +339,7 @@ export default function ExciseReturn({
               ))}
             </div>
           )}
-          <ExciseRow label="Samples (3PL)" value={lals3PLSamples} sub="duty paid at transfer — shown for reference" indent />
+          <ExciseRow label="Samples (3PL)" value={lals3PLSamples} bottles={sample3PLBottles} sub="duty paid at transfer — shown for reference" indent />
           {sample3PLBreakdown.length > 0 && (
             <div className="px-8 py-1 bg-blue-50 space-y-0.5">
               {sample3PLBreakdown.map(([size, d]) => (
@@ -342,7 +350,7 @@ export default function ExciseReturn({
               ))}
             </div>
           )}
-          <ExciseRow label="Standard 3PL dispatches" value={standard3PLDispatchLals} sub="duty already paid at transfer" indent />
+          <ExciseRow label="Standard 3PL dispatches" value={standard3PLDispatchLals} bottles={standard3PLBottles} sub="duty already paid at transfer" indent />
           {standard3PLBreakdown.length > 0 && (
             <div className="px-8 py-1 bg-muted/30 space-y-0.5">
               {standard3PLBreakdown.map(([size, d]) => (
@@ -353,7 +361,7 @@ export default function ExciseReturn({
               ))}
             </div>
           )}
-          <ExciseRow label="Export / Overseas from 3PL" value={exportFrom3PL} sub="duty already paid at transfer — not deducted" indent />
+          <ExciseRow label="Export / Overseas from 3PL" value={exportFrom3PL} bottles={threePLExportBottles} sub="duty already paid at transfer — not deducted" indent />
           {threePLExportBreakdown.length > 0 && (
             <div className="px-8 py-1 bg-muted/30 space-y-0.5">
               {threePLExportBreakdown.map(([size, d]) => (

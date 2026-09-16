@@ -330,7 +330,9 @@ export default function Reports() {
           // same shared calculation, same selected month (exciseMonth, not
           // this page's own startDate/endDate range) — so the CSV can never
           // show different numbers than the screen for the same period.
-          const headers = ['description', 'lals', 'amount_nzd'];
+          // bottles column lets this be cross-checked against a bottle-quantity
+          // report (e.g. Xero, which invoices in bottles/cases, not LALs).
+          const headers = ['description', 'lals', 'bottles', 'amount_nzd'];
           const monthDate = parseISO(exciseMonth + '-01');
           const calc = computeExciseReturn({
             monthDate,
@@ -343,20 +345,20 @@ export default function Reports() {
             tanks,
           });
           const rows = [
-            { description: `Excise Return ${format(monthDate, 'MMMM yyyy')}`, lals: '', amount_nzd: '' },
-            { description: 'Distillery dispatches (taxable)', lals: calc.bluffDispatchLals.toFixed(4), amount_nzd: '' },
-            { description: 'Less: Duty free from Distillery', lals: `-${calc.dutyFreeFromBluff.toFixed(4)}`, amount_nzd: '' },
-            { description: 'Less: Export/overseas from Distillery', lals: `-${calc.exportFromBluff.toFixed(4)}`, amount_nzd: '' },
-            { description: 'Export/overseas: UK Bonded transfers', lals: `-${calc.ukBondedExportLals.toFixed(4)}`, amount_nzd: '' },
-            { description: 'Transferred to 3PL', lals: calc.transferLals.toFixed(4), amount_nzd: '' },
-            { description: 'Less: Duty free from 3PL', lals: `-${calc.dutyFreeFrom3PL.toFixed(4)}`, amount_nzd: '' },
-            { description: 'Net 3PL taxable LALs', lals: calc.net3PLTaxableLals.toFixed(4), amount_nzd: '' },
-            { description: 'TOTAL TAXABLE LALs', lals: calc.totalTaxableLals.toFixed(4), amount_nzd: '' },
-            { description: '(Export/overseas from 3PL — duty already paid at transfer, not deducted)', lals: calc.exportFrom3PL.toFixed(4), amount_nzd: '' },
-            { description: `Excise rate (spirits >23% vol, ${calc.rateInfo.label})`, lals: '', amount_nzd: `$${calc.exciseRate}/LAL` },
-            { description: 'Excise due (GST excl.)', lals: '', amount_nzd: `$${calc.exciseDueGSTExcl.toFixed(2)}` },
-            { description: 'GST (15%)', lals: '', amount_nzd: `$${calc.gstAmount.toFixed(2)}` },
-            { description: 'Total excise due (GST incl.)', lals: '', amount_nzd: `$${calc.exciseDueGSTIncl.toFixed(2)}` },
+            { description: `Excise Return ${format(monthDate, 'MMMM yyyy')}`, lals: '', bottles: '', amount_nzd: '' },
+            { description: 'Distillery dispatches (taxable)', lals: calc.bluffDispatchLals.toFixed(4), bottles: calc.bluffTaxableBottles, amount_nzd: '' },
+            { description: 'Less: Duty free from Distillery', lals: `-${calc.dutyFreeFromBluff.toFixed(4)}`, bottles: -calc.bluffDutyFreeBottles, amount_nzd: '' },
+            { description: 'Less: Export/overseas from Distillery', lals: `-${calc.exportFromBluff.toFixed(4)}`, bottles: -calc.bluffExportBottles, amount_nzd: '' },
+            { description: 'Export/overseas: UK Bonded transfers', lals: `-${calc.ukBondedExportLals.toFixed(4)}`, bottles: -calc.ukBondedTransferBottles, amount_nzd: '' },
+            { description: 'Transferred to 3PL', lals: calc.transferLals.toFixed(4), bottles: calc.threePLTransferBottles, amount_nzd: '' },
+            { description: 'Less: Duty free from 3PL', lals: `-${calc.dutyFreeFrom3PL.toFixed(4)}`, bottles: -calc.threePLDutyFreeBottles, amount_nzd: '' },
+            { description: 'Net 3PL taxable LALs', lals: calc.net3PLTaxableLals.toFixed(4), bottles: calc.threePLTransferBottles - calc.threePLDutyFreeBottles, amount_nzd: '' },
+            { description: 'TOTAL TAXABLE LALs', lals: calc.totalTaxableLals.toFixed(4), bottles: calc.totalTaxableBottles, amount_nzd: '' },
+            { description: '(Export/overseas from 3PL — duty already paid at transfer, not deducted)', lals: calc.exportFrom3PL.toFixed(4), bottles: calc.threePLExportBottles, amount_nzd: '' },
+            { description: `Excise rate (spirits >23% vol, ${calc.rateInfo.label})`, lals: '', bottles: '', amount_nzd: `$${calc.exciseRate}/LAL` },
+            { description: 'Excise due (GST excl.)', lals: '', bottles: '', amount_nzd: `$${calc.exciseDueGSTExcl.toFixed(2)}` },
+            { description: 'GST (15%)', lals: '', bottles: '', amount_nzd: `$${calc.gstAmount.toFixed(2)}` },
+            { description: 'Total excise due (GST incl.)', lals: '', bottles: '', amount_nzd: `$${calc.exciseDueGSTIncl.toFixed(2)}` },
           ];
           exportCSV(`excise_return_${exciseMonth}.csv`, rows, headers);
           break;

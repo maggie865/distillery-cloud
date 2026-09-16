@@ -21,6 +21,12 @@ const breakdownBySize = (list) => {
   return Object.entries(sizes).sort(([a], [b]) => parseInt(b) - parseInt(a));
 };
 
+// Total bottle count across all sizes in a breakdownBySize() result — the
+// per-category number the excise report shows next to its LALs figure, so
+// it can be cross-checked against a bottle-quantity report like Xero's
+// (Xero invoice lines are in bottles/cases, not LALs).
+const sumBottles = (breakdown) => breakdown.reduce((s, [, d]) => s + d.bottles, 0);
+
 // Single source of truth for the monthly excise return — used by both the
 // on-screen Excise Return report and the Reports page's "Export CSV" button,
 // so the two can never show different numbers for the same month again.
@@ -158,6 +164,20 @@ export function computeExciseReturn({
   const standard3PLBreakdown = breakdownBySize(monthDispatches.filter(d => (d.dispatched_from || '').includes('Auckland') && !d.duty_free && !d.is_export && !d.sample_dispatch));
   const sample3PLBreakdown = breakdownBySize(monthDispatches.filter(d => d.sample_dispatch && (d.dispatched_from || '').includes('Auckland')));
 
+  // Total bottle counts per category, for reconciling against a bottle-
+  // quantity report (e.g. Xero) rather than only having LALs to compare.
+  const bluffTaxableBottles = sumBottles(bluffTaxableBreakdown);
+  const bluffDutyFreeBottles = sumBottles(bluffDutyFreeBreakdown);
+  const bluffExportBottles = sumBottles(bluffExportBreakdown);
+  const threePLTransferBottles = sumBottles(threePLTransferBreakdown);
+  const threePLDutyFreeBottles = sumBottles(threePLDutyFreeBreakdown);
+  const threePLExportBottles = sumBottles(threePLExportBreakdown);
+  const ukBondedTransferBottles = sumBottles(ukBondedTransferBreakdown);
+  const sampleBluffBottles = sumBottles(sampleBluffBreakdown);
+  const standard3PLBottles = sumBottles(standard3PLBreakdown);
+  const sample3PLBottles = sumBottles(sample3PLBreakdown);
+  const totalTaxableBottles = bluffTaxableBottles + threePLTransferBottles - threePLDutyFreeBottles;
+
   // --- All dispatched LALs this month (for the customer breakdown / reconciliation) ---
   const allDispatchedLals = monthDispatches.reduce((s, d) => s + (d.total_lals || 0), 0);
 
@@ -192,6 +212,9 @@ export function computeExciseReturn({
     bluffTaxableBreakdown, bluffDutyFreeBreakdown, bluffExportBreakdown,
     threePLTransferBreakdown, threePLDutyFreeBreakdown, threePLExportBreakdown, ukBondedTransferBreakdown,
     sampleBluffBreakdown, standard3PLBreakdown, sample3PLBreakdown,
+    bluffTaxableBottles, bluffDutyFreeBottles, bluffExportBottles,
+    threePLTransferBottles, threePLDutyFreeBottles, threePLExportBottles, ukBondedTransferBottles,
+    sampleBluffBottles, standard3PLBottles, sample3PLBottles, totalTaxableBottles,
     currentTotalLALs, closingLALs, openingLALs,
   };
 }
