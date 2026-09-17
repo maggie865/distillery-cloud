@@ -22,6 +22,7 @@ import BatchPicker from '@/components/dispatch/BatchPicker.jsx';
 import DirectSalesForm from '@/components/dispatch/DirectSalesForm.jsx';
 import StockLocationDialog from '@/components/dispatch/StockLocationDialog.jsx';
 import TransferTo3PLDialog from '@/components/dispatch/TransferTo3PLDialog.jsx';
+import DuplicateReviewDialog from '@/components/dispatch/DuplicateReviewDialog.jsx';
 import ExciseFlags from '@/components/dispatch/ExciseFlags.jsx';
 import DeliveryMap from '@/components/sales/DeliveryMap';
 import { buildBluffProductOptions, allocateBluffLineItems } from '@/lib/dispatchAllocation';
@@ -66,6 +67,7 @@ export default function DispatchHub() {
   const [editCalcingDistance, setEditCalcingDistance] = useState(false);
   const [returningDispatch, setReturningDispatch] = useState(null);
   const [deletingDispatch, setDeletingDispatch] = useState(null);
+  const [reviewingDuplicate, setReviewingDuplicate] = useState(null); // { xero, match }
 
   const queryClient = useQueryClient();
 
@@ -106,11 +108,30 @@ export default function DispatchHub() {
   // gets flagged incorrectly. If approved as-is a real duplicate would
   // double-deduct stock and double-count excise.
   const dispatchKey = (d) => `${d.customer_name}|${d.dispatch_date}|${d.product_name}|${d.bottle_size_ml || ''}`;
-  const manualDispatchKeys = new Set(
-    allDispatches.filter(d => !d.xero_invoice_id).map(dispatchKey)
+  const manualDispatchByKey = new Map(
+    allDispatches.filter(d => !d.xero_invoice_id).map(d => [dispatchKey(d), d])
   );
-  const isPossibleXeroDuplicate = (d) =>
-    !!d.xero_invoice_id && d.status === 'pending' && manualDispatchKeys.has(dispatchKey(d));
+  // Returns the matching existing (non-Xero) dispatch a pending Xero row
+  // looks like a duplicate of, or undefined if it isn't one — used both to
+  // decide whether to show the badge and to populate the comparison dialog.
+  const findPossibleDuplicateMatch = (d) =>
+    d.xero_invoice_id && d.status === 'pending' ? manualDispatchByKey.get(dispatchKey(d)) : undefined;
+  const isPossibleXeroDuplicate = (d) => !!findPossibleDuplicateMatch(d);
+
+  // Shared by the desktop table's Edit button, the mobile card's Edit
+  // button, and DuplicateReviewDialog's "Edit Xero Import" action — all
+  // three need to seed editForm from the same dispatch row the same way.
+  const openEditDialog = (d) => {
+    setEditingDispatch(d);
+    setEditForm({
+      status: d.status, notes: d.notes || '', dispatch_date: d.dispatch_date, product_name: d.product_name || '',
+      batch_number: d.batch_number || '', quantity_bottles: d.quantity_bottles || '', bottle_size_ml: d.bottle_size_ml || '',
+      total_lals: d.total_lals || '', parcel_weight_kg: d.parcel_weight_kg || '', transport_distance_km: d.transport_distance_km || '',
+      transport_method: d.transport_method || 'road', customer_name: d.customer_name || '', customer_address: d.customer_address || '',
+      dispatched_from: d.dispatched_from || 'Bluff',
+      sample_dispatch: d.sample_dispatch || false, duty_free: d.duty_free || false, is_export: d.is_export || false,
+    });
+  };
 
   const filtered = allDispatches
     .filter(d => { if (!search) return true; const s = search.toLowerCase(); return d.customer_name?.toLowerCase().includes(s) || d.product_name?.toLowerCase().includes(s) || d.batch_number?.toLowerCase().includes(s); })
@@ -454,7 +475,7 @@ export default function DispatchHub() {
               {allDispatches.filter(isPossibleXeroDuplicate).length} possible duplicate{allDispatches.filter(isPossibleXeroDuplicate).length === 1 ? '' : 's'} from Xero sync
             </p>
             <p className="text-xs text-red-700 mt-0.5">
-              These pending dispatches (marked "Possible Duplicate" below) match the customer, date, and product of a dispatch that already exists outside Xero — likely the same sale entered twice. Delete the duplicate or the pending row before approving, or it'll double-deduct stock and double-count excise.
+              These pending dispatches (marked "Possible Duplicate" below — click one to compare it against the existing dispatch) match the customer, date, product, and size of a dispatch that already exists outside Xero — likely the same sale entered twice. Delete the duplicate or the pending row before approving, or it'll double-deduct stock and double-count excise.
             </p>
           </div>
         </div>
@@ -535,29 +556,21 @@ export default function DispatchHub() {
                       {d.duty_free === true && <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700 font-medium">Duty Free</span>}
                       {d.is_export === true && <span className="px-1.5 py-0.5 text-xs rounded-full bg-green-100 text-green-700 font-medium">Export</span>}
                       {isPossibleXeroDuplicate(d) && (
-                        <span
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-xs rounded-full bg-red-100 text-red-700 font-medium"
-                          title="A dispatch with this customer, date, and product already exists outside Xero — check it isn't the same sale before approving."
+                        <button
+                          type="button"
+                          onClick={() => setReviewingDuplicate({ xero: d, match: findPossibleDuplicateMatch(d) })}
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-xs rounded-full bg-red-100 text-red-700 font-medium hover:bg-red-200 transition-colors"
+                          title="Click to compare this import against the existing dispatch it may duplicate"
                         >
                           <AlertTriangle className="w-3 h-3" /> Possible Duplicate
-                        </span>
+                        </button>
                       )}
                     </div>
                   </TableCell>
                   <TableCell>
                     {d.id && (
                       <div className="flex gap-1 justify-end">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit" onClick={() => {
-                          setEditingDispatch(d);
-                          setEditForm({
-                            status: d.status, notes: d.notes || '', dispatch_date: d.dispatch_date, product_name: d.product_name || '',
-                            batch_number: d.batch_number || '', quantity_bottles: d.quantity_bottles || '', bottle_size_ml: d.bottle_size_ml || '',
-                            total_lals: d.total_lals || '', parcel_weight_kg: d.parcel_weight_kg || '', transport_distance_km: d.transport_distance_km || '',
-                            transport_method: d.transport_method || 'road', customer_name: d.customer_name || '', customer_address: d.customer_address || '',
-                            dispatched_from: d.dispatched_from || 'Bluff',
-                            sample_dispatch: d.sample_dispatch || false, duty_free: d.duty_free || false, is_export: d.is_export || false,
-                            });
-                            }}><Pencil className="w-3.5 h-3.5" /></Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Edit" onClick={() => openEditDialog(d)}><Pencil className="w-3.5 h-3.5" /></Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-amber-600 hover:text-amber-700" title="Return stock" onClick={() => setReturningDispatch(d)}><RotateCcw className="w-3.5 h-3.5" /></Button>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" title="Delete" onClick={() => setDeletingDispatch(d)}><Trash2 className="w-3.5 h-3.5" /></Button>
                       </div>
@@ -584,12 +597,14 @@ export default function DispatchHub() {
                   {d.duty_free === true && <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700 font-medium">Duty Free</span>}
                   {d.is_export === true && <span className="px-1.5 py-0.5 text-xs rounded-full bg-green-100 text-green-700 font-medium">Export</span>}
                   {isPossibleXeroDuplicate(d) && (
-                    <span
+                    <button
+                      type="button"
+                      onClick={() => setReviewingDuplicate({ xero: d, match: findPossibleDuplicateMatch(d) })}
                       className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-xs rounded-full bg-red-100 text-red-700 font-medium"
-                      title="A dispatch with this customer, date, and product already exists outside Xero — check it isn't the same sale before approving."
+                      title="Tap to compare this import against the existing dispatch it may duplicate"
                     >
                       <AlertTriangle className="w-3 h-3" /> Possible Duplicate
-                    </span>
+                    </button>
                   )}
                   {d.xero_invoice_id && (
                     <button onClick={() => toast.info(`Xero Invoice ID: ${d.xero_invoice_id}`)}>
@@ -601,17 +616,7 @@ export default function DispatchHub() {
               accent={<span className="text-lg font-bold text-primary">{d.quantity_bottles}</span>}
               actions={
                 <>
-                  <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={() => {
-                    setEditingDispatch(d);
-                    setEditForm({
-                      status: d.status, notes: d.notes || '', dispatch_date: d.dispatch_date, product_name: d.product_name || '',
-                      batch_number: d.batch_number || '', quantity_bottles: d.quantity_bottles || '', bottle_size_ml: d.bottle_size_ml || '',
-                      total_lals: d.total_lals || '', parcel_weight_kg: d.parcel_weight_kg || '', transport_distance_km: d.transport_distance_km || '',
-                      transport_method: d.transport_method || 'road', customer_name: d.customer_name || '', customer_address: d.customer_address || '',
-                      dispatched_from: d.dispatched_from || 'Bluff',
-                      sample_dispatch: d.sample_dispatch || false, duty_free: d.duty_free || false, is_export: d.is_export || false,
-                      });
-                      }}><Pencil className="w-3.5 h-3.5" /> Edit</Button>
+                  <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={() => openEditDialog(d)}><Pencil className="w-3.5 h-3.5" /> Edit</Button>
                   <Button variant="outline" size="sm" className="flex-1 gap-1.5 text-amber-600" onClick={() => setReturningDispatch(d)}><RotateCcw className="w-3.5 h-3.5" /> Return</Button>
                   <Button variant="outline" size="sm" className="flex-1 gap-1.5 text-destructive" onClick={() => setDeletingDispatch(d)}><Trash2 className="w-3.5 h-3.5" /> Delete</Button>
                 </>
@@ -633,6 +638,12 @@ export default function DispatchHub() {
       <DispatchForm open={showForm} onClose={() => setShowForm(false)} finishedGoods={finishedGoods} warehouseStock={warehouseStock} customers={customers} />
       <DirectSalesForm open={showDirectSalesForm} onClose={() => setShowDirectSalesForm(false)} finishedGoods={finishedGoods} allDispatches={allDispatches} />
       <TransferTo3PLDialog open={showTransfer3PL} onClose={() => setShowTransfer3PL(false)} finishedGoods={finishedGoods} allDispatches={allDispatches} />
+      <DuplicateReviewDialog
+        review={reviewingDuplicate}
+        onClose={() => setReviewingDuplicate(null)}
+        onDeleteXero={(d) => { setReviewingDuplicate(null); setDeletingDispatch(d); }}
+        onEditXero={(d) => { setReviewingDuplicate(null); openEditDialog(d); }}
+      />
 
       <Dialog open={!!editingDispatch} onOpenChange={v => !v && setEditingDispatch(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
