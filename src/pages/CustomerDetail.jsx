@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db } from '@/api/supabaseClient';
+import { toast } from 'sonner';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import StatCard from '@/components/shared/StatCard';
@@ -38,6 +39,7 @@ function StatusPill({ status }) {
 export default function CustomerDetail() {
   const { customerId } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [logVisitOpen, setLogVisitOpen] = useState(false);
   const [logContactOpen, setLogContactOpen] = useState(false);
@@ -63,6 +65,15 @@ export default function CustomerDetail() {
   const stockAlerts = customerStock.rows.filter((r) => r.belowPar).map((r) => ({ product: r.product, currentStock: r.currentStock, parLevel: r.parLevel, suggestedOrderQty: r.suggestedOrderQty }));
 
   const openQuickOrder = (prefill = null) => { setQuickOrderPrefill(prefill); setQuickOrderOpen(true); };
+
+  const markFollowUpDoneMutation = useMutation({
+    mutationFn: (activityId) => db.CustomerActivity.update(activityId, { follow_up_required: false }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customerActivities'] });
+      toast.success('Follow-up marked done');
+    },
+    onError: (e) => toast.error(e.message || 'Failed to update follow-up'),
+  });
 
   if (customersQuery.isLoading) {
     return (
@@ -224,7 +235,11 @@ export default function CustomerDetail() {
         </div>
       </div>
 
-      <CustomerActivityTimeline activities={activities} orders={orders} />
+      <CustomerActivityTimeline
+        activities={activities}
+        orders={orders}
+        onMarkFollowUpDone={(activityId) => markFollowUpDoneMutation.mutate(activityId)}
+      />
 
       <LogVisitDialog customer={customer} open={logVisitOpen} onOpenChange={setLogVisitOpen} />
       <LogContactDialog customer={customer} open={logContactOpen} onOpenChange={setLogContactOpen} />
