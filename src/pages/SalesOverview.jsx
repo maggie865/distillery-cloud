@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db } from '@/api/supabaseClient';
+import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { useCustomersWithStats } from '@/hooks/useCustomersWithStats';
 import { useCustomerStockAlerts } from '@/hooks/useCustomerStock';
@@ -11,7 +12,7 @@ import PageHeader from '@/components/shared/PageHeader';
 import LogVisitDialog from '@/components/customers/LogVisitDialog';
 import LogContactDialog from '@/components/customers/LogContactDialog';
 import CustomerStockAlertsList from '@/components/customers/CustomerStockAlertsList';
-import { Store, MessageCircle, ArrowRight, PackageCheck, AlertTriangle, MailWarning } from 'lucide-react';
+import { Store, MessageCircle, ArrowRight, PackageCheck, AlertTriangle, MailWarning, CheckCircle2 } from 'lucide-react';
 import { format, startOfMonth, formatDistanceToNow } from 'date-fns';
 import { daysSince } from '@/lib/customerHealth';
 
@@ -26,6 +27,7 @@ function greetingForNow() {
 
 export default function SalesOverview() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const { rows, activities, requests, isLoading } = useCustomersWithStats();
   const { alerts: stockAlerts } = useCustomerStockAlerts();
@@ -33,6 +35,15 @@ export default function SalesOverview() {
   const { data: customerOrders = [] } = useQuery({ queryKey: ['customerOrders'], queryFn: () => db.CustomerOrder.list('-order_date', 5000) });
   const [logVisitFor, setLogVisitFor] = useState(null);
   const [logContactFor, setLogContactFor] = useState(null);
+
+  const markFollowUpDoneMutation = useMutation({
+    mutationFn: (activityId) => db.CustomerActivity.update(activityId, { follow_up_required: false }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customerActivities'] });
+      toast.success('Follow-up marked done');
+    },
+    onError: (e) => toast.error(e.message || 'Failed to update follow-up'),
+  });
 
   const pendingDispatchCount = dispatches.filter((d) => RESERVING_STATUSES.has(d.status)).length;
   const lowStockCustomerCount = new Set(stockAlerts.map((a) => a.customer.id)).size;
@@ -85,6 +96,11 @@ export default function SalesOverview() {
                   <p className="text-sm font-medium text-foreground truncate">{r.customer.business_name}</p>
                   <p className="text-xs text-muted-foreground truncate">{reason}</p>
                 </button>
+                {severity === 0 && r.followUp?.activityId && (
+                  <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => markFollowUpDoneMutation.mutate(r.followUp.activityId)}>
+                    <CheckCircle2 className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Mark Done</span>
+                  </Button>
+                )}
                 <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => setLogVisitFor(r.customer)}>
                   <Store className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Log Visit</span>
                 </Button>
@@ -152,10 +168,22 @@ export default function SalesOverview() {
           ) : (
             <div className="space-y-2">
               {todaysFollowUps.map((r) => (
-                <button key={r.customer.id} onClick={() => navigate(`/customers/${r.customer.id}`)} className="w-full text-left rounded-lg border border-border p-3 hover:bg-muted/40 transition-colors">
-                  <p className="text-sm font-medium text-foreground">{r.customer.business_name}</p>
-                  <p className="text-xs text-muted-foreground">{r.followUp.task || 'Follow-up due'}</p>
-                </button>
+                <div key={r.customer.id} className="flex items-center gap-2 rounded-lg border border-border p-3 hover:bg-muted/40 transition-colors">
+                  <button onClick={() => navigate(`/customers/${r.customer.id}`)} className="flex-1 text-left min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{r.customer.business_name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{r.followUp.task || 'Follow-up due'}</p>
+                  </button>
+                  {r.followUp.activityId && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 shrink-0"
+                      onClick={() => markFollowUpDoneMutation.mutate(r.followUp.activityId)}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Done
+                    </Button>
+                  )}
+                </div>
               ))}
             </div>
           )}

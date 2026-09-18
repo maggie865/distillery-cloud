@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { db } from '@/api/supabaseClient';
 import { useCustomersWithStats } from '@/hooks/useCustomersWithStats';
 import { useCustomerGroups } from '@/hooks/useCustomerGroups';
@@ -38,6 +38,19 @@ export default function Customers() {
   const queryClient = useQueryClient();
   const { rows, isLoading } = useCustomersWithStats();
   const { groups, groupsByCustomerId, bulkAddToGroup } = useCustomerGroups();
+
+  // Nothing anywhere previously let a follow-up be closed out — once
+  // follow_up_required was set true on a customer_activity row (logging a
+  // visit/contact), it stayed true forever, so it kept surfacing here even
+  // after someone actually followed up. This just flips it back off.
+  const markFollowUpDoneMutation = useMutation({
+    mutationFn: (activityId) => db.CustomerActivity.update(activityId, { follow_up_required: false }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customerActivities'] });
+      toast.success('Follow-up marked done');
+    },
+    onError: (e) => toast.error(e.message || 'Failed to update follow-up'),
+  });
 
   const [activeTab, setActiveTab] = useState('all');
   const [search, setSearch] = useState('');
@@ -270,7 +283,11 @@ export default function Customers() {
         </TabsContent>
 
         <TabsContent value="attention">
-          <NeedsAttentionList rows={rows} isLoading={isLoading} />
+          <NeedsAttentionList
+            rows={rows}
+            isLoading={isLoading}
+            onMarkFollowUpDone={(activityId) => markFollowUpDoneMutation.mutate(activityId)}
+          />
         </TabsContent>
 
         <TabsContent value="visit-report">

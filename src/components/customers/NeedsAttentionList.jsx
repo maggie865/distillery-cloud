@@ -1,10 +1,11 @@
 import { useNavigate } from 'react-router-dom';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { CheckCircle2, AlertTriangle, Clock, MessageCircleWarning, Inbox } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { daysSince, visitFrequencyLabel } from '@/lib/customerHealth';
 
-function Section({ title, icon: Icon, tone, items, renderReason }) {
+function Section({ title, icon: Icon, tone, items, renderReason, onMarkDone }) {
   if (items.length === 0) return null;
   return (
     <div>
@@ -13,26 +14,43 @@ function Section({ title, icon: Icon, tone, items, renderReason }) {
         <span className="text-xs font-normal text-muted-foreground">({items.length})</span>
       </h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {items.map((r) => <AttentionCard key={r.customer.id} row={r} reason={renderReason(r)} />)}
+        {items.map((r) => (
+          <AttentionCard
+            key={r.customer.id}
+            row={r}
+            reason={renderReason(r)}
+            onMarkDone={onMarkDone && r.followUp?.activityId ? () => onMarkDone(r.followUp.activityId) : null}
+          />
+        ))}
       </div>
     </div>
   );
 }
 
-function AttentionCard({ row, reason }) {
+function AttentionCard({ row, reason, onMarkDone }) {
   const navigate = useNavigate();
   return (
-    <button onClick={() => navigate(`/customers/${row.customer.id}`)} className="text-left">
-      <Card className="p-4 h-full transition-all duration-200 hover:shadow-md hover:-translate-y-0.5">
+    <Card className="p-4 h-full transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 flex flex-col">
+      <button onClick={() => navigate(`/customers/${row.customer.id}`)} className="text-left flex-1">
         <p className="font-semibold text-sm text-foreground">{row.customer.business_name}</p>
         <p className="text-xs text-muted-foreground mt-0.5">{row.customer.city || row.customer.region || ''}</p>
         <p className="text-xs text-warning font-medium mt-2">{reason}</p>
-      </Card>
-    </button>
+      </button>
+      {onMarkDone && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5 mt-3 self-start"
+          onClick={(e) => { e.stopPropagation(); onMarkDone(); }}
+        >
+          <CheckCircle2 className="w-3.5 h-3.5" /> Mark Done
+        </Button>
+      )}
+    </Card>
   );
 }
 
-export default function NeedsAttentionList({ rows, isLoading }) {
+export default function NeedsAttentionList({ rows, isLoading, onMarkFollowUpDone }) {
   if (isLoading) return <p className="text-center py-16 text-muted-foreground text-sm">Loading…</p>;
 
   const overdueFollowUp = rows.filter((r) => r.followUp?.overdue);
@@ -60,6 +78,7 @@ export default function NeedsAttentionList({ rows, isLoading }) {
         tone="text-destructive"
         items={overdueFollowUp}
         renderReason={(r) => `Follow-up was due ${format(parseISO(r.followUp.date), 'd MMM')}`}
+        onMarkDone={onMarkFollowUpDone}
       />
       <Section
         title="Overdue Visit"

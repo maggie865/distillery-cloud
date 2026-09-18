@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Card } from '@/components/ui/card';
-import { Store, Phone, Mail, MessageSquare, Users, History } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Store, Phone, Mail, MessageSquare, Users, History, CheckCircle2 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
 const CONTACT_ICONS = { phone: Phone, email: Mail, text: MessageSquare, social_media: MessageSquare, in_person: Users, other: MessageSquare };
@@ -29,7 +30,7 @@ const CONTACT_METHOD_LABELS = {
   phone: 'Phone Call', email: 'Email', text: 'Text', social_media: 'Social Media', in_person: 'In Person', other: 'Contact',
 };
 
-function ActivityRow({ activity }) {
+function ActivityRow({ activity, onMarkFollowUpDone }) {
   const isVisit = activity.type === 'visit';
   const Icon = isVisit ? Store : (CONTACT_ICONS[activity.subtype] || MessageSquare);
   const title = isVisit
@@ -56,10 +57,17 @@ function ActivityRow({ activity }) {
         {activity.status && <span>Status: {activity.status === 'resolved' ? 'Resolved' : 'Open'}</span>}
       </div>
       {activity.follow_up_required && (
-        <p className="text-xs text-warning mt-1">
-          Follow-up required{activity.follow_up_date ? ` — ${format(parseISO(activity.follow_up_date), 'd MMM yyyy')}` : ''}
-          {activity.follow_up_task ? `: ${activity.follow_up_task}` : ''}
-        </p>
+        <div className="flex items-center gap-2 flex-wrap mt-1">
+          <p className="text-xs text-warning">
+            Follow-up required{activity.follow_up_date ? ` — ${format(parseISO(activity.follow_up_date), 'd MMM yyyy')}` : ''}
+            {activity.follow_up_task ? `: ${activity.follow_up_task}` : ''}
+          </p>
+          {onMarkFollowUpDone && (
+            <Button size="sm" variant="outline" className="h-6 px-2 gap-1 text-xs" onClick={() => onMarkFollowUpDone(activity.id)}>
+              <CheckCircle2 className="w-3 h-3" /> Mark Done
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -78,7 +86,7 @@ function OrderRow({ order }) {
   );
 }
 
-export default function CustomerActivityTimeline({ activities, orders = [] }) {
+export default function CustomerActivityTimeline({ activities, orders = [], onMarkFollowUpDone }) {
   const items = useMemo(() => {
     const activityItems = activities.map((a) => ({ kind: 'activity', date: a.created_at || a.date, data: a }));
     const orderItems = orders.map((o) => ({ kind: 'order', date: o.created_at || o.dispatch_date, data: o }));
@@ -101,7 +109,7 @@ export default function CustomerActivityTimeline({ activities, orders = [] }) {
         <div className="absolute left-[9px] top-1 bottom-1 w-px bg-border" />
         {items.map((item) => (
           item.kind === 'activity'
-            ? <ActivityRow key={`a-${item.data.id}`} activity={item.data} />
+            ? <ActivityRow key={`a-${item.data.id}`} activity={item.data} onMarkFollowUpDone={onMarkFollowUpDone} />
             : <OrderRow key={`o-${item.data.id}`} order={item.data} />
         ))}
       </div>
