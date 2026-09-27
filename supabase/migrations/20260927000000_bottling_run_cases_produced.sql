@@ -1,0 +1,11 @@
+-- Bottling Floor's "Complete Run" always knew the exact case count entered
+-- (cases + extra bottles), but only ever wrote it into the free-text notes
+-- field ("Cases: X | Extra bottles: Y | Tasting: Z"), never a real column.
+-- Deleting a run later had to reconstruct case count via
+-- floor(bottles_produced / bottles_per_case) to know how many boxes to
+-- restore to raw material stock — which silently mismatches the true
+-- original case count whenever bottles_produced isn't an exact multiple of
+-- the CURRENT packaging recipe's bottles_per_case (extra bottles entered
+-- >= a full case, or the recipe's bottles_per_case changed since). This
+-- column lets deletion use the exact original value instead of guessing.
+alter table public.bottling_run add column if not exists cases_produced integer;

@@ -224,6 +224,8 @@ export default function BottlingFloor() {
         input_lals: parseFloat(lals.toFixed(4)),
         bottle_size_ml: activeRun.bottle_size_ml,
         bottles_produced: totalBottles,
+        bottles_per_case: activeRun.bottles_per_case,
+        cases_produced: cases,
         lals_per_bottle: parseFloat(lalPerBottle.toFixed(5)),
         status: 'completed',
         notes: `Staff: ${activeRun.staff.join(', ')} | Cases: ${cases} | Extra bottles: ${extraBottles} | Tasting: ${tastingBottles}`,
@@ -503,8 +505,16 @@ export default function BottlingFloor() {
       const runRecipe = recipes.find(r => r.id === run.recipe_id);
       if (runRecipe?.packaging?.length && run.bottles_produced > 0) {
         const allRM = await db.RawMaterial.list('name', 5000);
-        // Work out how many cases were in this run
-        const casesInRun = Math.floor((run.bottles_produced || 0) / (runRecipe.bottles_per_case || 6));
+        // Cases actually bottled, as recorded at completion time — NOT
+        // recomputed via floor(bottles_produced / bottles_per_case), which
+        // silently mismatches the true original case count whenever
+        // "extra bottles" reached a full case's worth or the packaging
+        // recipe's bottles_per_case changed since. Runs from before this
+        // field existed fall back to the old reconstruction as a
+        // best-effort (using the run's own bottles_per_case if it has one,
+        // since that's what was true when it happened, not the recipe's
+        // current value).
+        const casesInRun = run.cases_produced ?? Math.floor((run.bottles_produced || 0) / (run.bottles_per_case || runRecipe.bottles_per_case || 6));
         for (const pkg of runRecipe.packaging) {
           if (!pkg.name) continue;
           const totalToRestore = isBoxOrCase(pkg.name)

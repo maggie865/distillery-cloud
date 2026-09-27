@@ -460,10 +460,26 @@ export default function StockTakes() {
                   onClick={() => {
                     const countedLines = allLines.filter(l => l.stock_take_id === activeStockTake && l.counted_quantity != null && l.variance != null);
                     const zeroLines = countedLines.filter(l => l.counted_quantity === 0);
-                    const msg = zeroLines.length > 0
-                      ? `This will update ${countedLines.length} item(s) to their counted quantities — including ${zeroLines.length} item(s) that will be set to ZERO. Lines you left blank will NOT be changed. Continue?`
-                      : `This will update ${countedLines.length} item(s) to their counted quantities. Lines you left blank will NOT be changed. Continue?`;
-                    if (confirm(msg)) {
+                    // A stock take is the one place a number gets overwritten
+                    // directly rather than derived from a transaction — a
+                    // fat-fingered count here becomes the new "system truth"
+                    // with nothing to catch it afterward. Surfacing anything
+                    // with a big swing (>20%, or any change on an item the
+                    // system had at zero) before committing gives a last
+                    // chance to catch a typo instead of baking it in.
+                    const bigVariances = countedLines.filter(l => {
+                      const sys = l.system_quantity || 0;
+                      if (sys === 0) return (l.variance || 0) !== 0;
+                      return Math.abs((l.variance || 0) / sys) > 0.2;
+                    });
+                    let msg = zeroLines.length > 0
+                      ? `This will update ${countedLines.length} item(s) to their counted quantities — including ${zeroLines.length} item(s) that will be set to ZERO. Lines you left blank will NOT be changed.`
+                      : `This will update ${countedLines.length} item(s) to their counted quantities. Lines you left blank will NOT be changed.`;
+                    if (bigVariances.length > 0) {
+                      const preview = bigVariances.slice(0, 8).map(l => `${l.material_name}: system ${l.system_quantity} → counted ${l.counted_quantity} (${l.variance > 0 ? '+' : ''}${l.variance})`).join('\n');
+                      msg += `\n\n⚠ ${bigVariances.length} item(s) have a large variance (>20% off system, or new from zero) — double-check these aren't a typo before continuing:\n${preview}${bigVariances.length > 8 ? `\n…and ${bigVariances.length - 8} more` : ''}`;
+                    }
+                    if (confirm(`${msg}\n\nContinue?`)) {
                       applyVariancesMutation.mutate(activeStockTake);
                     }
                   }}

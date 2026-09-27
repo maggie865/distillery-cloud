@@ -115,6 +115,16 @@ export default function BottlingRunTracker({ run, onComplete, onCancel, isComple
       toast.error('No finished bottles recorded yet');
       return;
     }
+    // "Extra bottles" only means loose bottles that didn't fill a case — a
+    // value at or above bottlesPerCase means at least one more full case
+    // actually got bottled. Letting that through would under-count cases
+    // (and, worse, silently corrupt packaging stock later: deleting this
+    // run reconstructs cases from bottles_produced, which only matches the
+    // true case count when extra bottles stays below one case).
+    if (extraCount >= bottlesPerCase) {
+      toast.error(`Extra bottles (${extraCount}) is a full case or more — add ${Math.floor(extraCount / bottlesPerCase)} to Cases Produced instead, leaving only the true leftover below ${bottlesPerCase}.`);
+      return;
+    }
     localStorage.removeItem(DRAFT_KEY(run));
     onComplete({
       cases: caseCount,
