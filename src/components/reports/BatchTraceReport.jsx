@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Search, ChevronDown, ChevronUp, Flame, Wine, Package2, FlaskConical, Leaf, Truck, Users, X } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Flame, Wine, Package2, FlaskConical, Leaf, Truck, Users, X, Warehouse } from 'lucide-react';
 import { format } from 'date-fns';
 import StatusBadge from '@/components/shared/StatusBadge';
 import Pagination from '@/components/ui/Pagination';
@@ -56,7 +56,7 @@ function LotTag({ icon: Icon, color, label, value }) {
   );
 }
 
-function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatches = [], resolveEthanolBatchCode, resolveReceivingBatchCode }) {
+function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatches = [], warehouseStock = [], resolveEthanolBatchCode, resolveReceivingBatchCode }) {
   const [expanded, setExpanded] = useState(false);
   const [showCustomers, setShowCustomers] = useState(false);
 
@@ -66,6 +66,26 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatch
   );
   const totalDispatched = batchDispatches.reduce((s, d) => s + (d.quantity_bottles || 0), 0);
   const uniqueCustomers = [...new Set(batchDispatches.map(d => d.customer_name).filter(Boolean))];
+
+  // Warehouse transfers (Auckland 3PL / UK Bonded) for this batch — these
+  // moved bottles out of Bluff's own stock just as surely as a customer
+  // dispatch did, but were previously invisible here since this report
+  // never looked at warehouse_stock at all. A transfer isn't a sale (the
+  // bottles may still be sitting in that warehouse, or may since have been
+  // dispatched again from there — that second leg shows up in
+  // batchDispatches too, as its own dispatched_from), so it's shown
+  // separately rather than folded into "dispatched".
+  const batchTransfers = warehouseStock.filter(w =>
+    (w.batch_number || '').toLowerCase().trim() === batchNumber.toLowerCase().trim()
+  ).map(w => ({
+    location: w.warehouse_location || 'Auckland 3PL',
+    bottles: w.original_quantity_bottles ?? w.quantity_bottles ?? 0,
+    remaining: w.quantity_bottles ?? 0,
+    date: w.transfer_date || w.date_transferred_in,
+    product_name: w.product_name,
+    bottle_size_ml: w.bottle_size_ml,
+  }));
+  const totalTransferred = batchTransfers.reduce((s, t) => s + t.bottles, 0);
 
   // Summary stats
   const totalOutLALs = distillations.reduce((s, d) => s + (d.output_lals || 0), 0);
@@ -152,9 +172,9 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatch
             className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
           >
             <Users className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Who received this?</span>
-            <span className="sm:hidden">Customers</span>
-            {totalDispatched > 0 && <span className="font-bold">{totalDispatched}</span>}
+            <span className="hidden sm:inline">Where did this go?</span>
+            <span className="sm:hidden">Trace</span>
+            {(totalDispatched + totalTransferred) > 0 && <span className="font-bold">{totalDispatched + totalTransferred}</span>}
           </button>
           {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
         </div>
@@ -263,11 +283,14 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatch
         >
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <div>
-              <h2 className="font-semibold text-base">Who received batch {batchNumber}?</h2>
+              <h2 className="font-semibold text-base">Where did batch {batchNumber} go?</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {batchDispatches.length === 0
-                  ? 'No dispatches recorded for this batch'
-                  : `${totalDispatched} bottles dispatched to ${uniqueCustomers.length} customer${uniqueCustomers.length !== 1 ? 's' : ''}`}
+                {batchDispatches.length === 0 && batchTransfers.length === 0
+                  ? 'No dispatches or transfers recorded for this batch'
+                  : [
+                      totalDispatched > 0 && `${totalDispatched} bottles dispatched to ${uniqueCustomers.length} customer${uniqueCustomers.length !== 1 ? 's' : ''}`,
+                      totalTransferred > 0 && `${totalTransferred} transferred to ${new Set(batchTransfers.map(t => t.location)).size} warehouse${new Set(batchTransfers.map(t => t.location)).size !== 1 ? 's' : ''}`,
+                    ].filter(Boolean).join(' · ')}
               </p>
             </div>
             <button
@@ -278,22 +301,41 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatch
             </button>
           </div>
           <div className="overflow-y-auto flex-1">
-            {batchDispatches.length === 0 ? (
+            {batchDispatches.length === 0 && batchTransfers.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-sm">
                 <Truck className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                No dispatch records found for this batch number.
+                No dispatch or transfer records found for this batch number.
               </div>
             ) : (
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-muted/80 backdrop-blur">
                   <tr>
-                    <th className="text-left px-5 py-3 font-medium text-muted-foreground text-xs">Customer</th>
+                    <th className="text-left px-5 py-3 font-medium text-muted-foreground text-xs">Customer / Destination</th>
                     <th className="text-left px-3 py-3 font-medium text-muted-foreground text-xs">Date</th>
                     <th className="text-left px-3 py-3 font-medium text-muted-foreground text-xs hidden sm:table-cell">Product</th>
                     <th className="text-right px-5 py-3 font-medium text-muted-foreground text-xs">Bottles</th>
                   </tr>
                 </thead>
                 <tbody>
+                  {batchTransfers.map((t, i) => (
+                    <tr key={`transfer-${i}`} className="border-t border-border">
+                      <td className="px-5 py-3 font-medium">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-md bg-indigo-50 border border-indigo-200 text-indigo-700 font-medium">
+                            <Warehouse className="w-3 h-3" /> Transfer
+                          </span>
+                          {t.location}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-muted-foreground text-xs">
+                        {t.date ? format(new Date(t.date), 'MMM d, yyyy') : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-muted-foreground text-xs hidden sm:table-cell">
+                        {t.product_name || '—'}{t.bottle_size_ml ? ` ${t.bottle_size_ml}ml` : ''}
+                      </td>
+                      <td className="px-5 py-3 text-right font-semibold">{t.bottles}</td>
+                    </tr>
+                  ))}
                   {batchDispatches.map((d, i) => (
                     <tr key={d.id || i} className="border-t border-border">
                       <td className="px-5 py-3 font-medium">{d.customer_name || '—'}</td>
@@ -311,7 +353,7 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatch
                   <tr className="border-t-2 border-border bg-muted/30">
                     <td colSpan={2} className="px-5 py-3 font-semibold text-xs">Total</td>
                     <td className="hidden sm:table-cell" />
-                    <td className="px-5 py-3 text-right font-bold text-sm">{totalDispatched}</td>
+                    <td className="px-5 py-3 text-right font-bold text-sm">{totalDispatched + totalTransferred}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -347,6 +389,11 @@ export default function BatchTraceReport() {
   const { data: dispatches = [] } = useQuery({
     queryKey: ['dispatches'],
     queryFn: () => base44.entities.Dispatch.list('-dispatch_date', 5000),
+  });
+
+  const { data: warehouseStock = [] } = useQuery({
+    queryKey: ['warehouseStock'],
+    queryFn: () => base44.entities.WarehouseStock.list('-date_transferred_in', 5000),
   });
 
   const { data: receiving = [] } = useQuery({
@@ -455,6 +502,7 @@ export default function BatchTraceReport() {
               bottlings={bs}
               subBatches={subBatches.filter(s => s.master_batch_code === batchNumber)}
               dispatches={dispatches}
+              warehouseStock={warehouseStock}
               resolveEthanolBatchCode={resolveEthanolBatchCode}
               resolveReceivingBatchCode={resolveReceivingBatchCode}
             />
