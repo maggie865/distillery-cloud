@@ -61,6 +61,7 @@ export default function LogContactDialog({ customer, open, onOpenChange }) {
       follow_up_date: form.follow_up_required && form.follow_up_date ? form.follow_up_date : null,
       follow_up_task: form.follow_up_required ? form.follow_up_task || null : null,
       recorded_by: user?.full_name || null,
+      created_by_user_id: user?.id || null,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customerActivities'] });

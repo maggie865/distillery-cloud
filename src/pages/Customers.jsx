@@ -138,11 +138,9 @@ export default function Customers() {
   return (
     <div>
       <PageHeader title={isSalesRep ? 'My Customers' : 'Customers'} subtitle={isSalesRep ? 'Your accounts, prioritized and up to date' : 'Your customer accounts, activity and follow-ups'}>
-        {!isSalesRep && (
-          <Button onClick={() => setShowForm(true)} className="gap-2">
-            <Plus className="w-4 h-4" /> Add Customer
-          </Button>
-        )}
+        <Button onClick={() => setShowForm(true)} className="gap-2">
+          <Plus className="w-4 h-4" /> Add Customer
+        </Button>
       </PageHeader>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>

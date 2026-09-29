@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { db, listSalesReps } from '@/api/supabaseClient';
+import { useAuth } from '@/lib/AuthContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +30,8 @@ const blankForm = () => ({
 
 export default function CustomerFormDialog({ customer, open, onOpenChange }) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isSalesRep = user?.role === 'sales_rep';
   const [form, setForm] = useState(blankForm());
 
   // Sales Rep portal scoping reads this to decide which customers a rep
@@ -68,9 +71,13 @@ export default function CustomerFormDialog({ customer, open, onOpenChange }) {
         assigned_rep_id: customer.assigned_rep_id || '',
       });
     } else if (open) {
-      setForm(blankForm());
+      // A rep adding a new customer almost always means it's theirs — default
+      // the assignment to themselves rather than leaving it Unassigned (and
+      // invisible to their own scoped Customers/Sales/Dispatch views) until
+      // someone remembers to set it. Still fully editable — no restriction.
+      setForm({ ...blankForm(), assigned_rep_id: isSalesRep ? user.id : '' });
     }
-  }, [customer, open]);
+  }, [customer, open, isSalesRep, user?.id]);
 
   const set = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
 
