@@ -107,6 +107,7 @@ export const db = {
   CustomerLocationAllocation: makeEntity('CustomerLocationAllocation'),
   CustomerOrder:     makeEntity('CustomerOrder'),
   CustomerParLevel:  makeEntity('CustomerParLevel'),
+  CustomerPin:       makeEntity('CustomerPin'),
   CustomerRequest:   makeEntity('CustomerRequest'),
   CustomerStockCheck: makeEntity('CustomerStockCheck'),
   DashboardLink:     makeEntity('DashboardLink'),
@@ -191,6 +192,11 @@ export const admin = {
   listUsers: () => supabase.rpc('list_users_for_admin'),
   setUserRole: (userId, role) => supabase.rpc('set_user_role', { target_user_id: userId, new_role: role }),
 };
+
+// Unlike admin.listUsers, callable by any signed-in user (not just
+// super_admin) — see public.list_sales_reps in 20260929000000_sales_rep_role.sql.
+// Only ever returns id/name for accounts already in the sales_rep role.
+export const listSalesReps = () => supabase.rpc('list_sales_reps');
 
 // ── Order numbering — atomic, server-side (see generate_order_number() in
 // supabase/migrations/) — never generate order numbers client-side. ────────

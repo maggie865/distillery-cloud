@@ -6,13 +6,14 @@ import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { useCustomersWithStats } from '@/hooks/useCustomersWithStats';
 import { useCustomerStockAlerts } from '@/hooks/useCustomerStock';
+import { useCustomerPins } from '@/hooks/useCustomerPins';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import PageHeader from '@/components/shared/PageHeader';
 import LogVisitDialog from '@/components/customers/LogVisitDialog';
 import LogContactDialog from '@/components/customers/LogContactDialog';
 import CustomerStockAlertsList from '@/components/customers/CustomerStockAlertsList';
-import { Store, MessageCircle, ArrowRight, PackageCheck, AlertTriangle, MailWarning, CheckCircle2 } from 'lucide-react';
+import { Store, MessageCircle, ArrowRight, PackageCheck, AlertTriangle, MailWarning, CheckCircle2, Star } from 'lucide-react';
 import { format, startOfMonth, formatDistanceToNow } from 'date-fns';
 import { daysSince } from '@/lib/customerHealth';
 
@@ -29,12 +30,26 @@ export default function SalesOverview() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const { rows, activities, requests, isLoading } = useCustomersWithStats();
-  const { alerts: stockAlerts } = useCustomerStockAlerts();
-  const { data: dispatches = [] } = useQuery({ queryKey: ['dispatches-all'], queryFn: () => db.Dispatch.list('-dispatch_date', 5000) });
-  const { data: customerOrders = [] } = useQuery({ queryKey: ['customerOrders'], queryFn: () => db.CustomerOrder.list('-order_date', 5000) });
+  const isSalesRep = user?.role === 'sales_rep';
+  const { rows: allRows, activities: allActivities, requests: allRequests, isLoading } = useCustomersWithStats();
+  const { alerts: allStockAlerts } = useCustomerStockAlerts();
+  const { data: allDispatches = [] } = useQuery({ queryKey: ['dispatches-all'], queryFn: () => db.Dispatch.list('-dispatch_date', 5000) });
+  const { data: allCustomerOrders = [] } = useQuery({ queryKey: ['customerOrders'], queryFn: () => db.CustomerOrder.list('-order_date', 5000) });
+  const { pinnedIds, togglePin } = useCustomerPins();
   const [logVisitFor, setLogVisitFor] = useState(null);
   const [logContactFor, setLogContactFor] = useState(null);
+
+  // A Sales Rep's whole dashboard is scoped to just their own book —
+  // nothing here should ever surface another rep's customer or activity.
+  const rows = isSalesRep ? allRows.filter((r) => r.customer.assigned_rep_id === user.id) : allRows;
+  const myCustomerIds = new Set(rows.map((r) => r.customer.id));
+  const myCustomerNames = new Set(rows.map((r) => (r.customer.business_name || '').trim().toLowerCase()));
+  const activities = isSalesRep ? allActivities.filter((a) => myCustomerIds.has(a.customer_id)) : allActivities;
+  const requests = isSalesRep ? allRequests.filter((r) => myCustomerIds.has(r.customer_id)) : allRequests;
+  const stockAlerts = isSalesRep ? allStockAlerts.filter((a) => myCustomerIds.has(a.customer.id)) : allStockAlerts;
+  const dispatches = isSalesRep ? allDispatches.filter((d) => myCustomerNames.has((d.customer_name || '').trim().toLowerCase())) : allDispatches;
+  const customerOrders = isSalesRep ? allCustomerOrders.filter((o) => myCustomerIds.has(o.customer_id)) : allCustomerOrders;
+  const pinnedRows = rows.filter((r) => pinnedIds.has(r.customer.id));
 
   const markFollowUpDoneMutation = useMutation({
     mutationFn: (activityId) => db.CustomerActivity.update(activityId, { follow_up_required: false }),
@@ -82,6 +97,31 @@ export default function SalesOverview() {
         subtitle={priority.length > 0 ? `You've got ${priority.length} customer${priority.length !== 1 ? 's' : ''} to follow up with.` : "You're all caught up — no customers need attention right now."}
       />
 
+      {pinnedRows.length > 0 && (
+        <Card className="mb-6 overflow-hidden">
+          <div className="p-5 border-b border-border flex items-center gap-2">
+            <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+            <h2 className="text-sm font-semibold text-foreground">Pinned Customers</h2>
+          </div>
+          <div className="divide-y divide-border">
+            {pinnedRows.map((r) => (
+              <div key={r.customer.id} className="flex items-center gap-3 p-4">
+                <button onClick={() => navigate(`/customers/${r.customer.id}`)} className="min-w-0 flex-1 text-left">
+                  <p className="text-sm font-medium text-foreground truncate">{r.customer.business_name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{r.customer.city || r.customer.region || ''}</p>
+                </button>
+                <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => setLogVisitFor(r.customer)}>
+                  <Store className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Log Visit</span>
+                </Button>
+                <Button size="sm" variant="ghost" className="shrink-0" onClick={() => togglePin(r.customer.id)} title="Unpin">
+                  <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {!isLoading && priority.length > 0 && (
         <Card className="mb-6 overflow-hidden">
           <div className="p-5 border-b border-border flex items-center justify-between">
@@ -106,6 +146,9 @@ export default function SalesOverview() {
                 </Button>
                 <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => setLogContactFor(r.customer)}>
                   <MessageCircle className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Log Contact</span>
+                </Button>
+                <Button size="sm" variant="ghost" className="shrink-0" onClick={() => togglePin(r.customer.id)} title={pinnedIds.has(r.customer.id) ? 'Unpin' : 'Pin to top'}>
+                  <Star className={`w-4 h-4 ${pinnedIds.has(r.customer.id) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'}`} />
                 </Button>
               </div>
             ))}
