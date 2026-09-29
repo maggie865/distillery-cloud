@@ -61,19 +61,6 @@ export default function Customers() {
     onError: (e) => toast.error(e.message || 'Failed to update follow-up'),
   });
 
-  // Nothing anywhere previously let a follow-up be closed out — once
-  // follow_up_required was set true on a customer_activity row (logging a
-  // visit/contact), it stayed true forever, so it kept surfacing here even
-  // after someone actually followed up. This just flips it back off.
-  const markFollowUpDoneMutation = useMutation({
-    mutationFn: (activityId) => db.CustomerActivity.update(activityId, { follow_up_required: false }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['customerActivities'] });
-      toast.success('Follow-up marked done');
-    },
-    onError: (e) => toast.error(e.message || 'Failed to update follow-up'),
-  });
-
   const [activeTab, setActiveTab] = useState('all');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
