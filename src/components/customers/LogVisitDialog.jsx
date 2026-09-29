@@ -43,11 +43,18 @@ const blankForm = () => ({
   follow_up_task: '',
 });
 
-export default function LogVisitDialog({ customer, open, onOpenChange }) {
+// customer: fixed customer (existing per-customer entry points, e.g. from
+// Customer Detail). Omit it and pass `customers` instead for a "quick log"
+// entry point (e.g. Sales Overview) that doesn't start from a specific
+// customer's page — a picker renders in its place.
+export default function LogVisitDialog({ customer, customers, open, onOpenChange }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [form, setForm] = useState(blankForm());
   const [productPick, setProductPick] = useState('');
+  const [pickedCustomerId, setPickedCustomerId] = useState('');
+
+  const activeCustomer = customer || (customers || []).find((c) => c.id === pickedCustomerId) || null;
 
   const productsQuery = useQuery({ queryKey: ['recipes'], queryFn: () => db.Recipe.list('name', 500) });
   const productOptions = (productsQuery.data || []).filter((p) => !form.discussed_products.includes(p.name));
@@ -56,7 +63,7 @@ export default function LogVisitDialog({ customer, open, onOpenChange }) {
 
   const mutation = useMutation({
     mutationFn: () => db.CustomerActivity.create({
-      customer_id: customer.id,
+      customer_id: activeCustomer.id,
       type: 'visit',
       date: form.date,
       time: form.time || null,
@@ -68,25 +75,39 @@ export default function LogVisitDialog({ customer, open, onOpenChange }) {
       follow_up_date: form.follow_up_required && form.follow_up_date ? form.follow_up_date : null,
       follow_up_task: form.follow_up_required ? form.follow_up_task || null : null,
       recorded_by: user?.full_name || null,
+      created_by_user_id: user?.id || null,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customerActivities'] });
       toast.success('Visit logged');
       onOpenChange(false);
       setForm(blankForm());
+      setPickedCustomerId('');
     },
     onError: (e) => toast.error('Failed to save: ' + e.message),
   });
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setForm(blankForm()); }}>
+    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) { setForm(blankForm()); setPickedCustomerId(''); } }}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader><DialogTitle className="font-display">Log Store Visit</DialogTitle></DialogHeader>
-        <form onSubmit={(e) => { e.preventDefault(); mutation.mutate(); }} className="space-y-4 mt-2">
-          <div>
-            <Label className="text-xs text-muted-foreground">Customer</Label>
-            <p className="text-sm font-semibold">{customer.business_name}</p>
-          </div>
+        <form onSubmit={(e) => { e.preventDefault(); if (activeCustomer) mutation.mutate(); }} className="space-y-4 mt-2">
+          {customer ? (
+            <div>
+              <Label className="text-xs text-muted-foreground">Customer</Label>
+              <p className="text-sm font-semibold">{customer.business_name}</p>
+            </div>
+          ) : (
+            <div>
+              <Label>Customer</Label>
+              <Select value={pickedCustomerId} onValueChange={setPickedCustomerId}>
+                <SelectTrigger><SelectValue placeholder="Select a customer…" /></SelectTrigger>
+                <SelectContent>
+                  {(customers || []).map((c) => <SelectItem key={c.id} value={c.id}>{c.business_name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -175,7 +196,7 @@ export default function LogVisitDialog({ customer, open, onOpenChange }) {
             )}
           </div>
 
-          <Button type="submit" className="w-full" disabled={mutation.isPending}>
+          <Button type="submit" className="w-full" disabled={mutation.isPending || !activeCustomer}>
             {mutation.isPending ? 'Saving…' : 'Save Visit'}
           </Button>
         </form>

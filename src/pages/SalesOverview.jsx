@@ -12,9 +12,10 @@ import { Button } from '@/components/ui/button';
 import PageHeader from '@/components/shared/PageHeader';
 import LogVisitDialog from '@/components/customers/LogVisitDialog';
 import LogContactDialog from '@/components/customers/LogContactDialog';
+import CustomerFormDialog from '@/components/customers/CustomerFormDialog';
 import CustomerStockAlertsList from '@/components/customers/CustomerStockAlertsList';
-import { Store, MessageCircle, ArrowRight, PackageCheck, AlertTriangle, MailWarning, CheckCircle2, Star } from 'lucide-react';
-import { format, startOfMonth, formatDistanceToNow } from 'date-fns';
+import { Store, MessageCircle, ArrowRight, PackageCheck, AlertTriangle, MailWarning, CheckCircle2, Star, UserPlus, BellRing } from 'lucide-react';
+import { format, startOfMonth, formatDistanceToNow, parseISO, isBefore, startOfToday } from 'date-fns';
 import { daysSince } from '@/lib/customerHealth';
 
 const RESERVING_STATUSES = new Set(['pending', 'picking', 'ready']);
@@ -38,6 +39,8 @@ export default function SalesOverview() {
   const { pinnedIds, togglePin } = useCustomerPins();
   const [logVisitFor, setLogVisitFor] = useState(null);
   const [logContactFor, setLogContactFor] = useState(null);
+  const [showQuickLogVisit, setShowQuickLogVisit] = useState(false);
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
 
   // A Sales Rep's whole dashboard is scoped to just their own book —
   // nothing here should ever surface another rep's customer or activity.
@@ -90,12 +93,71 @@ export default function SalesOverview() {
     return withCustomer.filter((a) => a.customer).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 8);
   }, [activities, rows]);
 
+  // "Notify the rep who logged a follow-up when it's due" — no push/email
+  // infrastructure exists yet, so this is the in-app equivalent: surfaced
+  // here the next time they open the app on or after the due date.
+  // Deliberately keyed off created_by_user_id (who actually logged it), not
+  // customer ownership — uses the FULL activity/customer lists rather than
+  // the already-scoped ones above, since a follow-up someone logged should
+  // still surface to them even if the customer's assignment changes later.
+  const myFollowUpsDue = useMemo(() => {
+    if (!user?.id) return [];
+    const today = startOfToday();
+    return allActivities
+      .filter((a) => a.created_by_user_id === user.id && a.follow_up_required && a.follow_up_date && !isBefore(today, parseISO(a.follow_up_date)))
+      .map((a) => ({ ...a, customer: allRows.find((r) => r.customer.id === a.customer_id)?.customer }))
+      .filter((a) => a.customer)
+      .sort((a, b) => a.follow_up_date.localeCompare(b.follow_up_date));
+  }, [allActivities, allRows, user?.id]);
+
   return (
     <div>
       <PageHeader
         title={`${greetingForNow()}, ${(user?.full_name || '').split(' ')[0] || ''}.`}
         subtitle={priority.length > 0 ? `You've got ${priority.length} customer${priority.length !== 1 ? 's' : ''} to follow up with.` : "You're all caught up — no customers need attention right now."}
       />
+
+      {/* Always-visible quick actions — the two things a rep needs the
+          moment they open the app on the road, without navigating anywhere
+          first. Log Visit here opens the customer-picker variant of the
+          dialog (no pre-selected customer); the per-row "Log Visit" buttons
+          further down still jump straight in for a known customer. */}
+      <div className="flex gap-3 mb-6">
+        <Button className="flex-1 h-14 text-base gap-2" onClick={() => setShowQuickLogVisit(true)}>
+          <Store className="w-5 h-5" /> Log a Visit
+        </Button>
+        <Button variant="outline" className="flex-1 h-14 text-base gap-2" onClick={() => setShowAddCustomer(true)}>
+          <UserPlus className="w-5 h-5" /> Add Customer
+        </Button>
+      </div>
+
+      {myFollowUpsDue.length > 0 && (
+        <Card className="mb-6 overflow-hidden border-destructive/30">
+          <div className="p-5 border-b border-border flex items-center gap-2 bg-destructive/5">
+            <BellRing className="w-4 h-4 text-destructive" />
+            <h2 className="text-sm font-semibold text-foreground">Your Follow-ups Due</h2>
+            <span className="text-xs text-muted-foreground">— logged by you, due now</span>
+          </div>
+          <div className="divide-y divide-border">
+            {myFollowUpsDue.map((a) => {
+              const overdue = a.follow_up_date < todayStr;
+              return (
+                <div key={a.id} className="flex items-center gap-3 p-4">
+                  <button onClick={() => navigate(`/customers/${a.customer.id}`)} className="min-w-0 flex-1 text-left">
+                    <p className="text-sm font-medium text-foreground truncate">{a.customer.business_name}</p>
+                    <p className={`text-xs truncate ${overdue ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+                      {a.follow_up_task || 'Follow-up'} — {overdue ? `overdue since ${format(parseISO(a.follow_up_date), 'd MMM')}` : 'due today'}
+                    </p>
+                  </button>
+                  <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => markFollowUpDoneMutation.mutate(a.id)}>
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Done
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       {pinnedRows.length > 0 && (
         <Card className="mb-6 overflow-hidden">
@@ -254,6 +316,8 @@ export default function SalesOverview() {
 
       {logVisitFor && <LogVisitDialog customer={logVisitFor} open={!!logVisitFor} onOpenChange={(v) => !v && setLogVisitFor(null)} />}
       {logContactFor && <LogContactDialog customer={logContactFor} open={!!logContactFor} onOpenChange={(v) => !v && setLogContactFor(null)} />}
+      <LogVisitDialog customers={rows.map((r) => r.customer)} open={showQuickLogVisit} onOpenChange={setShowQuickLogVisit} />
+      <CustomerFormDialog open={showAddCustomer} onOpenChange={setShowAddCustomer} />
     </div>
   );
 }

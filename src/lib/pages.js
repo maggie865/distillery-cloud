@@ -26,7 +26,7 @@ import {
   Warehouse, Building2, FileText, Settings as SettingsIcon, PackagePlus,
   Truck, ClipboardList, Thermometer, Wrench, Bug, AlertTriangle, CheckSquare,
   Leaf, Archive, Zap, ShieldCheck, Activity, ClipboardCheck, Recycle, Target, Scale, ClipboardPen, Globe2,
-  Factory, Boxes, CalendarDays, GraduationCap, BookOpen,
+  Factory, Boxes, CalendarDays, GraduationCap, BookOpen, Megaphone,
 } from 'lucide-react';
 
 import Compliance from '@/pages/Compliance';
@@ -71,6 +71,7 @@ import StaffTraining from '@/pages/StaffTraining';
 import StaffTrainingDetail from '@/pages/StaffTrainingDetail';
 import SOPLibrary from '@/pages/SOPLibrary';
 import SOPDetail from '@/pages/SOPDetail';
+import PromoCalendar from '@/pages/PromoCalendar';
 
 export const NAV_GROUPS = ['Production', 'Stock', 'Sales', 'Compliance', 'EMS'];
 
@@ -98,6 +99,7 @@ export const PAGES = [
   { key: 'customers',         label: 'Customers',         path: '/customers',         icon: Users,         component: Customers,         navGroup: 'Sales' },
   { key: 'customer-detail',   label: 'Customer Detail',   path: '/customers/:customerId', icon: Users,     component: CustomerDetail,    navGroup: null },
   { key: 'order-detail',      label: 'Order Detail',      path: '/customers/:customerId/orders/:orderId', icon: Users, component: OrderDetail, navGroup: null },
+  { key: 'promo-calendar',    label: 'Promo Calendar',    path: '/promo-calendar',    icon: Megaphone,     component: PromoCalendar,     navGroup: 'Sales' },
   { key: 'suppliers',         label: 'Suppliers',         path: '/suppliers',         icon: Truck,         component: Suppliers,         navGroup: 'Sales' },
 
   { key: 'compliance',        label: 'Compliance',        path: '/compliance',        icon: ClipboardCheck, component: Compliance,       navGroup: 'Compliance', isHub: true },

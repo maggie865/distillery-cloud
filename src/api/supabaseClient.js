@@ -109,6 +109,7 @@ export const db = {
   CustomerParLevel:  makeEntity('CustomerParLevel'),
   CustomerPin:       makeEntity('CustomerPin'),
   CustomerRequest:   makeEntity('CustomerRequest'),
+  PromoEvent:        makeEntity('PromoEvent'),
   CustomerStockCheck: makeEntity('CustomerStockCheck'),
   DashboardLink:     makeEntity('DashboardLink'),
   Dilution:          makeEntity('Dilution'),
