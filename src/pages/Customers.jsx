@@ -2,8 +2,10 @@ import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { db } from '@/api/supabaseClient';
+import { useAuth } from '@/lib/AuthContext';
 import { useCustomersWithStats } from '@/hooks/useCustomersWithStats';
 import { useCustomerGroups } from '@/hooks/useCustomerGroups';
+import { useCustomerPins } from '@/hooks/useCustomerPins';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -11,7 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Plus, Search, X, Eye, EyeOff, Tag } from 'lucide-react';
+import { Plus, Search, X, Eye, EyeOff, Tag, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
 import Pagination from '@/components/ui/Pagination';
@@ -36,8 +38,15 @@ function relativeDays(dateStr) {
 export default function Customers() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { rows, isLoading } = useCustomersWithStats();
+  const { user } = useAuth();
+  const isSalesRep = user?.role === 'sales_rep';
+  const { rows: allRows, isLoading } = useCustomersWithStats();
   const { groups, groupsByCustomerId, bulkAddToGroup } = useCustomerGroups();
+  const { pinnedIds, togglePin } = useCustomerPins();
+
+  // A Sales Rep only ever sees the customers assigned to them — nothing
+  // company-wide. Every other role keeps seeing everyone, unchanged.
+  const rows = isSalesRep ? allRows.filter((r) => r.customer.assigned_rep_id === user.id) : allRows;
 
   // Nothing anywhere previously let a follow-up be closed out — once
   // follow_up_required was set true on a customer_activity row (logging a
@@ -85,7 +94,7 @@ export default function Customers() {
     const matchFollowUp = !followUpOverdueOnly || r.followUp?.overdue;
     const matchRequest = !openRequestOnly || r.openRequests.length > 0;
     return matchSearch && matchType && matchRegion && matchStatus && matchManager && matchGroup && matchVisitOverdue && matchFollowUp && matchRequest;
-  });
+  }).sort((a, b) => (pinnedIds.has(b.customer.id) ? 1 : 0) - (pinnedIds.has(a.customer.id) ? 1 : 0));
   const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   const pagedAllSelected = paged.length > 0 && paged.every((r) => selectedIds.has(r.customer.id));
@@ -128,10 +137,12 @@ export default function Customers() {
 
   return (
     <div>
-      <PageHeader title="Customers" subtitle="Your customer accounts, activity and follow-ups">
-        <Button onClick={() => setShowForm(true)} className="gap-2">
-          <Plus className="w-4 h-4" /> Add Customer
-        </Button>
+      <PageHeader title={isSalesRep ? 'My Customers' : 'Customers'} subtitle={isSalesRep ? 'Your accounts, prioritized and up to date' : 'Your customer accounts, activity and follow-ups'}>
+        {!isSalesRep && (
+          <Button onClick={() => setShowForm(true)} className="gap-2">
+            <Plus className="w-4 h-4" /> Add Customer
+          </Button>
+        )}
       </PageHeader>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -139,9 +150,9 @@ export default function Customers() {
           <TabsTrigger value="all">All Customers</TabsTrigger>
           <TabsTrigger value="attention">Needs Attention</TabsTrigger>
           <TabsTrigger value="visit-report">Visit Report</TabsTrigger>
-          <TabsTrigger value="map">Map</TabsTrigger>
-          <TabsTrigger value="groups">Groups</TabsTrigger>
-          <TabsTrigger value="duplicates">Duplicates</TabsTrigger>
+          {!isSalesRep && <TabsTrigger value="map">Map</TabsTrigger>}
+          {!isSalesRep && <TabsTrigger value="groups">Groups</TabsTrigger>}
+          {!isSalesRep && <TabsTrigger value="duplicates">Duplicates</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="all">
@@ -158,13 +169,15 @@ export default function Customers() {
                   {CUSTOMER_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Select value={regionFilter} onValueChange={(v) => { setRegionFilter(v); setPage(1); }}>
-                <SelectTrigger className="w-full lg:w-40"><SelectValue placeholder="Region" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Regions</SelectItem>
-                  {regions.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              {!isSalesRep && (
+                <Select value={regionFilter} onValueChange={(v) => { setRegionFilter(v); setPage(1); }}>
+                  <SelectTrigger className="w-full lg:w-40"><SelectValue placeholder="Region" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Regions</SelectItem>
+                    {regions.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
               <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
                 <SelectTrigger className="w-full lg:w-40"><SelectValue placeholder="Status" /></SelectTrigger>
                 <SelectContent>
@@ -172,22 +185,26 @@ export default function Customers() {
                   {CUSTOMER_STATUSES.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Select value={managerFilter} onValueChange={(v) => { setManagerFilter(v); setPage(1); }}>
-                <SelectTrigger className="w-full lg:w-44"><SelectValue placeholder="Account Manager" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Managers</SelectItem>
-                  {managers.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <Select value={groupFilter} onValueChange={(v) => { setGroupFilter(v); setPage(1); }}>
-                <SelectTrigger className="w-full lg:w-40"><SelectValue placeholder="Group" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Groups</SelectItem>
-                  {groups.map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              {!isSalesRep && (
+                <Select value={managerFilter} onValueChange={(v) => { setManagerFilter(v); setPage(1); }}>
+                  <SelectTrigger className="w-full lg:w-44"><SelectValue placeholder="Account Manager" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Managers</SelectItem>
+                    {managers.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
+              {!isSalesRep && (
+                <Select value={groupFilter} onValueChange={(v) => { setGroupFilter(v); setPage(1); }}>
+                  <SelectTrigger className="w-full lg:w-40"><SelectValue placeholder="Group" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Groups</SelectItem>
+                    {groups.map((g) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
-            {groupFilter !== 'all' && (
+            {!isSalesRep && groupFilter !== 'all' && (
               <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border text-sm">
                 <span className="text-muted-foreground">Showing group:</span>
                 <span className="font-medium">{groups.find((g) => g.id === groupFilter)?.name}</span>
@@ -207,7 +224,7 @@ export default function Customers() {
             </div>
           </Card>
 
-          {selectedIds.size > 0 && (
+          {!isSalesRep && selectedIds.size > 0 && (
             <Card className="p-3 mb-4 flex flex-wrap items-center gap-3 bg-accent/40 border-primary/20">
               <span className="text-sm font-medium">{selectedIds.size} selected</span>
               <div className="flex items-center gap-1.5">
@@ -239,7 +256,7 @@ export default function Customers() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-10">
-                      <Checkbox checked={pagedAllSelected} onCheckedChange={toggleAllOnPage} aria-label="Select all on page" />
+                      {isSalesRep ? '' : <Checkbox checked={pagedAllSelected} onCheckedChange={toggleAllOnPage} aria-label="Select all on page" />}
                     </TableHead>
                     <TableHead>Customer</TableHead>
                     <TableHead>Location</TableHead>
@@ -260,7 +277,13 @@ export default function Customers() {
                   ) : paged.map((r) => (
                     <TableRow key={r.customer.id} className="cursor-pointer" onClick={() => navigate(`/customers/${r.customer.id}`)}>
                       <TableCell onClick={(e) => e.stopPropagation()}>
-                        <Checkbox checked={selectedIds.has(r.customer.id)} onCheckedChange={() => toggleRow(r.customer.id)} aria-label={`Select ${r.customer.business_name}`} />
+                        {isSalesRep ? (
+                          <button onClick={() => togglePin(r.customer.id)} title={pinnedIds.has(r.customer.id) ? 'Unpin' : 'Pin to top'}>
+                            <Star className={`w-4 h-4 ${pinnedIds.has(r.customer.id) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground'}`} />
+                          </button>
+                        ) : (
+                          <Checkbox checked={selectedIds.has(r.customer.id)} onCheckedChange={() => toggleRow(r.customer.id)} aria-label={`Select ${r.customer.business_name}`} />
+                        )}
                       </TableCell>
                       <TableCell className="font-semibold">{r.customer.business_name}</TableCell>
                       <TableCell className="text-muted-foreground">{r.customer.city || r.customer.region || '—'}</TableCell>

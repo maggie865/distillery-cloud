@@ -26,6 +26,7 @@ import DuplicateReviewDialog from '@/components/dispatch/DuplicateReviewDialog.j
 import ExciseFlags from '@/components/dispatch/ExciseFlags.jsx';
 import DeliveryMap from '@/components/sales/DeliveryMap';
 import { buildBluffProductOptions, allocateBluffLineItems } from '@/lib/dispatchAllocation';
+import { useAuth } from '@/lib/AuthContext';
 
 const DISTILLERY_ORIGIN = '250 Ocean Beach Road, Bluff, New Zealand';
 const WAREHOUSE_ADDRESS = '27 Pavillion Drive, Māngere, Auckland 2015, New Zealand';
@@ -71,12 +72,26 @@ export default function DispatchHub() {
 
   const queryClient = useQueryClient();
 
+  const { user } = useAuth();
+  const isSalesRep = user?.role === 'sales_rep';
+
   const { data: finishedGoods = [] } = useQuery({ queryKey: ['finishedGoods'], queryFn: () => db.FinishedGood.list('-created_at', 5000) });
   const { data: warehouseStock = [] } = useQuery({ queryKey: ['warehouseStock'], queryFn: () => db.WarehouseStock.list('-date_transferred_in', 5000) });
-  const { data: allDispatches = [] } = useQuery({ queryKey: ['dispatches-all'], queryFn: () => db.Dispatch.list('-dispatch_date', 5000) });
+  const { data: allDispatchesRaw = [] } = useQuery({ queryKey: ['dispatches-all'], queryFn: () => db.Dispatch.list('-dispatch_date', 5000) });
   const { data: customers = [] } = useQuery({ queryKey: ['customers'], queryFn: () => db.Customer.list('business_name', 5000) });
   const { data: customerLocations = [] } = useQuery({ queryKey: ['allCustomerLocations'], queryFn: () => db.CustomerLocation.list('location_name', 5000) });
   const locationById = new Map(customerLocations.map(l => [l.id, l]));
+
+  // A Sales Rep only ever sees dispatches for their own assigned customers —
+  // every other role (and everywhere else this list feeds: stats, the Xero
+  // duplicate check, the delivery map, DirectSalesForm/TransferTo3PLDialog's
+  // own dedupe logic) keeps seeing the full company-wide list unchanged.
+  const myCustomerNames = new Set(
+    customers.filter(c => c.assigned_rep_id === user?.id).map(c => (c.business_name || '').trim().toLowerCase())
+  );
+  const allDispatches = isSalesRep
+    ? allDispatchesRaw.filter(d => myCustomerNames.has((d.customer_name || '').trim().toLowerCase()))
+    : allDispatchesRaw;
   // Shares a query key with XeroConnectionPanel.jsx (Settings) so both stay
   // in sync off one cache entry rather than polling independently.
   const { data: xeroStatus } = useQuery({
@@ -402,19 +417,21 @@ export default function DispatchHub() {
     <div>
       <PageHeader title="Sales & Dispatch" subtitle="Record dispatches, track stock by location, and manage deliveries">
         <Button variant="outline" onClick={() => setShowMap(v => !v)} className="gap-2 hidden md:inline-flex"><MapIcon className="w-4 h-4" />{showMap ? 'Hide Map' : 'Delivery Map'}</Button>
-        <Button onClick={() => setShowTransfer3PL(true)} className="gap-2"><ArrowRightLeft className="w-4 h-4" />Transfer to 3PL</Button>
+        {!isSalesRep && <Button onClick={() => setShowTransfer3PL(true)} className="gap-2"><ArrowRightLeft className="w-4 h-4" />Transfer to 3PL</Button>}
         <Button variant="outline" onClick={() => setShowForm(true)} className="gap-2"><Truck className="w-4 h-4" />Wholesale</Button>
         <Button onClick={() => setShowDirectSalesForm(true)} className="gap-2"><Store className="w-4 h-4" />Direct Sale</Button>
-        <Button
-          variant="outline"
-          onClick={() => xeroSyncMutation.mutate()}
-          disabled={xeroSyncMutation.isPending || !xeroStatus?.connected}
-          title={xeroStatus?.connected ? undefined : 'Connect to Xero under Settings first'}
-          className="gap-2"
-        >
-          <RefreshCw className={`w-4 h-4 ${xeroSyncMutation.isPending ? 'animate-spin' : ''}`} />
-          {xeroSyncMutation.isPending ? 'Syncing…' : 'Sync Xero'}
-        </Button>
+        {!isSalesRep && (
+          <Button
+            variant="outline"
+            onClick={() => xeroSyncMutation.mutate()}
+            disabled={xeroSyncMutation.isPending || !xeroStatus?.connected}
+            title={xeroStatus?.connected ? undefined : 'Connect to Xero under Settings first'}
+            className="gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${xeroSyncMutation.isPending ? 'animate-spin' : ''}`} />
+            {xeroSyncMutation.isPending ? 'Syncing…' : 'Sync Xero'}
+          </Button>
+        )}
       </PageHeader>
 
       {showMap && <div className="mb-6"><DeliveryMap dispatches={allDispatches} customers={customers} distilleryOrigin={DISTILLERY_ORIGIN} /></div>}
@@ -431,33 +448,37 @@ export default function DispatchHub() {
             <p className="text-xs text-muted-foreground">{sub}</p>
           </div>
         ))}
-        <button
-          onClick={() => setStockLocation('Bluff')}
-          className="rounded-xl border p-4 flex flex-col gap-1 text-left bg-amber-50 border-amber-200 hover:bg-amber-100 transition-colors cursor-pointer"
-        >
-          <div className="flex items-center gap-2"><PackageCheck className="w-4 h-4 text-amber-600" /><span className="text-xs font-medium text-muted-foreground">Bluff Stock</span></div>
-          <p className="text-2xl font-bold font-display text-amber-600">{bluffBottles.toLocaleString()}</p>
-          <p className="text-xs text-muted-foreground">bottles at distillery — click to view</p>
-        </button>
-        <button
-          onClick={() => setStockLocation('3PL')}
-          className="rounded-xl border p-4 flex flex-col gap-1 text-left bg-purple-50 border-purple-200 hover:bg-purple-100 transition-colors cursor-pointer"
-        >
-          <div className="flex items-center gap-2"><PackageCheck className="w-4 h-4 text-purple-600" /><span className="text-xs font-medium text-muted-foreground">3PL Stock</span></div>
-          <p className="text-2xl font-bold font-display text-purple-600">{warehouseStock.filter(w => (w.warehouse_location || 'Auckland 3PL') === 'Auckland 3PL').reduce((s, w) => s + (w.quantity_bottles || 0), 0).toLocaleString()}</p>
-          <p className="text-xs text-muted-foreground">bottles at Auckland — click to view</p>
-        </button>
-        <button
-          onClick={() => setStockLocation('UK Bonded')}
-          className="rounded-xl border p-4 flex flex-col gap-1 text-left bg-indigo-50 border-indigo-200 hover:bg-indigo-100 transition-colors cursor-pointer"
-        >
-          <div className="flex items-center gap-2"><PackageCheck className="w-4 h-4 text-indigo-600" /><span className="text-xs font-medium text-muted-foreground">UK Bonded Stock</span></div>
-          <p className="text-2xl font-bold font-display text-indigo-600">{warehouseStock.filter(w => w.warehouse_location === 'UK Bonded').reduce((s, w) => s + (w.quantity_bottles || 0), 0).toLocaleString()}</p>
-          <p className="text-xs text-muted-foreground">under bond — no excise</p>
-        </button>
+        {!isSalesRep && (
+          <>
+            <button
+              onClick={() => setStockLocation('Bluff')}
+              className="rounded-xl border p-4 flex flex-col gap-1 text-left bg-amber-50 border-amber-200 hover:bg-amber-100 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2"><PackageCheck className="w-4 h-4 text-amber-600" /><span className="text-xs font-medium text-muted-foreground">Bluff Stock</span></div>
+              <p className="text-2xl font-bold font-display text-amber-600">{bluffBottles.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">bottles at distillery — click to view</p>
+            </button>
+            <button
+              onClick={() => setStockLocation('3PL')}
+              className="rounded-xl border p-4 flex flex-col gap-1 text-left bg-purple-50 border-purple-200 hover:bg-purple-100 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2"><PackageCheck className="w-4 h-4 text-purple-600" /><span className="text-xs font-medium text-muted-foreground">3PL Stock</span></div>
+              <p className="text-2xl font-bold font-display text-purple-600">{warehouseStock.filter(w => (w.warehouse_location || 'Auckland 3PL') === 'Auckland 3PL').reduce((s, w) => s + (w.quantity_bottles || 0), 0).toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">bottles at Auckland — click to view</p>
+            </button>
+            <button
+              onClick={() => setStockLocation('UK Bonded')}
+              className="rounded-xl border p-4 flex flex-col gap-1 text-left bg-indigo-50 border-indigo-200 hover:bg-indigo-100 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2"><PackageCheck className="w-4 h-4 text-indigo-600" /><span className="text-xs font-medium text-muted-foreground">UK Bonded Stock</span></div>
+              <p className="text-2xl font-bold font-display text-indigo-600">{warehouseStock.filter(w => w.warehouse_location === 'UK Bonded').reduce((s, w) => s + (w.quantity_bottles || 0), 0).toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">under bond — no excise</p>
+            </button>
+          </>
+        )}
       </div>
 
-      {stockLocation && (
+      {!isSalesRep && stockLocation && (
         <StockLocationDialog
           location={stockLocation}
           finishedGoods={finishedGoods}

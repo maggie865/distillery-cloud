@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { db } from '@/api/supabaseClient';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { db, listSalesReps } from '@/api/supabaseClient';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,12 +24,24 @@ const blankForm = () => ({
   business_name: '', trading_name: '', customer_type: '', delivery_address: '', postal_address: '',
   city: '', region: '', country: 'New Zealand', website: '', phone: '', email: '',
   primary_contact: '', contact_role: '', notes: '', status: 'active', account_manager: '',
-  customer_since: '', visit_frequency: '', follow_up_tracking_enabled: true,
+  customer_since: '', visit_frequency: '', follow_up_tracking_enabled: true, assigned_rep_id: '',
 });
 
 export default function CustomerFormDialog({ customer, open, onOpenChange }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState(blankForm());
+
+  // Sales Rep portal scoping reads this to decide which customers a rep
+  // sees — separate from the free-text Account Manager field below, which
+  // is just a display label with no access-control meaning.
+  const { data: salesReps = [] } = useQuery({
+    queryKey: ['salesReps'],
+    queryFn: async () => {
+      const { data, error } = await listSalesReps();
+      if (error) throw error;
+      return data || [];
+    },
+  });
 
   useEffect(() => {
     if (customer) {
@@ -53,6 +65,7 @@ export default function CustomerFormDialog({ customer, open, onOpenChange }) {
         customer_since: customer.customer_since || '',
         visit_frequency: customer.visit_frequency || '',
         follow_up_tracking_enabled: customer.follow_up_tracking_enabled !== false,
+        assigned_rep_id: customer.assigned_rep_id || '',
       });
     } else if (open) {
       setForm(blankForm());
@@ -79,6 +92,7 @@ export default function CustomerFormDialog({ customer, open, onOpenChange }) {
         customer_since: form.customer_since || null,
         visit_frequency: form.visit_frequency || null,
         trading_name: form.trading_name || null,
+        assigned_rep_id: form.assigned_rep_id || null,
       };
       return customer ? db.Customer.update(customer.id, payload) : db.Customer.create(payload);
     },
@@ -185,6 +199,17 @@ export default function CustomerFormDialog({ customer, open, onOpenChange }) {
               <div>
                 <Label>Account Manager</Label>
                 <Input value={form.account_manager} onChange={(e) => set('account_manager', e.target.value)} />
+              </div>
+              <div>
+                <Label>Assigned Sales Rep</Label>
+                <Select value={form.assigned_rep_id || 'none'} onValueChange={(v) => set('assigned_rep_id', v === 'none' ? '' : v)}>
+                  <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Unassigned</SelectItem>
+                    {salesReps.map((r) => <SelectItem key={r.id} value={r.id}>{r.full_name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">Controls which customers show up in this person's Sales Rep portal.</p>
               </div>
               <div>
                 <Label>Customer Since</Label>

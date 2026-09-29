@@ -8,8 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
 
-const ROLES = ['super_admin', 'admin', 'user'];
-const TOGGLEABLE_ROLES = ['admin', 'user'];
+const ROLES = ['super_admin', 'admin', 'user', 'sales_rep'];
+const TOGGLEABLE_ROLES = ['admin', 'user', 'sales_rep'];
 
 export default function PermissionsPanel() {
   const { user: currentUser } = useAuth();
@@ -80,7 +80,7 @@ export default function PermissionsPanel() {
                 {users.map((u) => (
                   <TableRow key={u.id}>
                     <TableCell className="font-medium">
-                      {u.email}
+                      {u.full_name && u.full_name !== u.email ? `${u.full_name} — ${u.email}` : u.email}
                       {u.id === currentUser?.id && <Badge variant="outline" className="ml-2">You</Badge>}
                     </TableCell>
                     <TableCell>
