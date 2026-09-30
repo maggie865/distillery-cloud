@@ -293,7 +293,17 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
       if (dispatchedFrom === 'Bluff') {
         const allAllocations = allocateBluffLineItems(lineItems, bluffProductOptions, { distanceKm, transportMethod });
 
+        // Two line items (or two FIFO product lines) can legitimately land
+        // on the same batch — a.batch is the snapshot captured when
+        // allocations were planned, so reading quantity_bottles straight
+        // off it per allocation would have a later one overwrite an
+        // earlier one's deduction instead of compounding it. Track running
+        // stock per batch through the commit loop instead.
+        const runningStock = {};
         for (const a of allAllocations) {
+          if (!(a.batch.id in runningStock)) {
+            runningStock[a.batch.id] = { quantity_bottles: a.batch.quantity_bottles || 0, total_lals: a.batch.total_lals || 0 };
+          }
           await db.Dispatch.create({
             ...form,
             product_name: a.batch.product_name,
@@ -312,10 +322,12 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
             is_export: form.is_export === true,
           });
           if (!deductsStock) continue;
-          const newQty = (a.batch.quantity_bottles || 0) - a.take;
-          const newLals = Math.max(0, (a.batch.total_lals || 0) - parseFloat(a.lals.toFixed(4)));
+          const current = runningStock[a.batch.id];
+          const newQty = current.quantity_bottles - a.take;
+          const newLals = Math.max(0, current.total_lals - parseFloat(a.lals.toFixed(4)));
           if (newQty <= 0) await db.FinishedGood.delete(a.batch.id);
           else await db.FinishedGood.update(a.batch.id, { quantity_bottles: newQty, total_lals: parseFloat(newLals.toFixed(4)) });
+          runningStock[a.batch.id] = { quantity_bottles: newQty, total_lals: newLals };
           if (palletId) {
             const result = await deductFromPallet(palletId, { product_name: a.batch.product_name, batch_number: a.batch.batch_number, bottle_size_ml: a.batch.bottle_size_ml, quantity_bottles: a.take });
             if (!result.ok) palletMismatch = true;
