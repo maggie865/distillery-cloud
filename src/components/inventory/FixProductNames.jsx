@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { renamePalletItemsForMerge } from '@/lib/palletStock';
 
 export default function FixProductNames() {
   const queryClient = useQueryClient();
@@ -22,12 +23,35 @@ export default function FixProductNames() {
     mutationFn: async () => {
       setFixing(true);
       const updates = [];
+      // A plain rename can collide with a record that already exists under
+      // the clean name for the same batch/size (e.g. "X 200ml" and "X" both
+      // present) — renaming blindly would then leave two FinishedGood rows
+      // with an identical product/batch/size key, which every exact-match
+      // lookup elsewhere (dispatch, pallets, stock takes) only ever finds
+      // one of. Merge into the existing record instead when that happens.
       for (const fg of needsFix) {
         const cleanName = (fg.product_name || '').replace(/\s\d+ml$/i, '').trim();
-        if (cleanName && cleanName !== fg.product_name) {
+        if (!cleanName || cleanName === fg.product_name) continue;
+
+        const collision = finishedGoods.find(g =>
+          g.id !== fg.id &&
+          g.product_name === cleanName &&
+          (g.batch_number || null) === (fg.batch_number || null) &&
+          Number(g.bottle_size_ml) === Number(fg.bottle_size_ml)
+        );
+
+        if (collision) {
+          await base44.entities.FinishedGood.update(collision.id, {
+            quantity_bottles: (collision.quantity_bottles || 0) + (fg.quantity_bottles || 0),
+            total_lals: parseFloat(((collision.total_lals || 0) + (fg.total_lals || 0)).toFixed(4)),
+          });
+          await base44.entities.FinishedGood.delete(fg.id);
+        } else {
           await base44.entities.FinishedGood.update(fg.id, { product_name: cleanName });
-          updates.push({ id: fg.id, old: fg.product_name, new: cleanName });
         }
+
+        await renamePalletItemsForMerge([fg.product_name], cleanName, fg.batch_number, fg.bottle_size_ml);
+        updates.push({ id: fg.id, old: fg.product_name, new: cleanName, merged: !!collision });
       }
       return updates;
     },

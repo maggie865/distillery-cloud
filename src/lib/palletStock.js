@@ -68,3 +68,44 @@ export async function restoreToPallet(palletId, { product_name, batch_number, bo
     // Best-effort only.
   }
 }
+
+// Called after merging two FinishedGood product-name variants of the same
+// physical product/batch/size into one canonical name (e.g. a repair tool
+// collapsing "London Dry Gin 200ml" into "London Dry Gin") — any pallet_item
+// still keyed to an old name would otherwise silently stop matching every
+// pallet-aware lookup in this file (dispatch, transfer, bottling), leaving
+// that pallet's manifest permanently stale. Renames matching items to the
+// canonical name, merging into an existing same-pallet item under that name
+// if one's already there instead of leaving two rows for the same product.
+export async function renamePalletItemsForMerge(oldProductNames, newProductName, batchNumber, bottleSizeMl) {
+  if (newProductName == null || !oldProductNames?.length) return;
+  try {
+    const all = await base44.entities.PalletItem.list('-created_at', 5000);
+    const affected = all.filter(it =>
+      oldProductNames.includes(it.product_name) &&
+      it.product_name !== newProductName &&
+      (it.batch_number || null) === (batchNumber || null) &&
+      Number(it.bottle_size_ml) === Number(bottleSizeMl)
+    );
+    for (const it of affected) {
+      const canonical = all.find(o =>
+        o.id !== it.id &&
+        o.pallet_id === it.pallet_id &&
+        o.product_name === newProductName &&
+        (o.batch_number || null) === (batchNumber || null) &&
+        Number(o.bottle_size_ml) === Number(bottleSizeMl)
+      );
+      if (canonical) {
+        await base44.entities.PalletItem.update(canonical.id, {
+          quantity_bottles: (canonical.quantity_bottles || 0) + (it.quantity_bottles || 0),
+          total_lals: parseFloat(((canonical.total_lals || 0) + (it.total_lals || 0)).toFixed(4)),
+        });
+        await base44.entities.PalletItem.delete(it.id);
+      } else {
+        await base44.entities.PalletItem.update(it.id, { product_name: newProductName });
+      }
+    }
+  } catch {
+    // Best-effort only — never block the product-name merge itself.
+  }
+}

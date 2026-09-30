@@ -11,6 +11,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { ChevronDown, ChevronRight, ClipboardCheck, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { renamePalletItemsForMerge } from '@/lib/palletStock';
 
 const SIZE_ORDER = [700, 200];
 
@@ -358,14 +359,20 @@ export default function StockReconciliation() {
                   const [keep, ...rest] = recs;
                   const totalQty = recs.reduce((s, r) => s + (r.quantity_bottles || 0), 0);
                   const totalLals = recs.reduce((s, r) => s + (r.total_lals || 0), 0);
+                  const canonicalName = norm(keep.product_name);
                   await base44.entities.FinishedGood.update(keep.id, {
-                    product_name: norm(keep.product_name),
+                    product_name: canonicalName,
                     quantity_bottles: totalQty,
                     total_lals: parseFloat(totalLals.toFixed(4)),
                   });
                   for (const r of rest) {
                     await base44.entities.FinishedGood.delete(r.id);
                   }
+                  // Any pallet still keyed to one of the merged-away names
+                  // would otherwise silently stop matching every pallet-aware
+                  // stock movement (dispatch, transfer, bottling) from here on.
+                  const oldNames = [...new Set(recs.map(r => r.product_name).filter(n => n !== canonicalName))];
+                  await renamePalletItemsForMerge(oldNames, canonicalName, keep.batch_number, keep.bottle_size_ml);
                   merged++;
                 }
 
@@ -416,9 +423,14 @@ export default function StockReconciliation() {
             className="border-blue-300 text-blue-700 hover:bg-blue-100"
             disabled={ethanolResetDone}
             onClick={async () => {
-              if (!confirm('Delete all current ethanol RawMaterial records and rebuild from ALL your ethanol receiving records, with distillation usage already deducted. Continue?')) return;
               try {
-                // 1. Delete all existing ethanol RM records
+                // Compute everything FIRST, before deleting anything, so the
+                // confirmation can show real numbers instead of a blind
+                // "continue?" — this tool has no undo, and blindly rebuilding
+                // from receivings-minus-distillation-usage silently discards
+                // any stock-take or manual correction ever applied to
+                // ethanol, and silently clamps at 0 if the numbers don't add
+                // up (i.e. more was recorded as used than was ever received).
                 const allRM = await base44.entities.RawMaterial.list('name', 5000);
                 const ethanolRM = allRM.filter(r =>
                   (r.type || '').toLowerCase() === 'ethanol' ||
@@ -427,9 +439,9 @@ export default function StockReconciliation() {
                   (r.name || '').toLowerCase().includes('lactanol') ||
                   (r.name || '').toLowerCase().includes('neutral alcohol')
                 );
-                for (const r of ethanolRM) await base44.entities.RawMaterial.delete(r.id);
+                const currentTotalQty = ethanolRM.reduce((s, r) => s + (r.quantity || 0), 0);
 
-                // 2. Build lots from ALL ethanol receiving records oldest first
+                // Build lots from ALL ethanol receiving records oldest first
                 const allReceivings = await base44.entities.Receiving.list('-date_received', 5000);
                 const ethReceivings = allReceivings
                   .filter(r => (r.material_type || '').toLowerCase() === 'ethanol')
@@ -452,7 +464,7 @@ export default function StockReconciliation() {
                 const abv = ethReceivings[ethReceivings.length - 1]?.abv_percent || 96;
                 const supplier = ethReceivings[ethReceivings.length - 1]?.supplier_name || '';
 
-                // 3. Total ethanol consumed = sum of all completed distillation run input_volume
+                // Total ethanol consumed = sum of all completed distillation run input_volume
                 // (Dilution does NOT deduct — ethanol in tanks is still your inventory)
                 const allDistRuns = await base44.entities.DistillationRun.list('-date', 5000);
                 const completedRuns = allDistRuns.filter(r =>
@@ -462,10 +474,24 @@ export default function StockReconciliation() {
                 const totalUsedLals = completedRuns.reduce((s, r) =>
                   s + (r.input_lals || (r.input_volume || 0) * (r.input_abv || abv) / 100), 0);
 
-                const netQty = Math.max(0, totalReceived - totalUsedVol);
+                const rawNetQty = totalReceived - totalUsedVol;
+                const netQty = Math.max(0, rawNetQty);
                 const netLals = Math.max(0, totalReceivedLals - totalUsedLals);
 
-                // 4. FIFO deplete lots oldest first to match actual usage
+                let msg = `This will delete ${ethanolRM.length} existing ethanol record${ethanolRM.length !== 1 ? 's' : ''} (currently totalling ${currentTotalQty.toFixed(2)}L) and replace them with one rebuilt from ${ethReceivings.length} receiving${ethReceivings.length !== 1 ? 's' : ''} minus ${completedRuns.length} distillation run${completedRuns.length !== 1 ? 's' : ''}, landing on ${netQty.toFixed(2)}L.`;
+                if (rawNetQty < 0) {
+                  msg += `\n\n⚠ The math doesn't add up: distillation records show ${Math.abs(rawNetQty).toFixed(2)}L MORE used than was ever received. That shortfall will be silently clamped to 0 rather than shown — the underlying data problem will still be there after this runs.`;
+                }
+                const discrepancy = Math.abs(netQty - currentTotalQty);
+                if (discrepancy > 0.5) {
+                  msg += `\n\n⚠ This differs from the current total (${currentTotalQty.toFixed(2)}L) by ${discrepancy.toFixed(2)}L — if that gap is from a stock-take or manual correction you trust, this will overwrite and discard it.`;
+                }
+                msg += '\n\nThis cannot be undone. Continue?';
+                if (!confirm(msg)) return;
+
+                for (const r of ethanolRM) await base44.entities.RawMaterial.delete(r.id);
+
+                // FIFO deplete lots oldest first to match actual usage
                 let remainingUsed = totalUsedVol;
                 const adjustedLots = lots.map(lot => {
                   if (remainingUsed <= 0) return lot;
