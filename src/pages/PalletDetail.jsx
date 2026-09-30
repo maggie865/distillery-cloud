@@ -7,17 +7,19 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowLeft, Plus, Printer, Trash2, Archive, ArchiveRestore, Wine, Droplets } from 'lucide-react';
+import { ArrowLeft, Plus, Printer, PackageMinus, Archive, ArchiveRestore, Wine, Droplets } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { printPalletLabel } from '@/lib/palletLabel';
 import AddPalletItemDialog from '@/components/pallets/AddPalletItemDialog';
+import TakeOffPalletDialog from '@/components/pallets/TakeOffPalletDialog';
 
 export default function PalletDetail() {
   const { palletCode } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [addingItem, setAddingItem] = useState(false);
+  const [takingOffItem, setTakingOffItem] = useState(null);
 
   const { data: pallets = [], isLoading } = useQuery({
     queryKey: ['pallets'],
@@ -34,15 +36,6 @@ export default function PalletDetail() {
   const { data: finishedGoods = [] } = useQuery({
     queryKey: ['finishedGoods'],
     queryFn: () => base44.entities.FinishedGood.list('-created_at', 5000),
-  });
-
-  const removeItemMutation = useMutation({
-    mutationFn: (item) => base44.entities.PalletItem.delete(item.id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['palletItems', pallet.id] });
-      toast.success('Item removed from pallet');
-    },
-    onError: (e) => toast.error('Failed to remove item: ' + e.message),
   });
 
   const archiveMutation = useMutation({
@@ -148,8 +141,8 @@ export default function PalletDetail() {
                   <TableCell className="text-right font-mono text-sm">{(it.total_lals || 0).toFixed(2)}</TableCell>
                   <TableCell className="text-xs text-muted-foreground capitalize">{it.source === 'bottling_run' ? 'Bottling run' : 'Manual'}</TableCell>
                   <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => removeItemMutation.mutate(it)}>
-                      <Trash2 className="w-3.5 h-3.5" />
+                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setTakingOffItem(it)}>
+                      <PackageMinus className="w-3.5 h-3.5" /> Take Off
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -164,6 +157,12 @@ export default function PalletDetail() {
         onClose={() => setAddingItem(false)}
         pallet={pallet}
         finishedGoods={finishedGoods}
+      />
+      <TakeOffPalletDialog
+        open={!!takingOffItem}
+        onClose={() => setTakingOffItem(null)}
+        item={takingOffItem}
+        currentPalletId={pallet.id}
       />
     </div>
   );

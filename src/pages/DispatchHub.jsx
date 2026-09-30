@@ -27,6 +27,7 @@ import ExciseFlags from '@/components/dispatch/ExciseFlags.jsx';
 import DeliveryMap from '@/components/sales/DeliveryMap';
 import { buildBluffProductOptions, allocateBluffLineItems } from '@/lib/dispatchAllocation';
 import { useAuth } from '@/lib/AuthContext';
+import { deductFromPallet, restoreToPallet } from '@/lib/palletStock';
 
 const DISTILLERY_ORIGIN = '250 Ocean Beach Road, Bluff, New Zealand';
 const WAREHOUSE_ADDRESS = '27 Pavillion Drive, Māngere, Auckland 2015, New Zealand';
@@ -200,6 +201,9 @@ export default function DispatchHub() {
         else await db.FinishedGood.update(fg.id, { quantity_bottles: newQty, total_lals: newLals });
       }
     }
+    if (dispatch.pallet_id) {
+      await deductFromPallet(dispatch.pallet_id, { product_name: dispatch.product_name, batch_number: dispatch.batch_number, bottle_size_ml: dispatch.bottle_size_ml, quantity_bottles: qty });
+    }
   };
 
   // A Quick-Order-created dispatch has no batch_number yet (Quick Order is
@@ -227,6 +231,9 @@ export default function DispatchHub() {
       const newLals = Math.max(0, (batch.total_lals || 0) - parseFloat(lals.toFixed(4)));
       if (newQty <= 0) await db.FinishedGood.delete(batch.id);
       else await db.FinishedGood.update(batch.id, { quantity_bottles: newQty, total_lals: parseFloat(newLals.toFixed(4)) });
+      if (dispatch.pallet_id) {
+        await deductFromPallet(dispatch.pallet_id, { product_name: batch.product_name, batch_number: batch.batch_number, bottle_size_ml: batch.bottle_size_ml, quantity_bottles: take });
+      }
     };
 
     await depleteBatch(first.batch, first.take, first.lals);
@@ -324,6 +331,9 @@ export default function DispatchHub() {
       queryClient.invalidateQueries({ queryKey: ['dispatches-all'] });
       queryClient.invalidateQueries({ queryKey: ['finishedGoods'] });
       queryClient.invalidateQueries({ queryKey: ['warehouseStock'] });
+      queryClient.invalidateQueries({ queryKey: ['pallets'] });
+      queryClient.invalidateQueries({ queryKey: ['palletItemsAll'] });
+      queryClient.invalidateQueries({ queryKey: ['palletItems'] });
       // Force refetch to ensure we see the saved values not stale cache
       queryClient.refetchQueries({ queryKey: ['dispatches'] });
       queryClient.refetchQueries({ queryKey: ['dispatches-all'] });
@@ -366,6 +376,9 @@ export default function DispatchHub() {
         await db.FinishedGood.create({ product_name: dispatch.product_name, batch_number: dispatch.batch_number, bottle_size_ml: dispatch.bottle_size_ml, quantity_bottles: dispatch.quantity_bottles, total_lals: dispatch.total_lals });
       }
     }
+    if (dispatch.pallet_id) {
+      await restoreToPallet(dispatch.pallet_id, { product_name: dispatch.product_name, batch_number: dispatch.batch_number, bottle_size_ml: dispatch.bottle_size_ml, quantity_bottles: dispatch.quantity_bottles, total_lals: dispatch.total_lals });
+    }
   };
 
   const invalidateAll = () => {
@@ -373,6 +386,9 @@ export default function DispatchHub() {
     queryClient.invalidateQueries({ queryKey: ['dispatches-all'] });
     queryClient.invalidateQueries({ queryKey: ['finishedGoods'] });
     queryClient.invalidateQueries({ queryKey: ['warehouseStock'] });
+    queryClient.invalidateQueries({ queryKey: ['pallets'] });
+    queryClient.invalidateQueries({ queryKey: ['palletItemsAll'] });
+    queryClient.invalidateQueries({ queryKey: ['palletItems'] });
   };
 
   const returnMutation = useMutation({
