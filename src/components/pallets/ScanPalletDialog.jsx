@@ -23,6 +23,22 @@ export default function ScanPalletDialog({ open, onClose, onResolve }) {
   const [cameraError, setCameraError] = useState('');
   const [starting, setStarting] = useState(false);
 
+  // html5-qrcode injects its own <video>/canvas elements directly into the
+  // DOM inside our div — React never sees them. stop() alone only halts the
+  // camera stream; it doesn't remove those injected elements. If we hand
+  // control back to React (closing the dialog, swapping screens) before
+  // clear() has actually removed them, React's unmount walks into DOM nodes
+  // it doesn't recognize and the whole tree crashes to a blank page. Every
+  // path that ends the scan — success or manual entry — has to fully
+  // stop *and* clear before touching any state React reacts to.
+  const stopAndClear = async () => {
+    const scanner = scannerRef.current;
+    scannerRef.current = null;
+    if (!scanner) return;
+    try { await scanner.stop(); } catch (e) { /* already stopped */ }
+    try { await scanner.clear(); } catch (e) { /* nothing to clear */ }
+  };
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -54,7 +70,7 @@ export default function ScanPalletDialog({ open, onClose, onResolve }) {
           (decodedText) => {
             if (cancelled) return;
             cancelled = true;
-            scanner.stop().catch(() => {}).finally(() => onResolve(decodedText.trim()));
+            stopAndClear().finally(() => onResolve(decodedText.trim()));
           },
           () => {}, // per-frame decode misses while aiming — not an error
         );
@@ -68,10 +84,7 @@ export default function ScanPalletDialog({ open, onClose, onResolve }) {
 
     return () => {
       cancelled = true;
-      const scanner = scannerRef.current;
-      if (scanner) {
-        scanner.stop().catch(() => {}).then(() => scanner.clear?.()).catch(() => {});
-      }
+      stopAndClear();
     };
   }, [open, onResolve]);
 
@@ -95,7 +108,12 @@ export default function ScanPalletDialog({ open, onClose, onResolve }) {
             </p>
           )}
           <form
-            onSubmit={(e) => { e.preventDefault(); if (manualCode.trim()) onResolve(manualCode.trim()); }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              const code = manualCode.trim();
+              if (!code) return;
+              stopAndClear().finally(() => onResolve(code));
+            }}
             className="flex gap-2"
           >
             <Input
