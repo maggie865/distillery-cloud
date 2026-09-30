@@ -96,6 +96,11 @@ export default function BottlingFloor() {
     queryFn: () => db.MaintenanceRecord.list('-date', 5000),
   });
 
+  const { data: finishedGoods = [] } = useQuery({
+    queryKey: ['finishedGoods'],
+    queryFn: () => db.FinishedGood.list('product_name', 5000),
+  });
+
   const createPreUseRecords = async (recordsList) => {
     setPreUseSaving(true);
     try {
@@ -554,6 +559,20 @@ export default function BottlingFloor() {
 
   const pagedHistory = filteredHistory.slice((page - 1) * pageSize, page * pageSize);
 
+  // How much of the run being deleted can no longer be reversed because it's
+  // already left the building (dispatched, transferred, etc.) — the batch's
+  // current Finished Goods balance is lower than what this run contributed.
+  const deleteShortfall = (() => {
+    if (!deletingRun) return 0;
+    const fg = finishedGoods.find(g =>
+      g.product_name === deletingRun.product_name &&
+      g.batch_number === deletingRun.batch_number &&
+      Number(g.bottle_size_ml) === Number(deletingRun.bottle_size_ml)
+    );
+    const currentQty = fg?.quantity_bottles || 0;
+    return Math.max(0, (deletingRun.bottles_produced || 0) - currentQty);
+  })();
+
   if (activeRun) {
     return (
       <BottlingRunTracker
@@ -962,9 +981,19 @@ export default function BottlingFloor() {
               This will delete the run for <strong>{deletingRun?.product_name}</strong> ({deletingRun?.batch_number}) and reverse all inventory changes:
               <ul className="mt-2 space-y-1 list-disc list-inside text-sm">
                 <li>Return <strong>{deletingRun?.input_volume?.toFixed(1)}L</strong> of spirit back to the source tank</li>
-                <li>Remove <strong>{deletingRun?.bottles_produced}</strong> bottles from finished goods stock</li>
+                <li>Remove <strong>{deletingRun ? (deletingRun.bottles_produced || 0) - deleteShortfall : 0}</strong> bottles from finished goods stock{deleteShortfall > 0 ? ' (all that remains)' : ''}</li>
                 <li>Delete tasting bottle wastage records for this batch</li>
               </ul>
+              {deleteShortfall > 0 && (
+                <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                  <p className="font-semibold text-destructive">
+                    {deleteShortfall.toLocaleString()} of this run's bottles have already left the building
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {deletingRun?.batch_number}'s Finished Goods balance is already lower than what this run alone produced — the rest has been dispatched, transferred, or moved elsewhere. Those records won't be touched or reversed, and this run's contribution will simply disappear from {deletingRun?.batch_number}'s production total, so it will permanently look like less was bottled than what's actually been sold. If this run is a genuine duplicate or mistake, that's expected — otherwise, cancel and check the batch's dispatch history first.
+                  </p>
+                </div>
+              )}
               <p className="mt-2 font-medium text-destructive">This cannot be undone.</p>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -975,7 +1004,7 @@ export default function BottlingFloor() {
               onClick={() => deleteRunMutation.mutate(deletingRun)}
               disabled={deleteRunMutation.isPending}
             >
-              {deleteRunMutation.isPending ? 'Deleting…' : 'Delete & Reverse'}
+              {deleteRunMutation.isPending ? 'Deleting…' : deleteShortfall > 0 ? 'Delete Anyway' : 'Delete & Reverse'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
