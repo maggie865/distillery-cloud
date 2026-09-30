@@ -89,7 +89,12 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatch
 
   // Summary stats
   const totalOutLALs = distillations.reduce((s, d) => s + (d.output_lals || 0), 0);
-  const totalBottles = bottlings.reduce((s, b) => s + (b.bottles_produced || 0), 0);
+  const bottlesBySize = bottlings.reduce((acc, b) => {
+    if (!b.bottle_size_ml || !(b.bottles_produced > 0)) return acc;
+    acc[b.bottle_size_ml] = (acc[b.bottle_size_ml] || 0) + b.bottles_produced;
+    return acc;
+  }, {});
+  const bottleSizeBreakdown = Object.entries(bottlesBySize).sort((a, b) => Number(b[0]) - Number(a[0]));
 
   // Collect all unique lot codes across sub-batches for the summary header, resolved to receiving batch codes
   const earliestRunDate = [...distillations].sort((a, b) => (a.date || '').localeCompare(b.date || ''))[0]?.date;
@@ -137,11 +142,11 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatch
             <Badge variant="outline" className="text-xs gap-1">
               <Wine className="w-3 h-3" /> {bottlings.length} bottling{bottlings.length !== 1 ? 's' : ''}
             </Badge>
-            {totalBottles > 0 && (
-              <Badge variant="outline" className="text-xs gap-1">
-                <Package2 className="w-3 h-3" /> {totalBottles} bottles
+            {bottleSizeBreakdown.map(([size, qty]) => (
+              <Badge key={size} variant="outline" className="text-xs gap-1">
+                <Package2 className="w-3 h-3" /> {qty} × {size}ml
               </Badge>
-            )}
+            ))}
             {totalOutLALs > 0 && (
               <span className="text-xs text-muted-foreground">{totalOutLALs.toFixed(3)} LALs</span>
             )}
