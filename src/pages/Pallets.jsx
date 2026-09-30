@@ -113,6 +113,7 @@ export default function Pallets() {
                 <div className="flex items-start justify-between mb-2">
                   <p className="font-mono font-semibold">{p.pallet_code}</p>
                   {p.status === 'archived' && <Badge variant="outline">Archived</Badge>}
+                  {p.status === 'full' && <Badge className="bg-amber-100 text-amber-700">Full</Badge>}
                 </div>
                 <p className="text-xs text-muted-foreground mb-2">{p.location} · {p.created_at ? format(new Date(p.created_at), 'd MMM yyyy') : ''}</p>
                 {items.length === 0 ? (

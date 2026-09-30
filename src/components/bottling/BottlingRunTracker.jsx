@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Plus, Minus, Check, ArrowLeft, FlaskConical } from 'lucide-react';
+import { Plus, Minus, Check, ArrowLeft, FlaskConical, Package, PackageCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
 const DRAFT_KEY = (run) => `bottling_draft_${run?.batch_code}_${run?.tank_id}`;
@@ -71,7 +71,7 @@ function HygieneCheck({ onPass, onCancel }) {
   );
 }
 
-export default function BottlingRunTracker({ run, onComplete, onCancel, isCompleting }) {
+export default function BottlingRunTracker({ run, onComplete, onCancel, isCompleting, currentPallet, onCompletePallet, completingPallet }) {
   const [started, setStarted] = useState(false);
   const [hygieneChecked, setHygieneChecked] = useState(false);
   const [hygieneAnswers, setHygieneAnswers] = useState({});
@@ -137,6 +137,15 @@ export default function BottlingRunTracker({ run, onComplete, onCancel, isComple
   if (!started) {
     return (
       <div className="max-w-lg mx-auto p-4 pb-20 space-y-4">
+        {currentPallet && (
+          <Card className="p-3 bg-blue-50 border-blue-200 flex items-center gap-2">
+            <Package className="w-4 h-4 text-blue-600 shrink-0" />
+            <p className="text-sm text-blue-900">
+              Stacking onto <span className="font-mono font-semibold">{currentPallet.pallet_code}</span>
+              <span className="text-blue-600/70"> · {currentPallet.location}</span>
+            </p>
+          </Card>
+        )}
         <Card className="p-5 bg-primary/10 border-primary/20">
           <p className="text-sm text-muted-foreground mb-1">Ready to bottle</p>
           <h2 className="text-2xl font-bold font-display mb-4">{run?.product_name}</h2>
@@ -196,6 +205,16 @@ export default function BottlingRunTracker({ run, onComplete, onCancel, isComple
   // ── ACTIVE BOTTLING SCREEN ────────────────────────────────────────────────
   return (
     <div className="max-w-lg mx-auto p-4 pb-20 space-y-4">
+
+      {currentPallet && (
+        <Card className="p-3 bg-blue-50 border-blue-200 flex items-center gap-2">
+          <Package className="w-4 h-4 text-blue-600 shrink-0" />
+          <p className="text-sm text-blue-900">
+            Stacking onto <span className="font-mono font-semibold">{currentPallet.pallet_code}</span>
+            <span className="text-blue-600/70"> · {currentPallet.location}</span>
+          </p>
+        </Card>
+      )}
 
       {/* Run header */}
       <Card className="p-4 bg-primary/10 border-primary/20">
@@ -267,6 +286,15 @@ export default function BottlingRunTracker({ run, onComplete, onCancel, isComple
             </div>
           </div>
         </Card>
+      )}
+
+      {/* Complete Pallet — marks the current pallet full and starts a fresh one; stock produced from this point attaches to the new pallet */}
+      {currentPallet && (
+        <Button onClick={onCompletePallet} disabled={completingPallet} variant="outline"
+          className="w-full h-12 text-base font-semibold border-amber-300 text-amber-700 hover:bg-amber-50">
+          <PackageCheck className="w-4 h-4 mr-2" />
+          {completingPallet ? 'Completing…' : `Complete Pallet (${currentPallet.pallet_code})`}
+        </Button>
       )}
 
       {/* Finish button */}

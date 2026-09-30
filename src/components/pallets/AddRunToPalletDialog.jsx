@@ -29,7 +29,7 @@ export default function AddRunToPalletDialog({ open, onClose, run }) {
     queryFn: () => base44.entities.Pallet.list('-created_at', 5000),
     enabled: open,
   });
-  const activePallets = pallets.filter(p => p.status !== 'archived');
+  const activePallets = pallets.filter(p => p.status === 'active');
 
   const effectiveQty = qty === '' ? (run?.bottles_produced || 0) : parseInt(qty) || 0;
   const isValid = effectiveQty > 0 && effectiveQty <= (run?.bottles_produced || 0);
