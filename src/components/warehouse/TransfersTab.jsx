@@ -75,14 +75,78 @@ export default function TransfersTab({ warehouseStock, onPrintSlip, onCancel }) 
     onError: (e) => toast.error('Failed: ' + e.message),
   });
 
-  // Edit transfer
+  // Edit transfer — original_quantity_bottles is the immutable record of
+  // what was actually transferred, but correcting it (e.g. a typo) has to
+  // also move the same delta through everything that was computed from the
+  // transfer at the time: this record's own live remaining balance at the
+  // 3PL, and the Bluff Finished Goods it was deducted from — otherwise the
+  // correction just changes what's on record without changing what's
+  // actually short or long in the ledger, and excise reporting (which reads
+  // original_quantity_bottles as the transferred total) silently goes wrong.
   const editMutation = useMutation({
     mutationFn: async ({ id, data }) => {
+      const oldOriginalQty = editRecord.original_quantity_bottles ?? editRecord.quantity_bottles ?? 0;
+      const oldOriginalLals = editRecord.original_total_lals ?? editRecord.total_lals ?? 0;
+      const newOriginalQty = data.original_quantity_bottles;
+      const qtyDelta = newOriginalQty - oldOriginalQty;
+      const lalsPerBottle = oldOriginalQty > 0 ? oldOriginalLals / oldOriginalQty : 0;
+      const newOriginalLals = parseFloat((newOriginalQty * lalsPerBottle).toFixed(4));
+      const lalsDelta = newOriginalLals - oldOriginalLals;
+      const warnings = [];
+
+      if (qtyDelta !== 0) {
+        // This transfer's own live remaining balance shifts by the same delta
+        const newRemainingQty = (editRecord.quantity_bottles || 0) + qtyDelta;
+        const remainingShortfall = newRemainingQty < 0 ? -newRemainingQty : 0;
+        data.quantity_bottles = Math.max(0, newRemainingQty);
+        data.total_lals = parseFloat(Math.max(0, (editRecord.total_lals || 0) + lalsDelta).toFixed(4));
+        if (remainingShortfall > 0.0001) {
+          warnings.push(`Correcting this transfer down by ${Math.abs(qtyDelta)} couldn't fully apply at the 3PL — ${remainingShortfall} of it has already been dispatched from there, so the remaining balance was only reduced to 0.`);
+        }
+
+        // Bluff Finished Goods moves by the inverse delta — more transferred
+        // means less left at Bluff, and vice versa.
+        const bluffDelta = -qtyDelta;
+        const allFG = await base44.entities.FinishedGood.list('product_name', 5000);
+        const fg = allFG.find(f =>
+          f.product_name === editRecord.product_name &&
+          f.batch_number === editRecord.batch_number &&
+          Number(f.bottle_size_ml) === Number(editRecord.bottle_size_ml)
+        );
+        if (fg) {
+          const newBluffQty = (fg.quantity_bottles || 0) + bluffDelta;
+          const bluffShortfall = newBluffQty < 0 ? -newBluffQty : 0;
+          const newBluffLals = Math.max(0, (fg.total_lals || 0) - lalsDelta);
+          if (newBluffQty <= 0) {
+            await base44.entities.FinishedGood.delete(fg.id);
+          } else {
+            await base44.entities.FinishedGood.update(fg.id, { quantity_bottles: newBluffQty, total_lals: parseFloat(newBluffLals.toFixed(4)) });
+          }
+          if (bluffShortfall > 0.0001) {
+            warnings.push(`Correcting this transfer up by ${qtyDelta} couldn't fully come off Bluff stock — only part of it was available there.`);
+          }
+        } else if (bluffDelta > 0) {
+          warnings.push(`Correcting this transfer up by ${qtyDelta} bottles couldn't be taken off Bluff stock — no matching Finished Goods record was found there.`);
+        } else if (bluffDelta < 0) {
+          await base44.entities.FinishedGood.create({
+            product_name: editRecord.product_name,
+            batch_number: editRecord.batch_number,
+            bottle_size_ml: editRecord.bottle_size_ml,
+            abv_percent: editRecord.abv_percent,
+            quantity_bottles: -bluffDelta,
+            total_lals: parseFloat((-lalsDelta).toFixed(4)),
+          });
+        }
+      }
+
       await base44.entities.WarehouseStock.update(id, data);
+      return { warnings };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['warehouseStock'] });
+      qc.invalidateQueries({ queryKey: ['finishedGoods'] });
       toast.success('Transfer updated');
+      (result?.warnings || []).forEach(w => toast.warning(w));
       setEditRecord(null);
     },
     onError: (e) => toast.error('Failed: ' + e.message),

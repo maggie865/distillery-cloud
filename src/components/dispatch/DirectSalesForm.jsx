@@ -235,7 +235,18 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
         if (remaining > 0) throw new Error(`Insufficient stock for ${product.product_name} (${product.bottle_size_ml}ml)`);
       }
 
+      // Two line items can legitimately draw from the same batch (e.g. a
+      // sale split into two rows, or two FIFO product lines both landing on
+      // the same oldest batch) — a.batch is the snapshot captured when
+      // allocations were planned, so reading quantity_bottles straight off
+      // it for each allocation would have the second one overwrite the
+      // first's deduction instead of compounding it. Track running stock
+      // per batch through the commit loop instead.
+      const runningStock = {};
       for (const a of allAllocations) {
+        if (!(a.batch.id in runningStock)) {
+          runningStock[a.batch.id] = { quantity_bottles: a.batch.quantity_bottles || 0, total_lals: a.batch.total_lals || 0 };
+        }
         await db.Dispatch.create({
           dispatch_date: form.dispatch_date,
           customer_name: channelLabel,
@@ -255,10 +266,12 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
           notes: form.notes || undefined,
           dispatched_from: 'Bluff',
         });
-        const newQty = (a.batch.quantity_bottles || 0) - a.take;
-        const newLals = Math.max(0, (a.batch.total_lals || 0) - parseFloat(a.lals.toFixed(4)));
+        const current = runningStock[a.batch.id];
+        const newQty = current.quantity_bottles - a.take;
+        const newLals = Math.max(0, current.total_lals - parseFloat(a.lals.toFixed(4)));
         if (newQty <= 0) await db.FinishedGood.delete(a.batch.id);
         else await db.FinishedGood.update(a.batch.id, { quantity_bottles: newQty, total_lals: parseFloat(newLals.toFixed(4)) });
+        runningStock[a.batch.id] = { quantity_bottles: newQty, total_lals: newLals };
       }
     },
     onSuccess: () => {
