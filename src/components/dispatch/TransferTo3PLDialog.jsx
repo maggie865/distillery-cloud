@@ -1,12 +1,14 @@
 import { useState, useMemo } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { ArrowRightLeft, Plus, Trash2 } from 'lucide-react';
+import { ArrowRightLeft, Plus, Trash2, ScanLine, Package, X } from 'lucide-react';
 import { toast } from 'sonner';
+import ScanPalletDialog from '@/components/pallets/ScanPalletDialog';
+import { deductFromPallet } from '@/lib/palletStock';
 
 const BOTTLE_WEIGHT_KG = 1.2;
 
@@ -16,6 +18,14 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
   const [transferDate, setTransferDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [transferDistance, setTransferDistance] = useState('1500');
   const [rows, setRows] = useState([{ productKey: '', qty: '', batchId: '' }]);
+  const [sourcePallet, setSourcePallet] = useState(null);
+  const [scanningPallet, setScanningPallet] = useState(false);
+
+  const { data: pallets = [] } = useQuery({
+    queryKey: ['pallets'],
+    queryFn: () => base44.entities.Pallet.list('-created_at', 5000),
+    enabled: open,
+  });
 
   // Group by product + bottle size — show totals, not individual batches
   const productOptions = useMemo(() => {
@@ -43,6 +53,54 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
       `${a.product_name} ${a.bottle_size_ml}`.localeCompare(`${b.product_name} ${b.bottle_size_ml}`)
     );
   }, [finishedGoods]);
+
+  // Scanning a pallet replaces the row builder with exactly what's on it —
+  // batch-specific (not FIFO), since it's this physical pallet's stock, not
+  // just "some of this product" — while still leaving "+ Add product" free
+  // to pick more stock alongside it.
+  const handlePalletScanned = async (code) => {
+    setScanningPallet(false);
+    const match = pallets.find(p => p.pallet_code.toLowerCase() === code.trim().toLowerCase());
+    if (!match) {
+      toast.error(`No pallet found with code "${code}"`);
+      return;
+    }
+    if (match.status === 'archived') {
+      toast.error(`Pallet ${match.pallet_code} is archived — nothing to transfer.`);
+      return;
+    }
+    try {
+      const items = await base44.entities.PalletItem.filter({ pallet_id: match.id });
+      if (items.length === 0) {
+        toast.error(`Pallet ${match.pallet_code} has no items recorded on it.`);
+        return;
+      }
+      const newRows = [];
+      let unmatched = 0;
+      for (const item of items) {
+        const opt = productOptions.find(o => o.product_name === item.product_name && Number(o.bottle_size_ml) === Number(item.bottle_size_ml));
+        const batch = opt?.batches.find(b => b.batch_number === item.batch_number);
+        if (!opt || !batch) {
+          unmatched++;
+          continue;
+        }
+        newRows.push({ productKey: opt.key, batchId: batch.id, qty: String(Math.min(item.quantity_bottles || 0, batch.quantity_bottles || 0)) });
+      }
+      if (newRows.length === 0) {
+        toast.error(`None of ${match.pallet_code}'s contents match current Bluff stock — nothing to transfer.`);
+        return;
+      }
+      setRows(newRows);
+      setSourcePallet(match);
+      if (unmatched > 0) {
+        toast.warning(`${unmatched} item(s) on ${match.pallet_code} couldn't be matched to current Bluff stock and were left out — check its contents.`);
+      } else {
+        toast.success(`Loaded ${match.pallet_code}'s contents`);
+      }
+    } catch (err) {
+      toast.error('Failed to load pallet contents: ' + err.message);
+    }
+  };
 
   const addRow = () => setRows(prev => [...prev, { productKey: '', qty: '', batchId: '' }]);
   const removeRow = (idx) => setRows(prev => prev.filter((_, i) => i !== idx));
@@ -129,6 +187,18 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
           bottles_per_case: bottlesPerCase,
           status: 'in_transit',
         });
+
+        // If this transfer was sourced from a scanned pallet, take the
+        // transferred bottles off its manifest too — best-effort, never
+        // blocks the real transfer above.
+        if (sourcePallet) {
+          await deductFromPallet(sourcePallet.id, {
+            product_name: fg.product_name,
+            batch_number: fg.batch_number,
+            bottle_size_ml: fg.bottle_size_ml,
+            quantity_bottles: take,
+          });
+        }
       };
 
       for (const row of validRows) {
@@ -161,16 +231,36 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
         await base44.entities.AppSettings.create({ key: 'last_packing_slip_number', value: String(newNum) });
       }
 
-      return { packingSlipNumber };
+      // If everything on the scanned pallet ended up transferred (nothing
+      // left on its manifest), the pallet itself has physically gone with
+      // it — move its location to the destination. If some of it is still
+      // sitting on the pallet, it hasn't gone anywhere, so leave it alone.
+      let palletMoved = false;
+      if (sourcePallet) {
+        const remaining = await base44.entities.PalletItem.filter({ pallet_id: sourcePallet.id });
+        if (remaining.length === 0) {
+          await base44.entities.Pallet.update(sourcePallet.id, { location: destination });
+          palletMoved = true;
+        }
+      }
+
+      return { packingSlipNumber, palletMoved };
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['finishedGoods'] });
       qc.invalidateQueries({ queryKey: ['warehouseStock'] });
-      toast.success(`${totalBottles} bottles transferred to ${destination} — Packing Slip ${data?.packingSlipNumber || ''}`);
+      qc.invalidateQueries({ queryKey: ['pallets'] });
+      qc.invalidateQueries({ queryKey: ['palletItemsAll'] });
+      qc.invalidateQueries({ queryKey: ['palletItems'] });
+      const palletNote = sourcePallet
+        ? (data?.palletMoved ? ` — ${sourcePallet.pallet_code} is now at ${destination}` : ` — some of ${sourcePallet.pallet_code} is still at Bluff`)
+        : '';
+      toast.success(`${totalBottles} bottles transferred to ${destination} — Packing Slip ${data?.packingSlipNumber || ''}${palletNote}`);
       setRows([{ productKey: '', qty: '', batchId: '' }]);
       setTransferDate(() => new Date().toISOString().split('T')[0]);
       setDestination('Auckland 3PL');
       setTransferDistance('1500');
+      setSourcePallet(null);
       onClose();
     },
     onError: (err) => toast.error(err.message || 'Transfer failed'),
@@ -181,6 +271,7 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
     setTransferDate(() => new Date().toISOString().split('T')[0]);
     setDestination('Auckland 3PL');
     setTransferDistance('1500');
+    setSourcePallet(null);
     onClose();
   };
 
@@ -191,6 +282,7 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={v => !v && handleClose()}>
       <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
         <DialogHeader>
@@ -209,6 +301,22 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
             <p className="text-xs text-blue-600 mt-1">Stock transferred under bond — no NZ excise is payable. Excise reporting excludes UK warehouse stock.</p>
           )}
         </div>
+
+        {sourcePallet ? (
+          <div className="flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+            <div className="flex items-center gap-2 text-sm">
+              <Package className="w-4 h-4 text-primary shrink-0" />
+              <span>Sourced from pallet <span className="font-mono font-semibold">{sourcePallet.pallet_code}</span></span>
+            </div>
+            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setSourcePallet(null)} title="Detach pallet — quantities stay, but its contents won't be updated on transfer">
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        ) : (
+          <Button variant="outline" size="sm" className="gap-1.5 w-full" onClick={() => setScanningPallet(true)}>
+            <ScanLine className="w-4 h-4" /> Scan a Pallet to Transfer Its Contents
+          </Button>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
@@ -324,5 +432,7 @@ export default function TransferTo3PLDialog({ open, onClose, finishedGoods = [] 
         )}
       </DialogContent>
     </Dialog>
+    <ScanPalletDialog open={scanningPallet} onClose={() => setScanningPallet(false)} onResolve={handlePalletScanned} />
+    </>
   );
 }
