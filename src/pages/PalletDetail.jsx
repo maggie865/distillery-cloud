@@ -76,19 +76,32 @@ export default function PalletDetail() {
         <div className="flex gap-2">
           {pallet.status === 'archived' ? (
             <Badge variant="outline" className="self-center">Archived</Badge>
+          ) : pallet.status === 'full' ? (
+            <Badge className="self-center bg-amber-100 text-amber-700">Full</Badge>
           ) : null}
           <Button variant="outline" onClick={() => printPalletLabel(pallet)} className="gap-1.5">
             <Printer className="w-4 h-4" /> Print Label
           </Button>
-          <Button
-            variant="outline"
-            onClick={() => archiveMutation.mutate(pallet.status === 'archived' ? 'active' : 'archived')}
-            disabled={archiveMutation.isPending}
-            className="gap-1.5"
-          >
-            {pallet.status === 'archived' ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
-            {pallet.status === 'archived' ? 'Reactivate' : 'Archive'}
-          </Button>
+          {pallet.status !== 'active' && (
+            <Button
+              variant="outline"
+              onClick={() => archiveMutation.mutate('active')}
+              disabled={archiveMutation.isPending}
+              className="gap-1.5"
+            >
+              <ArchiveRestore className="w-4 h-4" /> Reactivate
+            </Button>
+          )}
+          {pallet.status !== 'archived' && (
+            <Button
+              variant="outline"
+              onClick={() => archiveMutation.mutate('archived')}
+              disabled={archiveMutation.isPending}
+              className="gap-1.5"
+            >
+              <Archive className="w-4 h-4" /> Archive
+            </Button>
+          )}
         </div>
       </PageHeader>
 

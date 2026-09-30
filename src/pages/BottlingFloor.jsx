@@ -21,8 +21,12 @@ import Pagination from '@/components/ui/Pagination';
 import PreUseChecksTab from '@/components/maintenance/PreUseChecksTab';
 import { isBoxOrCase, findPackagingMaterial, checkPackagingStock } from '@/lib/packagingStock';
 import AddRunToPalletDialog from '@/components/pallets/AddRunToPalletDialog';
+import ChoosePalletDialog from '@/components/pallets/ChoosePalletDialog';
+import ScanPalletDialog from '@/components/pallets/ScanPalletDialog';
+import QuickCreatePalletDialog from '@/components/pallets/QuickCreatePalletDialog';
 
 const ACTIVE_RUN_KEY = 'bottling_active_run';
+const CURRENT_PALLET_KEY = 'bottling_current_pallet_id';
 
 export default function BottlingFloor() {
   const [activeRun, setActiveRun] = useState(null);
@@ -37,6 +41,11 @@ export default function BottlingFloor() {
   const [editForm, setEditForm] = useState({});
   const [deletingRun, setDeletingRun] = useState(null);
   const [palletRun, setPalletRun] = useState(null);
+  const [currentPalletId, setCurrentPalletId] = useState(null);
+  const [choosingPallet, setChoosingPallet] = useState(false);
+  const [scanningPallet, setScanningPallet] = useState(false);
+  const [quickCreateOpen, setQuickCreateOpen] = useState(false);
+  const [quickCreateMode, setQuickCreateMode] = useState('start'); // 'start' (about to begin a run) | 'swap' (current pallet just marked full)
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [preUseExpanded, setPreUseExpanded] = useState(false);
@@ -65,6 +74,24 @@ export default function BottlingFloor() {
       localStorage.removeItem(ACTIVE_RUN_KEY);
     }
   }, [activeRun]);
+
+  // The pallet currently being stacked is sticky across runs — chosen once
+  // (or after "Complete Pallet"), then reused for every run until changed,
+  // so it survives reloads the same way the active run itself does.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(CURRENT_PALLET_KEY);
+      if (saved) setCurrentPalletId(saved);
+    } catch (e) { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    if (currentPalletId) {
+      localStorage.setItem(CURRENT_PALLET_KEY, currentPalletId);
+    } else {
+      localStorage.removeItem(CURRENT_PALLET_KEY);
+    }
+  }, [currentPalletId]);
 
   const { data: masterBatches = [] } = useQuery({
     queryKey: ['masterBatches'],
@@ -100,6 +127,12 @@ export default function BottlingFloor() {
     queryKey: ['finishedGoods'],
     queryFn: () => db.FinishedGood.list('product_name', 5000),
   });
+
+  const { data: pallets = [] } = useQuery({
+    queryKey: ['pallets'],
+    queryFn: () => db.Pallet.list('-created_at', 5000),
+  });
+  const currentPallet = pallets.find(p => p.id === currentPalletId) || null;
 
   const createPreUseRecords = async (recordsList) => {
     setPreUseSaving(true);
@@ -194,7 +227,7 @@ export default function BottlingFloor() {
 
   const canStart = selectedBatchId && selectedTankId && selectedPackagingRecipeId && selectedRecipe?.bottle_size_ml;
 
-  const startRun = () => {
+  const doStartRun = () => {
     setActiveRun({
       batch_code: selectedBatch.batch_code,
       product_name: selectedBatch.product_name,
@@ -211,6 +244,69 @@ export default function BottlingFloor() {
     setShowNewRun(false);
     toast.success('Bottling run started!');
   };
+
+  // Every run has to be attached to a pallet — if one's already chosen
+  // (sticky until "Complete Pallet"), skip straight to starting; otherwise
+  // prompt for scan-existing vs create-new first.
+  const startRun = () => {
+    if (!currentPalletId) {
+      setQuickCreateMode('start');
+      setChoosingPallet(true);
+      return;
+    }
+    doStartRun();
+  };
+
+  const handleChooseExistingPallet = () => {
+    setChoosingPallet(false);
+    setScanningPallet(true);
+  };
+
+  const handleChooseNewPallet = () => {
+    setChoosingPallet(false);
+    setQuickCreateMode('start');
+    setQuickCreateOpen(true);
+  };
+
+  const handlePalletScanned = (code) => {
+    setScanningPallet(false);
+    const match = pallets.find(p => p.pallet_code.toLowerCase() === code.trim().toLowerCase());
+    if (!match) {
+      toast.error(`No pallet found with code "${code}"`);
+      return;
+    }
+    if (match.status !== 'active') {
+      toast.error(`Pallet ${match.pallet_code} is ${match.status} — scan or create an active pallet instead.`);
+      return;
+    }
+    setCurrentPalletId(match.id);
+    if (quickCreateMode === 'start') doStartRun();
+  };
+
+  const handlePalletCreated = (pallet) => {
+    setCurrentPalletId(pallet.id);
+    if (quickCreateMode === 'start') {
+      doStartRun();
+    } else {
+      toast.success(`Now stacking onto ${pallet.pallet_code}`);
+    }
+  };
+
+  const completePalletMutation = useMutation({
+    mutationFn: async () => {
+      if (!currentPalletId) return;
+      await db.Pallet.update(currentPalletId, { status: 'full' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pallets'] });
+      const finishedCode = currentPallet?.pallet_code;
+      setCurrentPalletId(null);
+      toast.success(finishedCode ? `${finishedCode} marked full` : 'Pallet marked full');
+      setQuickCreateMode('swap');
+      setQuickCreateOpen(true);
+    },
+    onError: (err) => toast.error(err.message || 'Failed to complete pallet'),
+  });
 
   // Complete run — handles cases, extra bottles, tasting bottles, finished goods, tank deduction
   const completeRunMutation = useMutation({
@@ -409,6 +505,39 @@ export default function BottlingFloor() {
           });
         }
       }
+
+      // 6. Stack this run's output onto whichever pallet is currently being
+      // filled — best-effort, same as every other pallet reconciliation in
+      // this app: it never blocks the real stock update above.
+      if (currentPalletId && totalBottles > 0) {
+        try {
+          const items = await db.PalletItem.filter({ pallet_id: currentPalletId });
+          const existing = items.find(it =>
+            it.product_name === activeRun.product_name &&
+            (it.batch_number || null) === (activeRun.batch_code || null) &&
+            Number(it.bottle_size_ml) === Number(activeRun.bottle_size_ml)
+          );
+          if (existing) {
+            await db.PalletItem.update(existing.id, {
+              quantity_bottles: (existing.quantity_bottles || 0) + totalBottles,
+              total_lals: parseFloat(((existing.total_lals || 0) + lals).toFixed(4)),
+            });
+          } else {
+            await db.PalletItem.create({
+              pallet_id: currentPalletId,
+              product_name: activeRun.product_name,
+              batch_number: activeRun.batch_code,
+              bottle_size_ml: activeRun.bottle_size_ml,
+              quantity_bottles: totalBottles,
+              total_lals: parseFloat(lals.toFixed(4)),
+              source: 'bottling_run',
+              bottling_run_id: newRun.id,
+            });
+          }
+        } catch (err) {
+          toast.warning('Stock saved, but could not attach it to the current pallet: ' + err.message);
+        }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bottlingFloorRuns'] });
@@ -416,6 +545,9 @@ export default function BottlingFloor() {
       queryClient.invalidateQueries({ queryKey: ['finishedGoods'] });
       queryClient.invalidateQueries({ queryKey: ['wastageRecords'] });
       queryClient.invalidateQueries({ queryKey: ['rawMaterials'] });
+      queryClient.invalidateQueries({ queryKey: ['pallets'] });
+      queryClient.invalidateQueries({ queryKey: ['palletItemsAll'] });
+      queryClient.invalidateQueries({ queryKey: ['palletItems'] });
       localStorage.removeItem(ACTIVE_RUN_KEY);
       setActiveRun(null);
       resetForm();
@@ -575,22 +707,47 @@ export default function BottlingFloor() {
 
   if (activeRun) {
     return (
-      <BottlingRunTracker
-        run={activeRun}
-        onComplete={(data) => completeRunMutation.mutate(data)}
-        onCancel={() => setActiveRun(null)}
-        isCompleting={completeRunMutation.isPending}
-      />
+      <>
+        <BottlingRunTracker
+          run={activeRun}
+          onComplete={(data) => completeRunMutation.mutate(data)}
+          onCancel={() => setActiveRun(null)}
+          isCompleting={completeRunMutation.isPending}
+          currentPallet={currentPallet}
+          onCompletePallet={() => completePalletMutation.mutate()}
+          completingPallet={completePalletMutation.isPending}
+        />
+        <ChoosePalletDialog
+          open={choosingPallet}
+          onClose={() => setChoosingPallet(false)}
+          onChooseExisting={handleChooseExistingPallet}
+          onChooseNew={handleChooseNewPallet}
+        />
+        <ScanPalletDialog open={scanningPallet} onClose={() => setScanningPallet(false)} onResolve={handlePalletScanned} />
+        <QuickCreatePalletDialog
+          open={quickCreateOpen}
+          onClose={() => setQuickCreateOpen(false)}
+          onCreated={handlePalletCreated}
+          title={quickCreateMode === 'swap' ? 'Pallet Full — Start a New One' : 'New Pallet'}
+        />
+      </>
     );
   }
 
   return (
     <div>
       <PageHeader title="Bottling Floor" subtitle="Live production tracking and case management">
-        <Button onClick={() => setShowNewRun(true)} className="gap-2">
-          <Plus className="w-4 h-4" />
-          Start Run
-        </Button>
+        <div className="flex items-center gap-3">
+          {currentPallet && (
+            <Badge variant="outline" className="gap-1.5 h-9 px-3 font-mono">
+              <Package className="w-3.5 h-3.5" /> {currentPallet.pallet_code}
+            </Badge>
+          )}
+          <Button onClick={() => setShowNewRun(true)} className="gap-2">
+            <Plus className="w-4 h-4" />
+            Start Run
+          </Button>
+        </div>
       </PageHeader>
 
       {/* Start New Run Dialog */}
@@ -1011,6 +1168,20 @@ export default function BottlingFloor() {
       </AlertDialog>
 
       <AddRunToPalletDialog open={!!palletRun} onClose={() => setPalletRun(null)} run={palletRun} />
+
+      <ChoosePalletDialog
+        open={choosingPallet}
+        onClose={() => setChoosingPallet(false)}
+        onChooseExisting={handleChooseExistingPallet}
+        onChooseNew={handleChooseNewPallet}
+      />
+      <ScanPalletDialog open={scanningPallet} onClose={() => setScanningPallet(false)} onResolve={handlePalletScanned} />
+      <QuickCreatePalletDialog
+        open={quickCreateOpen}
+        onClose={() => setQuickCreateOpen(false)}
+        onCreated={handlePalletCreated}
+        title="New Pallet"
+      />
     </div>
   );
 }

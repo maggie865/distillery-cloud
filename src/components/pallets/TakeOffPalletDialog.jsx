@@ -26,7 +26,7 @@ export default function TakeOffPalletDialog({ open, onClose, item, currentPallet
     queryFn: () => base44.entities.Pallet.list('-created_at', 5000),
     enabled: open,
   });
-  const otherPallets = pallets.filter(p => p.status !== 'archived' && p.id !== currentPalletId);
+  const otherPallets = pallets.filter(p => p.status === 'active' && p.id !== currentPalletId);
 
   const max = item?.quantity_bottles || 0;
   const takeQty = qty === '' ? max : (parseInt(qty) || 0);
