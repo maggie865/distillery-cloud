@@ -8,12 +8,12 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Printer, ArrowRightLeft, Wine, Droplets, Truck, CheckCircle2, Pencil } from 'lucide-react';
+import { Printer, ArrowRightLeft, Wine, Droplets, Truck, CheckCircle2, Pencil, Trash2 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import Pagination from '@/components/ui/Pagination';
 import { toast } from 'sonner';
 
-export default function TransfersTab({ warehouseStock, onPrintSlip }) {
+export default function TransfersTab({ warehouseStock, onPrintSlip, onCancel }) {
   const qc = useQueryClient();
   const now = new Date();
   const [monthFilter, setMonthFilter] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
@@ -147,6 +147,11 @@ export default function TransfersTab({ warehouseStock, onPrintSlip }) {
                       <Printer className="w-3.5 h-3.5" />
                     </Button>
                   )}
+                  {onCancel && (
+                    <Button size="sm" variant="ghost" className="gap-1 text-destructive hover:text-destructive" onClick={() => onCancel(w)}>
+                      <Trash2 className="w-3.5 h-3.5" /> Cancel
+                    </Button>
+                  )}
                 </div>
               </div>
             ))}
@@ -253,6 +258,11 @@ export default function TransfersTab({ warehouseStock, onPrintSlip }) {
                           {onPrintSlip && (
                             <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onPrintSlip(w)}>
                               <Printer className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                          {onCancel && (
+                            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => onCancel(w)}>
+                              <Trash2 className="w-3.5 h-3.5" />
                             </Button>
                           )}
                         </div>
