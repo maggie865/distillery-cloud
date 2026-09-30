@@ -43,8 +43,12 @@ export default function CompleteDistillationDialog({ run, open, onOpenChange, on
     mutationFn: async () => {
       const today = format(new Date(), 'yyyy-MM-dd');
 
-      // 1. Update the distillation run to completed
-      await db.DistillationRun.update(run.id, { status: 'completed' });
+      // 1. Update the distillation run to completed — destination_tank_id
+      // has to be saved here, not just used locally, because deleting a
+      // completed run later reads it to find which tank to reverse the
+      // hearts credit out of. Without it, that reversal silently finds
+      // nothing to undo and the tank stays permanently over-credited.
+      await db.DistillationRun.update(run.id, { status: 'completed', destination_tank_id: heartsTankId || undefined });
 
       // 2. Add hearts to selected tank
       if (heartsTankId && heartsVolume > 0) {
