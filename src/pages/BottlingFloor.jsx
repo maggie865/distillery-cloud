@@ -330,6 +330,7 @@ export default function BottlingFloor() {
         bottles_per_case: activeRun.bottles_per_case,
         cases_produced: cases,
         lals_per_bottle: parseFloat(lalPerBottle.toFixed(5)),
+        tasting_bottles_produced: tastingBottles,
         status: 'completed',
         notes: `Staff: ${activeRun.staff.join(', ')} | Cases: ${cases} | Extra bottles: ${extraBottles} | Tasting: ${tastingBottles}`,
         recipe_id: activeRun.recipe?.id || undefined,
@@ -634,7 +635,38 @@ export default function BottlingFloor() {
         }
       }
 
-      // 3. Delete WastageRecord(s) created for tasting bottles from this run
+      // 3. Reverse tasting bottles this run added to its tasting stock line.
+      // tasting_bottles_produced is the reliable source; older runs from
+      // before that column existed only have it embedded in notes text
+      // ("Tasting: N"), so fall back to parsing that.
+      const tastingBottlesProduced = run.tasting_bottles_produced ??
+        parseInt((run.notes || '').match(/Tasting:\s*(\d+)/)?.[1] || '0', 10);
+      if (tastingBottlesProduced > 0) {
+        const tastingName = `${run.product_name} — Tasting`;
+        const allFG = await db.FinishedGood.list('product_name', 5000);
+        const tg = allFG.find(g =>
+          g.product_name === tastingName &&
+          g.batch_number === run.batch_number &&
+          Number(g.bottle_size_ml) === Number(run.bottle_size_ml)
+        );
+        if (tg) {
+          const tastingLalsPerBottle = (tg.quantity_bottles || 0) > 0 && tg.total_lals ? tg.total_lals / tg.quantity_bottles : 0;
+          const newTastingQty = Math.max(0, (tg.quantity_bottles || 0) - tastingBottlesProduced);
+          const newTastingLals = Math.max(0, (tg.total_lals || 0) - tastingBottlesProduced * tastingLalsPerBottle);
+          if (newTastingQty === 0) {
+            await db.FinishedGood.delete(tg.id);
+          } else {
+            await db.FinishedGood.update(tg.id, {
+              quantity_bottles: newTastingQty,
+              total_lals: parseFloat(newTastingLals.toFixed(4)),
+            });
+          }
+        }
+      }
+
+      // Delete WastageRecord(s) created for tasting bottles from this run —
+      // only relevant for older runs, from before tasting bottles moved to
+      // their own finished-goods line instead of being logged as wastage.
       const tastingWastage = await db.WastageRecord.filter({ source: 'bottling', batch_number: run.batch_number });
       for (const wr of tastingWastage) {
         await db.WastageRecord.delete(wr.id);
@@ -668,7 +700,34 @@ export default function BottlingFloor() {
         }
       }
 
-      // 5. Delete the run record
+      // 5. Take this run's contribution off whichever pallet it was
+      // stacked on — same product/batch/size match as the automatic
+      // attachment in completeRunMutation, clamped at zero the same way
+      // Finished Goods is above: stock already dispatched or transferred
+      // off the pallet can't be un-shipped by deleting the run.
+      if (bottlesProduced > 0) {
+        const allPalletItems = await db.PalletItem.list('-created_at', 5000);
+        const item = allPalletItems.find(it =>
+          it.product_name === run.product_name &&
+          (it.batch_number || null) === (run.batch_number || null) &&
+          Number(it.bottle_size_ml) === Number(run.bottle_size_ml)
+        );
+        if (item) {
+          const itemLalsPerBottle = (item.quantity_bottles || 0) > 0 && item.total_lals ? item.total_lals / item.quantity_bottles : 0;
+          const newItemQty = Math.max(0, (item.quantity_bottles || 0) - bottlesProduced);
+          const newItemLals = Math.max(0, (item.total_lals || 0) - bottlesProduced * itemLalsPerBottle);
+          if (newItemQty === 0) {
+            await db.PalletItem.delete(item.id);
+          } else {
+            await db.PalletItem.update(item.id, {
+              quantity_bottles: newItemQty,
+              total_lals: parseFloat(newItemLals.toFixed(4)),
+            });
+          }
+        }
+      }
+
+      // 6. Delete the run record
       await db.BottlingRun.delete(run.id);
     },
     onSuccess: () => {
@@ -677,6 +736,9 @@ export default function BottlingFloor() {
       queryClient.invalidateQueries({ queryKey: ['finishedGoods'] });
       queryClient.invalidateQueries({ queryKey: ['wastageRecords'] });
       queryClient.invalidateQueries({ queryKey: ['rawMaterials'] });
+      queryClient.invalidateQueries({ queryKey: ['pallets'] });
+      queryClient.invalidateQueries({ queryKey: ['palletItemsAll'] });
+      queryClient.invalidateQueries({ queryKey: ['palletItems'] });
       setDeletingRun(null);
       toast.success('Run deleted and inventory reversed');
     },
@@ -1140,7 +1202,11 @@ export default function BottlingFloor() {
               <ul className="mt-2 space-y-1 list-disc list-inside text-sm">
                 <li>Return <strong>{deletingRun?.input_volume?.toFixed(1)}L</strong> of spirit back to the source tank</li>
                 <li>Remove <strong>{deletingRun ? (deletingRun.bottles_produced || 0) - deleteShortfall : 0}</strong> bottles from finished goods stock{deleteShortfall > 0 ? ' (all that remains)' : ''}</li>
-                <li>Delete tasting bottle wastage records for this batch</li>
+                {deletingRun?.tasting_bottles_produced > 0 && (
+                  <li>Remove <strong>{deletingRun.tasting_bottles_produced}</strong> bottles from tasting stock</li>
+                )}
+                <li>Return any packaging materials this run used</li>
+                <li>Remove its bottles from whichever pallet it was stacked on</li>
               </ul>
               {deleteShortfall > 0 && (
                 <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
