@@ -363,6 +363,12 @@ export default function Dilutions() {
       const today = new Date().toISOString().split('T')[0];
 
       const allTanks = await db.StorageTank.list('name', 5000);
+      // Dilution records only capture which tanks were used as free text in
+      // `notes`, so the lookups below can miss a tank entirely (renamed,
+      // notes edited, wording mismatch) or find one whose stock has moved
+      // since. Rather than let that fail silently behind a generic success
+      // toast, collect what went wrong and surface it after the delete.
+      const warnings = [];
 
       if (isHearts) {
         const isTransfer = dilution.notes?.includes('Transferred to Tank');
@@ -385,9 +391,12 @@ export default function Dilutions() {
               current_batch: dilution.batch_number || sourceTank.current_batch,
               status: 'in_use',
             });
+          } else {
+            warnings.push(`Could not find source tank "${sourceName || 'unknown'}" (parsed from notes) — ${outputVolume}L was not restored there. Check manually.`);
           }
 
           if (destTank) {
+            const shortfall = outputVolume - (destTank.current_volume || 0);
             const newDestVol = Math.max(0, (destTank.current_volume || 0) - outputVolume);
             const destLals = (destTank.current_volume || 0) * (destTank.current_abv || 0) / 100;
             const newDestLals = Math.max(0, destLals - outputLals);
@@ -397,6 +406,11 @@ export default function Dilutions() {
               current_abv: parseFloat(newDestAbv.toFixed(2)),
               ...(newDestVol === 0 ? { current_product: '', current_batch: '', status: 'empty' } : {}),
             });
+            if (shortfall > 0.0001) {
+              warnings.push(`Tank ${destTank.name} only had ${(destTank.current_volume || 0).toFixed(2)}L — ${shortfall.toFixed(2)}L of this dilution had already moved elsewhere and couldn't be removed.`);
+            }
+          } else {
+            warnings.push(`Could not find destination tank "${destName}" (parsed from notes) — ${outputVolume}L was not removed from it. Check manually.`);
           }
 
           await db.TankMovement.create({
@@ -414,6 +428,7 @@ export default function Dilutions() {
         } else {
           const sourceTank = allTanks.find(t => t.name === sourceName);
           if (sourceTank) {
+            const shortfall = waterAdded - (sourceTank.current_volume || 0);
             const newVol = Math.max(0, (sourceTank.current_volume || 0) - waterAdded);
             const currentLals = (sourceTank.current_volume || 0) * (sourceTank.current_abv || 0) / 100;
             const newAbv = newVol > 0 ? (currentLals / newVol) * 100 : 0;
@@ -422,6 +437,11 @@ export default function Dilutions() {
               current_abv: parseFloat(newAbv.toFixed(2)),
               ...(newVol === 0 ? { current_product: '', current_batch: '', status: 'empty' } : {}),
             });
+            if (shortfall > 0.0001) {
+              warnings.push(`Tank ${sourceTank.name} only had ${(sourceTank.current_volume || 0).toFixed(2)}L — ${shortfall.toFixed(2)}L of the added water couldn't be removed.`);
+            }
+          } else {
+            warnings.push(`Could not find source tank "${sourceName || 'unknown'}" (parsed from notes) — ${waterAdded}L water was not removed. Check manually.`);
           }
           await db.TankMovement.create({
             date: today, action: 'dilution_reversed', tank_name: sourceName || 'unknown',
@@ -442,6 +462,7 @@ export default function Dilutions() {
         if (tankName) {
           const tank = allTanks.find(t => t.name === tankName);
           if (tank) {
+            const shortfall = waterAdded - (tank.current_volume || 0);
             const newVol = Math.max(0, (tank.current_volume || 0) - waterAdded);
             const currentLals = (tank.current_volume || 0) * (tank.current_abv || 0) / 100;
             const newAbv = newVol > 0 ? (currentLals / newVol) * 100 : 0;
@@ -450,7 +471,14 @@ export default function Dilutions() {
               current_abv: parseFloat(newAbv.toFixed(2)),
               ...(newVol === 0 ? { current_product: '', current_batch: '', status: 'empty' } : {}),
             });
+            if (shortfall > 0.0001) {
+              warnings.push(`Tank ${tank.name} only had ${(tank.current_volume || 0).toFixed(2)}L — ${shortfall.toFixed(2)}L of the added water couldn't be removed.`);
+            }
+          } else {
+            warnings.push(`Could not find tank "${tankName}" — ${waterAdded}L water was not removed. Check manually.`);
           }
+        } else {
+          warnings.push(`Could not find the original tank-fill record for this dilution — no tank was adjusted. Restore ${waterAdded}L manually if needed.`);
         }
         await db.TankMovement.create({
           date: today, action: 'dilution_reversed', tank_name: tankName || 'unknown',
@@ -461,14 +489,16 @@ export default function Dilutions() {
       }
 
       await db.Dilution.delete(dilution.id);
+      return { warnings };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['dilutions'] });
       queryClient.invalidateQueries({ queryKey: ['dilutions-sheet'] });
       queryClient.invalidateQueries({ queryKey: ['storageTanks'] });
       queryClient.invalidateQueries({ queryKey: ['tankMovements'] });
       setDeletingDilution(null);
-      toast.success('Dilution deleted and tank volumes reversed');
+      toast.success('Dilution deleted');
+      (result?.warnings || []).forEach(w => toast.warning(w));
     },
     onError: (err) => toast.error(err.message || 'Failed to delete dilution'),
   });
