@@ -45,6 +45,7 @@ export default function SNSDistillation() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [deletingRun, setDeletingRun] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: snsRuns = [] } = useQuery({
@@ -251,7 +252,9 @@ export default function SNSDistillation() {
       toast.error('Please fill in all required fields');
       return;
     }
+    if (submitting) return; // double-tap/double-click guard — this isn't wrapped in useMutation's own isPending
 
+    setSubmitting(true);
     try {
       const payload = {
         date: form.date,
@@ -273,7 +276,20 @@ export default function SNSDistillation() {
       };
 
       if (editingId) {
-        await db.SNSRun.update(editingId, payload);
+        // Editing only ever saves metadata — volume/ABV/tank fields are
+        // shown for reference but not writable here, since applying a
+        // change to them would mean re-adjusting whatever tanks the
+        // original run already moved, which nothing here currently does.
+        // A genuine volume/ABV correction should go through delete
+        // (reverses the tanks) + a fresh run, not an in-place edit.
+        await db.SNSRun.update(editingId, {
+          date: payload.date,
+          status: payload.status,
+          notes: payload.notes,
+          dumped_notes: payload.dumped_notes,
+          run_start_time: payload.run_start_time,
+          run_end_time: payload.run_end_time,
+        });
         toast.success('SNS run updated');
       } else {
         const finalPayload = {
@@ -353,8 +369,29 @@ export default function SNSDistillation() {
       setForm(BLANK_FORM);
     } catch (err) {
       toast.error(err.message || 'Failed to save SNS run');
+    } finally {
+      setSubmitting(false);
     }
   };
+
+  // How much of the run's hearts can no longer be pulled back out of its
+  // destination tank(s) because some of that volume has already been used
+  // downstream (a dilution, a further distillation, etc.) — mirrors the
+  // same Math.min clamp the delete reversal itself applies, just computed
+  // ahead of time so the confirmation can show it instead of it happening
+  // silently.
+  const deleteHeartsShortfall = (() => {
+    if (!deletingRun) return 0;
+    const destTankIds = deletingRun.destination_tank_ids || [];
+    let remainingToReverse = deletingRun.hearts_volume || 0;
+    for (let i = destTankIds.length - 1; i >= 0 && remainingToReverse > 0; i--) {
+      const destTank = tanks.find(t => t.id === destTankIds[i]);
+      if (!destTank) continue;
+      const volumeToRemove = Math.min(destTank.current_volume || 0, remainingToReverse);
+      remainingToReverse -= volumeToRemove;
+    }
+    return Math.max(0, remainingToReverse);
+  })();
 
   return (
     <div>
@@ -372,6 +409,11 @@ export default function SNSDistillation() {
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="space-y-5 mt-4">
+            {editingId && (
+              <p className="text-xs text-muted-foreground bg-muted rounded-lg p-3">
+                Volume, ABV and tank fields are locked once a run is saved — changing them here wouldn't adjust the tanks the run already moved. Only date, status and notes can be edited; delete and re-record the run for a volume/ABV correction.
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Date</Label>
@@ -421,7 +463,7 @@ export default function SNSDistillation() {
 
             <div className="rounded-lg border border-border p-4 space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Source tank (heads and tails)</p>
-              <Select value={form.source_tank_id} onValueChange={handleTankChange}>
+              <Select value={form.source_tank_id} onValueChange={handleTankChange} disabled={!!editingId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Choose a tank..." />
                 </SelectTrigger>
@@ -442,13 +484,14 @@ export default function SNSDistillation() {
               <div className="space-y-2">
                 {form.destination_tank_ids.map((tankId, idx) => (
                   <div key={idx} className="flex gap-2 items-end">
-                    <Select 
-                      value={tankId} 
+                    <Select
+                      value={tankId}
                       onValueChange={v => {
                         const updated = [...form.destination_tank_ids];
                         updated[idx] = v;
                         set('destination_tank_ids', updated);
                       }}
+                      disabled={!!editingId}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select tank..." />
@@ -471,6 +514,7 @@ export default function SNSDistillation() {
                         const updated = form.destination_tank_ids.filter((_, i) => i !== idx);
                         set('destination_tank_ids', updated);
                       }}
+                      disabled={!!editingId}
                     >
                       Remove
                     </Button>
@@ -482,6 +526,7 @@ export default function SNSDistillation() {
                   size="sm"
                   onClick={() => set('destination_tank_ids', [...form.destination_tank_ids, ''])}
                   className="w-full"
+                  disabled={!!editingId}
                 >
                   + Add Tank
                 </Button>
@@ -499,6 +544,7 @@ export default function SNSDistillation() {
                     value={form.input_volume}
                     onChange={e => set('input_volume', e.target.value)}
                     placeholder="e.g. 200"
+                    disabled={!!editingId}
                   />
                 </div>
                 <div>
@@ -509,6 +555,7 @@ export default function SNSDistillation() {
                     value={form.input_abv}
                     onChange={e => set('input_abv', e.target.value)}
                     placeholder="e.g. 55"
+                    disabled={!!editingId}
                   />
                 </div>
                 <div>
@@ -528,10 +575,11 @@ export default function SNSDistillation() {
                   <Input 
                     type="number" 
                     step="0.01" 
-                    value={form.hearts_volume} 
-                    onChange={e => set('hearts_volume', e.target.value)} 
+                    value={form.hearts_volume}
+                    onChange={e => set('hearts_volume', e.target.value)}
                     required
                     placeholder="e.g. 45"
+                    disabled={!!editingId}
                   />
                 </div>
                 <div>
@@ -539,10 +587,11 @@ export default function SNSDistillation() {
                   <Input 
                     type="number" 
                     step="0.1" 
-                    value={form.hearts_abv} 
-                    onChange={e => set('hearts_abv', e.target.value)} 
+                    value={form.hearts_abv}
+                    onChange={e => set('hearts_abv', e.target.value)}
                     required
                     placeholder="e.g. 94"
+                    disabled={!!editingId}
                   />
                 </div>
                 <div>
@@ -562,9 +611,10 @@ export default function SNSDistillation() {
                   <Input 
                     type="number" 
                     step="0.01" 
-                    value={form.dumped_volume} 
-                    onChange={e => set('dumped_volume', e.target.value)} 
+                    value={form.dumped_volume}
+                    onChange={e => set('dumped_volume', e.target.value)}
                     placeholder="e.g. 10"
+                    disabled={!!editingId}
                   />
                 </div>
                 <div>
@@ -595,8 +645,8 @@ export default function SNSDistillation() {
               <Textarea value={form.notes} onChange={e => set('notes', e.target.value)} />
             </div>
 
-            <Button type="submit" className="w-full">
-              {editingId ? 'Update SNS Run' : 'Record SNS Run'}
+            <Button type="submit" className="w-full" disabled={submitting}>
+              {submitting ? 'Saving…' : editingId ? 'Update SNS Run' : 'Record SNS Run'}
             </Button>
           </form>
         </DialogContent>
@@ -609,6 +659,11 @@ export default function SNSDistillation() {
             <AlertDialogTitle>Delete SNS Run?</AlertDialogTitle>
             <AlertDialogDescription>
               This will reverse all tank volume changes from this SNS run. Are you sure?
+              {deleteHeartsShortfall > 0 && (
+                <span className="block mt-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 font-medium text-destructive">
+                  {deleteHeartsShortfall.toFixed(1)}L of this run's hearts can't be returned — that much has already been used out of the destination tank (a further dilution or distillation), so only what's still there will be reversed.
+                </span>
+              )}
               <p className="mt-2 font-medium text-destructive">This cannot be undone.</p>
             </AlertDialogDescription>
           </AlertDialogHeader>
