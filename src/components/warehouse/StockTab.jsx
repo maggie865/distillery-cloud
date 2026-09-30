@@ -118,7 +118,7 @@ export default function StockTab({ warehouseStock, onPrintSlip, onAdjust, onDele
                         <Pencil className="w-3 h-3" /> Adjust
                       </Button>
                       <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive gap-1" onClick={() => onDelete(w)}>
-                        <Trash2 className="w-3 h-3" />
+                        <Trash2 className="w-3 h-3" /> Cancel
                       </Button>
                     </div>
                   </TableCell>

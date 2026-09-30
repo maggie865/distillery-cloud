@@ -111,8 +111,33 @@ export default function Warehouse() {
     }
   };
 
-  const handleDeleteStock = async (record) => {
-    if (!confirm('This will remove this stock record. Are you sure?')) return;
+  // Cancels a 3PL/UK transfer, whether it's still in_transit or already
+  // received. quantity_bottles/total_lals are the LIVE remaining balance
+  // (depleted as this lot is dispatched onward to real customers);
+  // original_quantity_bottles/original_total_lals are the immutable amount
+  // actually transferred. Only the remaining, undispatched portion can be
+  // returned to Finished Goods — bottles already dispatched to a customer
+  // are gone and stay recorded in Dispatch/Batch Trace untouched.
+  const handleCancelTransfer = async (record) => {
+    const remainingBottles = record.quantity_bottles || 0;
+    const remainingLals = record.total_lals || 0;
+    const originalBottles = record.original_quantity_bottles ?? record.quantity_bottles ?? 0;
+    const alreadyDispatched = Math.max(0, originalBottles - remainingBottles);
+
+    if (remainingBottles <= 0) {
+      toast.error('This transfer has already been fully dispatched to customers — there is nothing left to cancel.');
+      return;
+    }
+
+    let confirmMsg;
+    if (record.status === 'in_transit') {
+      confirmMsg = `Cancel this transfer of ${originalBottles.toLocaleString()} bottles? It hasn't been received at the warehouse yet, so all ${originalBottles.toLocaleString()} bottles will be returned to Finished Goods stock.`;
+    } else if (alreadyDispatched > 0) {
+      confirmMsg = `${alreadyDispatched.toLocaleString()} of these ${originalBottles.toLocaleString()} bottles have already been dispatched to a customer from this transfer and can't be recalled — those dispatches stay recorded as-is. Only the remaining ${remainingBottles.toLocaleString()} bottles will be returned to Finished Goods stock. Continue?`;
+    } else {
+      confirmMsg = `Cancel this transfer of ${originalBottles.toLocaleString()} bottles? None of it has been dispatched to a customer yet, so all ${originalBottles.toLocaleString()} bottles will be returned to Finished Goods stock.`;
+    }
+    if (!confirm(confirmMsg)) return;
 
     try {
       const allFG = await base44.entities.FinishedGood.list('-created_at', 5000);
@@ -123,22 +148,26 @@ export default function Warehouse() {
       );
 
       if (!fg) {
-        toast.error('No matching Finished Good found to return stock to. Delete aborted.');
+        toast.error('No matching Finished Good found to return stock to. Cancel aborted.');
         return;
       }
 
       await base44.entities.FinishedGood.update(fg.id, {
-        quantity_bottles: (fg.quantity_bottles || 0) + (record.quantity_bottles || 0),
-        total_lals: parseFloat(((fg.total_lals || 0) + (record.total_lals || 0)).toFixed(4)),
+        quantity_bottles: (fg.quantity_bottles || 0) + remainingBottles,
+        total_lals: parseFloat(((fg.total_lals || 0) + remainingLals).toFixed(4)),
       });
 
       await base44.entities.WarehouseStock.delete(record.id);
 
       qc.invalidateQueries({ queryKey: ['warehouseStock'] });
       qc.invalidateQueries({ queryKey: ['finishedGoods'] });
-      toast.success('Stock record deleted and quantity returned to finished goods');
+      toast.success(
+        alreadyDispatched > 0
+          ? `Transfer cancelled — ${remainingBottles.toLocaleString()} bottles returned to Finished Goods (${alreadyDispatched.toLocaleString()} already dispatched to a customer were left untouched)`
+          : 'Transfer cancelled and bottles returned to Finished Goods'
+      );
     } catch (err) {
-      toast.error('Failed to delete stock: ' + err.message);
+      toast.error('Failed to cancel transfer: ' + err.message);
     }
   };
 
@@ -173,10 +202,10 @@ export default function Warehouse() {
           <TabsTrigger value="slips">Packing Slips</TabsTrigger>
         </TabsList>
         <TabsContent value="stock">
-          <StockTab warehouseStock={locationStock} dispatches={dispatches} onPrintSlip={handlePrintPackingSlip} onAdjust={handleAdjustStock} onDelete={handleDeleteStock} />
+          <StockTab warehouseStock={locationStock} dispatches={dispatches} onPrintSlip={handlePrintPackingSlip} onAdjust={handleAdjustStock} onDelete={handleCancelTransfer} />
         </TabsContent>
         <TabsContent value="transfers">
-          <TransfersTab warehouseStock={locationStock} onPrintSlip={handlePrintPackingSlip} />
+          <TransfersTab warehouseStock={locationStock} onPrintSlip={handlePrintPackingSlip} onCancel={handleCancelTransfer} />
         </TabsContent>
         <TabsContent value="slips">
           <PackingSlipsTab warehouseStock={locationStock} onPrintSlip={handlePrintPackingSlip} />

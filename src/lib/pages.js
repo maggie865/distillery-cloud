@@ -26,7 +26,7 @@ import {
   Warehouse, Building2, FileText, Settings as SettingsIcon, PackagePlus,
   Truck, ClipboardList, Thermometer, Wrench, Bug, AlertTriangle, CheckSquare,
   Leaf, Archive, Zap, ShieldCheck, Activity, ClipboardCheck, Recycle, Target, Scale, ClipboardPen, Globe2,
-  Factory, Boxes, CalendarDays, GraduationCap, BookOpen, Megaphone,
+  Factory, Boxes, CalendarDays, GraduationCap, BookOpen, Megaphone, Package,
 } from 'lucide-react';
 
 import Compliance from '@/pages/Compliance';
@@ -72,6 +72,8 @@ import StaffTrainingDetail from '@/pages/StaffTrainingDetail';
 import SOPLibrary from '@/pages/SOPLibrary';
 import SOPDetail from '@/pages/SOPDetail';
 import PromoCalendar from '@/pages/PromoCalendar';
+import Pallets from '@/pages/Pallets';
+import PalletDetail from '@/pages/PalletDetail';
 
 export const NAV_GROUPS = ['Production', 'Stock', 'Sales', 'Compliance', 'EMS'];
 
@@ -93,6 +95,8 @@ export const PAGES = [
   { key: 'receiving',         label: 'Receiving',         path: '/receiving',         icon: PackagePlus,   component: Receiving,         navGroup: 'Stock' },
   { key: 'stock-takes',       label: 'Stock Takes',       path: '/stock-takes',       icon: ClipboardList, component: StockTakes,        navGroup: 'Stock' },
   { key: 'whiskey-barrels',   label: 'Whiskey Barrels',   path: '/whiskey-barrels',   icon: Archive,       component: WhiskeyBarrels,    navGroup: 'Stock' },
+  { key: 'pallets',           label: 'Pallets',           path: '/pallets',           icon: Package,       component: Pallets,           navGroup: 'Stock' },
+  { key: 'pallet-detail',     label: 'Pallet Detail',     path: '/pallets/:palletCode', icon: Package,     component: PalletDetail,      navGroup: null },
 
   { key: 'sales',             label: 'Sales',             path: '/sales',             icon: Activity,      component: SalesOverview,     navGroup: 'Sales' },
   { key: 'dispatch',          label: 'Dispatch',          path: '/dispatch',          icon: TrendingUp,    component: DispatchHub,       navGroup: 'Sales' },

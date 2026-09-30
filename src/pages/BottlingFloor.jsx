@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Plus, BarChart3, Pencil, Trash2, FlaskConical, CheckCircle2, Clock, PackageCheck, AlertTriangle, ChevronDown, ChevronRight, Wrench } from 'lucide-react';
+import { Plus, BarChart3, Pencil, Trash2, FlaskConical, CheckCircle2, Clock, PackageCheck, AlertTriangle, ChevronDown, ChevronRight, Wrench, Package } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -20,6 +20,7 @@ import BottlingRunTracker from '@/components/bottling/BottlingRunTracker';
 import Pagination from '@/components/ui/Pagination';
 import PreUseChecksTab from '@/components/maintenance/PreUseChecksTab';
 import { isBoxOrCase, findPackagingMaterial, checkPackagingStock } from '@/lib/packagingStock';
+import AddRunToPalletDialog from '@/components/pallets/AddRunToPalletDialog';
 
 const ACTIVE_RUN_KEY = 'bottling_active_run';
 
@@ -35,6 +36,7 @@ export default function BottlingFloor() {
   const [editingRun, setEditingRun] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [deletingRun, setDeletingRun] = useState(null);
+  const [palletRun, setPalletRun] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [preUseExpanded, setPreUseExpanded] = useState(false);
@@ -881,6 +883,13 @@ export default function BottlingFloor() {
                       <div className="flex gap-1">
                         <Button
                           variant="ghost" size="icon" className="h-7 w-7"
+                          title="Add to Pallet"
+                          onClick={() => setPalletRun(run)}
+                        >
+                          <Package className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost" size="icon" className="h-7 w-7"
                           onClick={() => { setEditingRun(run); setEditForm({ date: run.date, notes: run.notes || '', status: run.status }); }}
                         >
                           <Pencil className="w-3.5 h-3.5" />
@@ -971,6 +980,8 @@ export default function BottlingFloor() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AddRunToPalletDialog open={!!palletRun} onClose={() => setPalletRun(null)} run={palletRun} />
     </div>
   );
 }

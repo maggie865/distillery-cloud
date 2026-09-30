@@ -127,6 +127,8 @@ export const db = {
   MasterBatch:       makeEntity('MasterBatch'),
   MockRecall:        makeEntity('MockRecall'),
   PagePermission:    makeEntity('PagePermission'),
+  Pallet:            makeEntity('Pallet'),
+  PalletItem:        makeEntity('PalletItem'),
   PestControlLog:    makeEntity('PestControlLog'),
   PestControlTrap:   makeEntity('PestControlTrap'),
   Product:           makeEntity('Product'),
