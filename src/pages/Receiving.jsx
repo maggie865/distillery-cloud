@@ -601,20 +601,55 @@ export default function Receiving() {
   const updateMutation = useMutation({
     mutationFn: async (data) => {
       const payload = buildEditPayload(data);
+      // Capture what this receiving contributed BEFORE overwriting it, so we
+      // can adjust its linked stock item by the delta rather than stomping
+      // on whatever every other receiving of the same material has since
+      // added. The top-level RawMaterial.receiving_id only ever points at
+      // whichever receiving happened to create the record first — every
+      // lot inside `lots[]` carries its own receiving_id reliably, so that's
+      // what actually identifies which lot belongs to this receiving.
+      const original = receivingsQuery.data?.find(r => r.id === editingId);
       await base44.entities.Receiving.update(editingId, payload);
 
-      // If quantity or cost changed, sync linked RawMaterial
-      const original = receivingsQuery.data?.find(r => r.id === editingId);
-      const newCost = data.cost_per_unit ? parseFloat(data.cost_per_unit) : null;
-      const costChanged = original && newCost !== (original.cost_per_unit ?? null);
-      const qtyChanged = original && parseFloat(data.quantity) !== original.quantity;
-      if (qtyChanged || costChanged) {
-        const linked = await base44.entities.RawMaterial.filter({ receiving_id: editingId });
-        for (const rm of linked) {
-          const update = {};
-          if (qtyChanged) update.quantity = parseFloat(data.quantity);
-          if (costChanged) update.cost_per_unit = newCost ?? undefined;
-          await base44.entities.RawMaterial.update(rm.id, update);
+      const newQty = payload.quantity || 0;
+      const oldQty = original?.quantity || 0;
+      const qtyDelta = newQty - oldQty;
+      const newLals = payload.lals || 0;
+      const oldLals = original?.lals || 0;
+      const lalsDelta = newLals - oldLals;
+      const newCost = payload.cost_per_unit ?? null;
+      const oldCost = original?.cost_per_unit ?? null;
+      const costChanged = newCost !== oldCost;
+
+      if (qtyDelta !== 0 || lalsDelta !== 0 || costChanged) {
+        const allRM = await base44.entities.RawMaterial.list('name', 5000);
+        const owner = allRM.find(rm => Array.isArray(rm.lots) && rm.lots.some(l => l.receiving_id === editingId));
+        if (owner) {
+          const lotIdx = owner.lots.findIndex(l => l.receiving_id === editingId);
+          const oldLot = owner.lots[lotIdx];
+          const newLotRemaining = Math.max(0, (oldLot.quantity_remaining || 0) + qtyDelta);
+          const updatedLots = owner.lots.map((l, i) => i === lotIdx ? {
+            ...l,
+            quantity_received: newQty,
+            quantity_remaining: newLotRemaining,
+            cost_per_unit: costChanged ? newCost : l.cost_per_unit,
+          } : l);
+
+          const newOwnerQty = (owner.quantity || 0) + qtyDelta;
+          const ownerShortfall = newOwnerQty < 0 ? -newOwnerQty : 0;
+
+          await base44.entities.RawMaterial.update(owner.id, {
+            quantity: parseFloat(Math.max(0, newOwnerQty).toFixed(4)),
+            lals: parseFloat(Math.max(0, (owner.lals || 0) + lalsDelta).toFixed(4)),
+            cost_per_unit: costChanged ? newCost : owner.cost_per_unit,
+            lots: updatedLots,
+          });
+
+          if (ownerShortfall > 0.0001) {
+            toast.warning(`Correcting this receiving down by ${Math.abs(qtyDelta).toFixed(2)} ${owner.unit || ''} couldn't fully apply to ${owner.name} — ${ownerShortfall.toFixed(2)} has already been used elsewhere, so stock was only reduced to 0.`);
+          }
+        } else {
+          toast.warning('Updated the receiving record, but could not find its linked stock item to adjust — please check inventory manually.');
         }
       }
     },
@@ -655,10 +690,30 @@ export default function Receiving() {
 
   const deleteMutation = useMutation({
     mutationFn: async (record) => {
-      // Delete linked RawMaterial records
-      const linked = await base44.entities.RawMaterial.filter({ receiving_id: record.id });
-      for (const rm of linked) {
-        await base44.entities.RawMaterial.delete(rm.id);
+      // Find whichever RawMaterial has a lot carrying this receiving's id
+      // (reliable — unlike the top-level receiving_id, which only ever
+      // points at whichever receiving created the record first) and remove
+      // just that lot's contribution, not the whole material record.
+      const allRM = await base44.entities.RawMaterial.list('name', 5000);
+      const owner = allRM.find(rm => Array.isArray(rm.lots) && rm.lots.some(l => l.receiving_id === record.id));
+      if (owner) {
+        const lot = owner.lots.find(l => l.receiving_id === record.id);
+        const qtyToRemove = lot?.quantity_received ?? record.quantity ?? 0;
+        const lalsToRemove = record.lals || 0;
+        const shortfall = Math.max(0, qtyToRemove - (owner.quantity || 0));
+        const remainingLots = owner.lots.filter(l => l.receiving_id !== record.id);
+
+        await base44.entities.RawMaterial.update(owner.id, {
+          quantity: parseFloat(Math.max(0, (owner.quantity || 0) - qtyToRemove).toFixed(4)),
+          lals: parseFloat(Math.max(0, (owner.lals || 0) - lalsToRemove).toFixed(4)),
+          lots: remainingLots,
+        });
+
+        if (shortfall > 0.0001) {
+          toast.warning(`${shortfall.toFixed(2)} ${owner.unit || ''} of this receiving's ${owner.name} had already been used — only what was left in stock could be removed.`);
+        }
+      } else {
+        toast.warning('Deleted the receiving, but could not find its linked stock lot to reverse — please check inventory manually.');
       }
       await base44.entities.Receiving.delete(record.id);
     },
@@ -669,6 +724,18 @@ export default function Receiving() {
     },
     onError: (err) => toast.error(err.message || 'Failed to delete receiving record'),
   });
+
+  const confirmDeleteReceiving = (record) => {
+    const owner = rawMaterials.find(rm => Array.isArray(rm.lots) && rm.lots.some(l => l.receiving_id === record.id));
+    const lot = owner?.lots.find(l => l.receiving_id === record.id);
+    const qtyToRemove = lot?.quantity_received ?? record.quantity ?? 0;
+    const shortfall = owner ? Math.max(0, qtyToRemove - (owner.quantity || 0)) : 0;
+    let msg = `Delete this receiving record? This will remove ${qtyToRemove} ${record.unit || ''} of ${record.material_name} from stock.`;
+    if (shortfall > 0.0001) {
+      msg += ` Note: ${shortfall.toFixed(2)} ${record.unit || ''} has already been used, so only ${(qtyToRemove - shortfall).toFixed(2)} will actually come off stock.`;
+    }
+    if (confirm(msg)) deleteMutation.mutate(record);
+  };
 
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState('all');
@@ -1080,7 +1147,7 @@ export default function Receiving() {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => { if (confirm('Delete this receiving record?')) deleteMutation.mutate(r); }}
+                        onClick={() => confirmDeleteReceiving(r)}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
@@ -1107,7 +1174,7 @@ export default function Receiving() {
                 <>
                   {r.packing_slip_url && <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={() => setViewingSlip(r.packing_slip_url)}><Eye className="w-3.5 h-3.5" /> Slip</Button>}
                   <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={() => openEdit(r)}><Pencil className="w-3.5 h-3.5" /> Edit</Button>
-                  <Button variant="outline" size="sm" className="flex-1 gap-1.5 text-destructive" onClick={() => { if (confirm('Delete this receiving record?')) deleteMutation.mutate(r); }}><Trash2 className="w-3.5 h-3.5" /> Delete</Button>
+                  <Button variant="outline" size="sm" className="flex-1 gap-1.5 text-destructive" onClick={() => confirmDeleteReceiving(r)}><Trash2 className="w-3.5 h-3.5" /> Delete</Button>
                 </>
               }
             >
