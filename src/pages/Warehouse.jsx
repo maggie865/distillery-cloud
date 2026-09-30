@@ -147,15 +147,25 @@ export default function Warehouse() {
         Number(f.bottle_size_ml) === Number(record.bottle_size_ml)
       );
 
-      if (!fg) {
-        toast.error('No matching Finished Good found to return stock to. Cancel aborted.');
-        return;
+      if (fg) {
+        await base44.entities.FinishedGood.update(fg.id, {
+          quantity_bottles: (fg.quantity_bottles || 0) + remainingBottles,
+          total_lals: parseFloat(((fg.total_lals || 0) + remainingLals).toFixed(4)),
+        });
+      } else {
+        // No FinishedGood row left for this product/batch/size — it was
+        // deleted when it last hit zero (see TransferTo3PLDialog). Recreate
+        // it rather than blocking the cancel, since the bottles are coming
+        // back into local stock either way.
+        await base44.entities.FinishedGood.create({
+          product_name: record.product_name,
+          batch_number: record.batch_number,
+          bottle_size_ml: record.bottle_size_ml,
+          abv_percent: record.abv_percent,
+          quantity_bottles: remainingBottles,
+          total_lals: parseFloat(remainingLals.toFixed(4)),
+        });
       }
-
-      await base44.entities.FinishedGood.update(fg.id, {
-        quantity_bottles: (fg.quantity_bottles || 0) + remainingBottles,
-        total_lals: parseFloat(((fg.total_lals || 0) + remainingLals).toFixed(4)),
-      });
 
       await base44.entities.WarehouseStock.delete(record.id);
 
