@@ -14,6 +14,11 @@ import { base44 } from '@/api/base44Client';
 import CustomerAutocomplete from '@/components/sales/CustomerAutocomplete.jsx';
 import { calcWeightKg, calcCO2e, allocateBluffLineItems } from '@/lib/dispatchAllocation';
 import { useProductStock } from '@/hooks/useProductStock';
+import { deductFromPallet } from '@/lib/palletStock';
+
+// dispatched_from uses 'Bluff' for the distillery; pallets use 'Distillery'
+// for the same physical place (matching Warehouse's own location naming).
+const PALLET_LOCATION_FOR_SOURCE = { Bluff: 'Distillery', 'Auckland 3PL': 'Auckland 3PL', 'UK Bonded': 'UK Bonded' };
 
 const DEFAULT_DISTILLERY_ORIGIN = '250 Ocean Beach Road, Bluff, New Zealand';
 const DEFAULT_WAREHOUSE_ADDRESS = '27 Pavillion Drive, Māngere, Auckland 2015, New Zealand';
@@ -42,8 +47,15 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
   const [allocationMode, setAllocationMode] = useState('fifo');
   const [newLineBatchId, setNewLineBatchId] = useState('');
   const [locationId, setLocationId] = useState('');
+  const [palletId, setPalletId] = useState('');
 
   const queryClient = useQueryClient();
+
+  const { data: pallets = [] } = useQuery({
+    queryKey: ['pallets'],
+    queryFn: () => db.Pallet.list('-created_at', 5000),
+  });
+  const palletOptions = pallets.filter(p => p.status !== 'archived' && p.location === PALLET_LOCATION_FOR_SOURCE[dispatchedFrom]);
 
   // Only relevant once a customer with more than one store/branch on file
   // is selected - see CustomerLocationsPanel on the customer detail page.
@@ -205,6 +217,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
     setNewLineBatchId('');
     setAllocationMode('fifo');
     setNewLineQty('');
+    setPalletId('');
     setForm(f => ({ ...f, transport_distance_km: '' }));
   };
 
@@ -260,6 +273,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
     setNewLineQty('');
     setDispatchedFrom('Bluff');
     setLocationId('');
+    setPalletId('');
     onClose();
   };
 
@@ -274,6 +288,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
       // status-transition handling for the deduct-on-dispatched /
       // restore-on-leaving-dispatched logic that mirrors this.
       const deductsStock = form.status === 'dispatched';
+      let palletMismatch = false;
 
       if (dispatchedFrom === 'Bluff') {
         const allAllocations = allocateBluffLineItems(lineItems, bluffProductOptions, { distanceKm, transportMethod });
@@ -291,6 +306,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
             co2e_kg: a.co2e,
             dispatched_from: 'Bluff',
             location_id: locationId || undefined,
+            pallet_id: palletId || undefined,
             sample_dispatch: form.sample_dispatch === true,
             duty_free: form.duty_free === true,
             is_export: form.is_export === true,
@@ -300,6 +316,10 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
           const newLals = Math.max(0, (a.batch.total_lals || 0) - parseFloat(a.lals.toFixed(4)));
           if (newQty <= 0) await db.FinishedGood.delete(a.batch.id);
           else await db.FinishedGood.update(a.batch.id, { quantity_bottles: newQty, total_lals: parseFloat(newLals.toFixed(4)) });
+          if (palletId) {
+            const result = await deductFromPallet(palletId, { product_name: a.batch.product_name, batch_number: a.batch.batch_number, bottle_size_ml: a.batch.bottle_size_ml, quantity_bottles: a.take });
+            if (!result.ok) palletMismatch = true;
+          }
         }
       } else {
         // Auckland 3PL or UK Bonded — dispatched_from reflects the chosen source
@@ -318,21 +338,33 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
             co2e_kg: co2e > 0 ? parseFloat(co2e.toFixed(3)) : undefined, status: form.status || 'dispatched',
             sample_dispatch: form.sample_dispatch === true, duty_free: form.duty_free === true, is_export: form.is_export === true, notes: form.notes || undefined, dispatched_from: dispatchedFrom,
             location_id: locationId || undefined,
+            pallet_id: palletId || undefined,
           });
           if (!deductsStock) continue;
+          if (palletId) {
+            const result = await deductFromPallet(palletId, { product_name: ws.product_name, batch_number: ws.batch_number, bottle_size_ml: ws.bottle_size_ml, quantity_bottles: qty });
+            if (!result.ok) palletMismatch = true;
+          }
           const newQty = Math.max(0, ws.quantity_bottles - qty);
           const newLals = Math.max(0, (ws.total_lals || 0) - lals);
           await db.WarehouseStock.update(ws.id, { quantity_bottles: newQty, total_lals: parseFloat(newLals.toFixed(4)) });
         }
       }
+      return { palletMismatch };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['dispatches'] });
       queryClient.invalidateQueries({ queryKey: ['dispatches-all'] });
       queryClient.invalidateQueries({ queryKey: ['finishedGoods'] });
       queryClient.invalidateQueries({ queryKey: ['warehouseStock'] });
+      queryClient.invalidateQueries({ queryKey: ['pallets'] });
+      queryClient.invalidateQueries({ queryKey: ['palletItemsAll'] });
+      queryClient.invalidateQueries({ queryKey: ['palletItems'] });
       handleClose();
       toast.success(`${lineItems.length} product(s) dispatched from ${dispatchedFrom === 'Bluff' ? 'Bluff Distillery' : dispatchedFrom}`);
+      if (result?.palletMismatch) {
+        toast.warning("Dispatched, but some of it didn't match what's recorded on the pallet — its contents may be off, worth checking.");
+      }
     },
     onError: (err) => toast.error(err.message || 'Failed to record dispatch'),
   });
@@ -358,6 +390,20 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
               <p className="text-xs text-blue-600 mt-1">Stock dispatched from the UK is under bond — no NZ excise applies. Dispatches are automatically excluded from excise reporting.</p>
             )}
           </div>
+
+          {palletOptions.length > 0 && (
+            <div>
+              <Label>From Pallet (optional)</Label>
+              <Select value={palletId || 'none'} onValueChange={(v) => setPalletId(v === 'none' ? '' : v)}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Not from a specific pallet" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not from a specific pallet</SelectItem>
+                  {palletOptions.map(p => <SelectItem key={p.id} value={p.id}>{p.pallet_code}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">If this order is coming off a specific pallet, picking it here takes the cases off that pallet's contents too.</p>
+            </div>
+          )}
 
           <div>
             <div className="flex items-center justify-between mb-2">
