@@ -15,7 +15,7 @@ import { printPalletLabel } from '@/lib/palletLabel';
 // just a code and a label to print and stick on the physical pallet. Used
 // by the Bottling Floor "choose a pallet" and "Complete Pallet" flows,
 // where there's nothing to add to a manifest yet (nothing's bottled).
-export default function QuickCreatePalletDialog({ open, onClose, onCreated, title = 'New Pallet' }) {
+export default function QuickCreatePalletDialog({ open, onClose, onCreated, title = 'New Pallet', continueLabel = 'Start Bottling' }) {
   const qc = useQueryClient();
   const { user } = useAuth();
   const [location, setLocation] = useState('Distillery');
@@ -61,7 +61,7 @@ export default function QuickCreatePalletDialog({ open, onClose, onCreated, titl
             <Button variant="outline" className="w-full gap-1.5" onClick={() => printPalletLabel(created)}>
               <Printer className="w-4 h-4" /> Print Label
             </Button>
-            <Button className="w-full" onClick={handleClose}>Start Bottling</Button>
+            <Button className="w-full" onClick={handleClose}>{continueLabel}</Button>
           </div>
         ) : (
           <div className="space-y-4 mt-2">

@@ -729,6 +729,7 @@ export default function BottlingFloor() {
           onClose={() => setQuickCreateOpen(false)}
           onCreated={handlePalletCreated}
           title={quickCreateMode === 'swap' ? 'Pallet Full — Start a New One' : 'New Pallet'}
+          continueLabel={quickCreateMode === 'swap' ? 'Continue Bottling' : 'Start Bottling'}
         />
       </>
     );
