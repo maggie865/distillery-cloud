@@ -688,35 +688,73 @@ export default function Distillation() {
         }
       }
 
-      // 3. Restore ethanol raw material quantities
-      if (run.ethanol_lot_code && run.input_lals) {
-        const volAt96 = run.input_lals / 0.96;
-        const matchingEthanol = ethanolMaterials
-          .filter(m => m.batch_number === run.ethanol_lot_code)
-          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-        if (matchingEthanol.length > 0) {
-          const lot = matchingEthanol[0];
-          await base44.entities.RawMaterial.update(lot.id, {
-            quantity: parseFloat(((lot.quantity || 0) + volAt96).toFixed(3)),
-            lals: parseFloat(((lot.lals || 0) + run.input_lals).toFixed(4)),
-          });
-        }
+      // 3. Restore raw materials (ethanol + botanicals) using the structured
+      // per-ingredient lot-usage rows captured at creation time (see
+      // distillation_run_lot_usage) — the same records the deduction wrote,
+      // so restoring reads back exactly what was consumed instead of
+      // re-matching ethanol by lot code (which can land on a different
+      // RawMaterial than the one actually deducted) or re-deriving
+      // botanical quantities from the CURRENT recipe (which drifts once a
+      // recipe is edited after the run).
+      const lotUsage = await base44.entities.DistillationRunLotUsage.filter({ distillation_run_id: run.id });
+      const ethanolTotalVol = lotUsage
+        .filter(u => u.ingredient_role === 'ethanol')
+        .reduce((sum, u) => sum + (u.quantity_consumed || 0), 0);
+      // Restore the run's actual recorded LALs (not a fixed-96%-ABV guess),
+      // split across ethanol lot rows in proportion to volume consumed.
+      const totalEthanolLals = run.input_lals || (run.input_volume && run.input_abv ? run.input_volume * run.input_abv / 100 : 0);
+      for (const usage of lotUsage) {
+        if (!usage.raw_material_id || !(usage.quantity_consumed > 0)) continue;
+        const rm = await base44.entities.RawMaterial.get(usage.raw_material_id).catch(() => null);
+        if (!rm) continue;
+        const restoreLals = usage.ingredient_role === 'ethanol' && ethanolTotalVol > 0
+          ? parseFloat((usage.quantity_consumed / ethanolTotalVol * totalEthanolLals).toFixed(4))
+          : 0;
+        const hasLots = Array.isArray(rm.lots) && rm.lots.length > 0;
+        const updatedLots = hasLots
+          ? rm.lots.map(lot => lot.lot_number === usage.lot_number
+              ? { ...lot, quantity_remaining: parseFloat(((lot.quantity_remaining || 0) + usage.quantity_consumed).toFixed(4)) }
+              : lot)
+          : undefined;
+        await base44.entities.RawMaterial.update(rm.id, {
+          quantity: parseFloat(((rm.quantity || 0) + usage.quantity_consumed).toFixed(4)),
+          lals: parseFloat(((rm.lals || 0) + restoreLals).toFixed(4)),
+          ...(updatedLots ? { lots: updatedLots } : {}),
+        });
       }
 
-      // 3b. Restore botanical lots (best-effort using recipe scaling)
-      if (run.product_name && run.input_volume) {
-        const recipe = recipes.find(r => r.name === run.product_name);
-        if (recipe?.ingredients?.length && recipe.base_ethanol_volume) {
-          const ratio = run.input_volume / recipe.base_ethanol_volume;
-          for (const ing of recipe.ingredients) {
-            const restoreQty = ing.quantity * ratio;
-            const ingNameLower = (ing.name || '').toLowerCase();
-            const matching = rawMaterials.filter(m => (m.name || '').toLowerCase() === ingNameLower);
-            if (matching.length > 0) {
-              const lot = matching.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0];
-              await base44.entities.RawMaterial.update(lot.id, {
-                quantity: parseFloat(((lot.quantity || 0) + restoreQty).toFixed(4)),
-              });
+      // 3b. Legacy fallback for runs recorded before structured lot-usage
+      // tracking existed (no distillation_run_lot_usage rows) — best-effort
+      // restore using the old lot-code match / recipe-scaling approach.
+      if (lotUsage.length === 0) {
+        if (run.ethanol_lot_code && run.input_lals) {
+          const volAt96 = run.input_lals / 0.96;
+          const matchingEthanol = ethanolMaterials
+            .filter(m => m.batch_number === run.ethanol_lot_code)
+            .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+          if (matchingEthanol.length > 0) {
+            const lot = matchingEthanol[0];
+            await base44.entities.RawMaterial.update(lot.id, {
+              quantity: parseFloat(((lot.quantity || 0) + volAt96).toFixed(3)),
+              lals: parseFloat(((lot.lals || 0) + run.input_lals).toFixed(4)),
+            });
+          }
+        }
+
+        if (run.product_name && run.input_volume) {
+          const recipe = recipes.find(r => r.name === run.product_name);
+          if (recipe?.ingredients?.length && recipe.base_ethanol_volume) {
+            const ratio = run.input_volume / recipe.base_ethanol_volume;
+            for (const ing of recipe.ingredients) {
+              const restoreQty = ing.quantity * ratio;
+              const ingNameLower = (ing.name || '').toLowerCase();
+              const matching = rawMaterials.filter(m => (m.name || '').toLowerCase() === ingNameLower);
+              if (matching.length > 0) {
+                const lot = matching.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0];
+                await base44.entities.RawMaterial.update(lot.id, {
+                  quantity: parseFloat(((lot.quantity || 0) + restoreQty).toFixed(4)),
+                });
+              }
             }
           }
         }
