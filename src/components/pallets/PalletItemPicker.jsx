@@ -6,11 +6,14 @@ import { Trash2 } from 'lucide-react';
 
 // Groups FinishedGood by product + bottle size (same FIFO-friendly grouping
 // as TransferTo3PLDialog) so a pallet item can be picked either as "some of
-// this product/size, oldest batch first" or a specific batch.
+// this product/size, oldest batch first" or a specific batch. Tasting/sample
+// stock is deliberately excluded — it's kept separately from real pallets,
+// never stacked or shipped via 3PL, so it should never be pickable here.
 export function groupFinishedGoods(finishedGoods = []) {
   const map = {};
   for (const fg of finishedGoods) {
     if ((fg.quantity_bottles || 0) <= 0) continue;
+    if (fg.is_tasting === true || (fg.product_name || '').includes('Tasting')) continue;
     const key = `${fg.product_name}||${fg.bottle_size_ml || ''}`;
     if (!map[key]) {
       map[key] = {
