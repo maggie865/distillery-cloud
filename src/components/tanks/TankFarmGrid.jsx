@@ -106,6 +106,18 @@ export default function TankFarmGrid({ allowDelete = false }) {
     setTransferOpen(true);
   };
 
+  const handleDeleteTank = (tank) => {
+    // Deleting a tank has no stock-reconciliation path — whatever it holds
+    // just vanishes with no record of where it went. Block it outright
+    // rather than warn-and-proceed, since there's nothing to restore to
+    // afterward the way other delete-reversal flows in this app can.
+    if ((tank.current_volume || 0) > 0.001) {
+      toast.error(`Cannot delete Tank ${tank.name} — it still holds ${tank.current_volume}L${tank.current_product ? ` of ${tank.current_product}` : ''}. Transfer or empty it first.`);
+      return;
+    }
+    if (confirm(`Delete Tank ${tank.name}? This cannot be undone.`)) deleteMutation.mutate(tank.id);
+  };
+
   // Group tanks by purpose
   const grouped = GROUP_ORDER.reduce((acc, key) => {
     const group = tanks.filter(t => t.purpose === key);
@@ -229,7 +241,7 @@ export default function TankFarmGrid({ allowDelete = false }) {
                        </button>
                        {allowDelete && (
                          <button
-                           onClick={() => { if (confirm(`Delete Tank ${tank.name}? This cannot be undone.`)) deleteMutation.mutate(tank.id); }}
+                           onClick={() => handleDeleteTank(tank)}
                            className="bg-white/90 hover:bg-white rounded-md p-1.5 shadow-sm border border-border"
                            title="Delete tank"
                          >
