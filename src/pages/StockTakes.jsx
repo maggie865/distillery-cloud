@@ -182,14 +182,31 @@ export default function StockTakes() {
         if (line.item_type === 'raw_material' && line.raw_material_id) {
           const mat = rawMaterials.find(m => m.id === line.raw_material_id);
           const update = { quantity: line.counted_quantity };
-          if (mat?.abv_percent && mat?.type === 'ethanol') {
+          // Any material with a known ABV can carry LALs, not just ones
+          // already typed 'ethanol' — gating on type alone left a
+          // mis-typed ethanol-strength entry with a stale lals figure
+          // after its quantity was corrected.
+          if (mat?.abv_percent) {
             update.lals = parseFloat((line.counted_quantity * mat.abv_percent / 100).toFixed(3));
           }
           await db.RawMaterial.update(line.raw_material_id, update);
         } else if (line.item_type === 'finished_good' && line.finished_good_id) {
           const fg = finishedGoods.find(f => f.id === line.finished_good_id);
-          const lalsPerBottle = fg?.total_lals && fg?.quantity_bottles ? fg.total_lals / fg.quantity_bottles : 0;
-          const newLals = lalsPerBottle ? parseFloat((line.counted_quantity * lalsPerBottle).toFixed(4)) : 0;
+          // Prefer the ABV × bottle size formula over the existing
+          // total_lals/quantity_bottles ratio — the ratio is meaningless
+          // (and was silently zeroing LALs) whenever the system had 0
+          // bottles logged before the count, which is exactly the "found
+          // stock with no production record" case a stock take is often
+          // used to catch.
+          const bottleSizeMl = fg?.bottle_size_ml || line.bottle_size_ml;
+          let newLals;
+          if (fg?.abv_percent && bottleSizeMl) {
+            newLals = parseFloat((line.counted_quantity * bottleSizeMl / 1000 * fg.abv_percent / 100).toFixed(4));
+          } else if (fg?.total_lals && fg?.quantity_bottles) {
+            newLals = parseFloat((line.counted_quantity * (fg.total_lals / fg.quantity_bottles)).toFixed(4));
+          } else {
+            newLals = 0;
+          }
           await db.FinishedGood.update(line.finished_good_id, { quantity_bottles: line.counted_quantity, total_lals: newLals });
         } else if (line.item_type === 'tank' && line.tank_id) {
           const tank = tanks.find(t => t.id === line.tank_id);
