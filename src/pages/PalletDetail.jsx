@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { printPalletLabel } from '@/lib/palletLabel';
 import AddPalletItemDialog from '@/components/pallets/AddPalletItemDialog';
 import TakeOffPalletDialog from '@/components/pallets/TakeOffPalletDialog';
+import TastingBottleOpenedDialog from '@/components/pallets/TastingBottleOpenedDialog';
 import { groupPalletItems } from '@/lib/palletStock';
 
 export default function PalletDetail() {
@@ -122,6 +123,12 @@ export default function PalletDetail() {
         <Card className="p-3 mb-4 bg-muted/50">
           <p className="text-sm text-muted-foreground">{pallet.notes}</p>
         </Card>
+      )}
+
+      {pallet.location === 'Shop' && (
+        <div className="mb-4">
+          <TastingBottleOpenedDialog pallet={pallet} />
+        </div>
       )}
 
       <Card className="overflow-hidden">

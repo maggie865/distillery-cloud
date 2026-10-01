@@ -131,6 +131,7 @@ export const db = {
   PalletItem:        makeEntity('PalletItem'),
   PestControlLog:    makeEntity('PestControlLog'),
   PestControlTrap:   makeEntity('PestControlTrap'),
+  TastingBottleOpened: makeEntity('TastingBottleOpened'),
   Product:           makeEntity('Product'),
   ProductAlias:      makeEntity('ProductAlias'),
   ProductionPlan:    makeEntity('ProductionPlan'),

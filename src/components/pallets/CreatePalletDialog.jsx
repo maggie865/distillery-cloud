@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { generatePalletCode } from '@/lib/palletCode';
 import PalletItemPicker, { groupFinishedGoods } from './PalletItemPicker';
 
-const LOCATIONS = ['Distillery', 'Auckland 3PL', 'UK Bonded'];
+const LOCATIONS = ['Distillery', 'Auckland 3PL', 'UK Bonded', 'Shop'];
 
 export default function CreatePalletDialog({ open, onClose, finishedGoods = [], onCreated }) {
   const qc = useQueryClient();
