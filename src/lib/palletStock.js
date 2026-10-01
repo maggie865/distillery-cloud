@@ -100,6 +100,21 @@ export function groupPalletItems(items) {
   return Object.values(map).map(g => ({ ...g, total_lals: parseFloat(g.total_lals.toFixed(4)) }));
 }
 
+// Marks a pallet as THE active distillery dispatch pallet — mirrors
+// storage_tank.is_ready_for_bottling, but exclusive: only one pallet can be
+// active at a time (dispatches draw from exactly one source, not a pool),
+// so activating one clears the flag off whichever pallet had it before.
+export async function setActiveDispatchPallet(palletId, active) {
+  if (active) {
+    const all = await base44.entities.Pallet.list('-created_at', 5000);
+    const others = all.filter(p => p.id !== palletId && p.location === 'Distillery' && p.is_active_dispatch_pallet);
+    for (const p of others) {
+      await base44.entities.Pallet.update(p.id, { is_active_dispatch_pallet: false });
+    }
+  }
+  await base44.entities.Pallet.update(palletId, { is_active_dispatch_pallet: active });
+}
+
 // Called after merging two FinishedGood product-name variants of the same
 // physical product/batch/size into one canonical name (e.g. a repair tool
 // collapsing "London Dry Gin 200ml" into "London Dry Gin") — any pallet_item

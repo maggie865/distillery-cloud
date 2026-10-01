@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { X, Plus, PackageCheck, MapPin } from 'lucide-react';
+import { X, Plus, PackageCheck, MapPin, Building2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { deductFromPallet } from '@/lib/palletStock';
 
@@ -50,9 +51,6 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
   const [newLineProductKey, setNewLineProductKey] = useState('');
   const [newLineQty, setNewLineQty] = useState('');
   const [calcingDistance, setCalcingDistance] = useState(false);
-  const [allocationMode, setAllocationMode] = useState('fifo');
-  const [newLineBatchId, setNewLineBatchId] = useState('');
-  const [palletId, setPalletId] = useState('');
 
   const queryClient = useQueryClient();
   const isPickup = form.transport_method === 'pickup';
@@ -61,12 +59,16 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
     queryKey: ['pallets'],
     queryFn: () => db.Pallet.list('-created_at', 5000),
   });
-  const palletOptions = pallets.filter(p => p.status !== 'archived' && p.location === 'Distillery');
+  // Direct sales always draw from whichever pallet is tagged "active" on
+  // the Pallets page (see setActiveDispatchPallet) — same single source as
+  // DispatchForm.jsx's Bluff branch, no per-sale pallet choice or
+  // FIFO-vs-manual-batch toggle.
+  const activeDistilleryPallet = pallets.find(p => p.location === 'Distillery' && p.status !== 'archived' && p.is_active_dispatch_pallet);
 
   const { data: selectedPalletItems = [] } = useQuery({
-    queryKey: ['palletItems', palletId],
-    queryFn: () => db.PalletItem.filter({ pallet_id: palletId }),
-    enabled: !!palletId,
+    queryKey: ['palletItems', activeDistilleryPallet?.id],
+    queryFn: () => db.PalletItem.filter({ pallet_id: activeDistilleryPallet.id }),
+    enabled: !!activeDistilleryPallet?.id,
   });
 
   const sellableGoods = useMemo(
@@ -97,12 +99,12 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
     }).filter(opt => opt.totalAvailable > 0);
   }, [sellableGoods, allDispatches]);
 
-  // When a specific pallet is chosen as the source, only offer what's
-  // actually on that pallet — capped by what's still really in FinishedGood
-  // (the pallet is a manifest, not the source of truth), same reasoning as
-  // DispatchForm.jsx's pallet-filtered picker.
+  // Only offer what's actually on the active pallet — capped by what's
+  // still really in FinishedGood (the pallet is a manifest, not the source
+  // of truth), same reasoning as DispatchForm.jsx's pallet-filtered picker.
+  // Without an active pallet there's nothing to sell from at all.
   const productOptions = useMemo(() => {
-    if (!palletId) return rawProductOptions;
+    if (!activeDistilleryPallet) return [];
     const palletQtyByKey = {};
     for (const it of selectedPalletItems) {
       const key = `${it.product_name}||${it.batch_number || ''}||${it.bottle_size_ml || ''}`;
@@ -119,17 +121,7 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
         return { ...opt, batches, totalAvailable: batches.reduce((s, b) => s + b.available, 0) };
       })
       .filter(opt => opt.totalAvailable > 0);
-  }, [palletId, selectedPalletItems, rawProductOptions]);
-
-  const flatBatches = useMemo(() => {
-    const list = [];
-    for (const opt of productOptions) {
-      for (const b of opt.batches) {
-        list.push({ ...b, productKey: `${opt.product_name}||${opt.bottle_size_ml}` });
-      }
-    }
-    return list;
-  }, [productOptions]);
+  }, [activeDistilleryPallet, selectedPalletItems, rawProductOptions]);
 
   const committedByProduct = useMemo(() => {
     const map = {};
@@ -144,28 +136,12 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
     return product ? Math.max(0, product.totalAvailable - (committedByProduct[key] || 0)) : 0;
   };
 
-  const committedByBatch = useMemo(() => {
-    const map = {};
-    for (const li of lineItems) {
-      if (li.batchId) map[li.batchId] = (map[li.batchId] || 0) + (parseInt(li.quantity) || 0);
-    }
-    return map;
-  }, [lineItems]);
-
-  const getRemainingBatchAvail = (batchId) => {
-    const batch = flatBatches.find(b => b.id === batchId);
-    return batch ? Math.max(0, batch.available - (committedByBatch[batchId] || 0)) : 0;
-  };
-
   const totalBottles = lineItems.reduce((s, li) => s + (parseInt(li.quantity) || 0), 0);
   const totalWeightKg = lineItems.reduce((s, li) => {
     const product = productOptions.find(p => `${p.product_name}||${p.bottle_size_ml}` === li.productKey);
     return s + (product ? calcWeightKg(product.bottle_size_ml, parseInt(li.quantity) || 0) : 0);
   }, 0);
-  const hasOverStock = lineItems.some(li => {
-    if (li.batchId) return (parseInt(li.quantity) || 0) > getRemainingBatchAvail(li.batchId);
-    return (parseInt(li.quantity) || 0) > getRemainingAvail(li.productKey);
-  });
+  const hasOverStock = lineItems.some(li => (parseInt(li.quantity) || 0) > getRemainingAvail(li.productKey));
   const canSubmit = lineItems.length > 0 && !hasOverStock && totalBottles > 0;
 
   const handleChannelChange = (value) => {
@@ -187,16 +163,9 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
     if (!newLineQty) return;
     const qty = parseInt(newLineQty) || 0;
     if (qty <= 0) return;
-    if (allocationMode === 'manual') {
-      if (!newLineBatchId) return;
-      const batch = flatBatches.find(b => b.id === newLineBatchId);
-      setLineItems(prev => [...prev, { id: Date.now() + Math.random(), productKey: batch.productKey, batchId: newLineBatchId, quantity: String(qty) }]);
-      setNewLineBatchId('');
-    } else {
-      if (!newLineProductKey) return;
-      setLineItems(prev => [...prev, { id: Date.now() + Math.random(), productKey: newLineProductKey, quantity: String(qty) }]);
-      setNewLineProductKey('');
-    }
+    if (!newLineProductKey) return;
+    setLineItems(prev => [...prev, { id: Date.now() + Math.random(), productKey: newLineProductKey, quantity: String(qty) }]);
+    setNewLineProductKey('');
     setNewLineQty('');
   };
 
@@ -223,10 +192,7 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
     setForm(EMPTY_FORM);
     setLineItems([]);
     setNewLineProductKey('');
-    setNewLineBatchId('');
-    setAllocationMode('fifo');
     setNewLineQty('');
-    setPalletId('');
     onClose();
   };
 
@@ -246,30 +212,17 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
         const product = productOptions.find(p => `${p.product_name}||${p.bottle_size_ml}` === li.productKey);
         if (!product) continue;
         let remaining = parseInt(li.quantity) || 0;
-        if (li.batchId) {
-          const batch = product.batches.find(b => b.id === li.batchId);
-          if (!batch) throw new Error(`Batch not found for ${product.product_name}`);
+        for (const batch of product.batches) {
+          if (remaining <= 0) break;
           const avail = batchAvailMap[batch.id] || 0;
-          if (avail < remaining) throw new Error(`Insufficient stock for ${product.product_name} batch ${batch.batch_number} (${avail} available)`);
+          if (avail <= 0) continue;
+          const take = Math.min(remaining, avail);
           const bottleSize = batch.bottle_size_ml || 700;
-          const lals = ((remaining * bottleSize) / 1000) * (batch.abv_percent || 0) / 100;
-          const weightKg = calcWeightKg(bottleSize, remaining);
-          allAllocations.push({ batch, take: remaining, lals, weightKg, co2e: calcCO2e(distanceKm, weightKg, transportMethod) });
-          batchAvailMap[batch.id] = avail - remaining;
-          remaining = 0;
-        } else {
-          for (const batch of product.batches) {
-            if (remaining <= 0) break;
-            const avail = batchAvailMap[batch.id] || 0;
-            if (avail <= 0) continue;
-            const take = Math.min(remaining, avail);
-            const bottleSize = batch.bottle_size_ml || 700;
-            const lals = ((take * bottleSize) / 1000) * (batch.abv_percent || 0) / 100;
-            const weightKg = calcWeightKg(bottleSize, take);
-            allAllocations.push({ batch, take, lals, weightKg, co2e: calcCO2e(distanceKm, weightKg, transportMethod) });
-            batchAvailMap[batch.id] = avail - take;
-            remaining -= take;
-          }
+          const lals = ((take * bottleSize) / 1000) * (batch.abv_percent || 0) / 100;
+          const weightKg = calcWeightKg(bottleSize, take);
+          allAllocations.push({ batch, take, lals, weightKg, co2e: calcCO2e(distanceKm, weightKg, transportMethod) });
+          batchAvailMap[batch.id] = avail - take;
+          remaining -= take;
         }
         if (remaining > 0) throw new Error(`Insufficient stock for ${product.product_name} (${product.bottle_size_ml}ml)`);
       }
@@ -305,7 +258,7 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
           order_reference: form.order_reference || undefined,
           notes: form.notes || undefined,
           dispatched_from: 'Bluff',
-          pallet_id: palletId || undefined,
+          pallet_id: activeDistilleryPallet?.id || undefined,
         });
         const current = runningStock[a.batch.id];
         const newQty = current.quantity_bottles - a.take;
@@ -313,8 +266,8 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
         if (newQty <= 0) await db.FinishedGood.delete(a.batch.id);
         else await db.FinishedGood.update(a.batch.id, { quantity_bottles: newQty, total_lals: parseFloat(newLals.toFixed(4)) });
         runningStock[a.batch.id] = { quantity_bottles: newQty, total_lals: newLals };
-        if (palletId) {
-          const result = await deductFromPallet(palletId, { product_name: a.batch.product_name, batch_number: a.batch.batch_number, bottle_size_ml: a.batch.bottle_size_ml, quantity_bottles: a.take });
+        if (activeDistilleryPallet) {
+          const result = await deductFromPallet(activeDistilleryPallet.id, { product_name: a.batch.product_name, batch_number: a.batch.batch_number, bottle_size_ml: a.batch.bottle_size_ml, quantity_bottles: a.take });
           if (!result.ok) palletMismatch = true;
         }
       }
@@ -365,26 +318,17 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
 
           <div><Label>Date</Label><Input type="date" value={form.dispatch_date} onChange={e => setForm(f => ({ ...f, dispatch_date: e.target.value }))} className="mt-1" /></div>
 
-          {palletOptions.length > 0 && (
-            <div>
-              <Label>From Pallet (optional)</Label>
-              <Select
-                value={palletId || 'none'}
-                onValueChange={(v) => {
-                  setPalletId(v === 'none' ? '' : v);
-                  setLineItems([]);
-                  setNewLineProductKey('');
-                  setNewLineBatchId('');
-                  setNewLineQty('');
-                }}
-              >
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Not from a specific pallet" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Not from a specific pallet</SelectItem>
-                  {palletOptions.map(p => <SelectItem key={p.id} value={p.id}>{p.pallet_code}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground mt-1">Picking a pallet restricts the products below to what's actually on it, and takes the cases off its contents when sold.</p>
+          {activeDistilleryPallet ? (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-primary flex-shrink-0" />
+              <p className="text-sm">Selling from <span className="font-semibold font-mono">{activeDistilleryPallet.pallet_code}</span> — the active dispatch pallet.</p>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+              <p className="text-sm text-destructive font-medium">No active dispatch pallet set.</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Go to <Link to="/pallets" className="text-primary hover:underline">Pallets</Link> and mark one as the active dispatch pallet before recording a sale.
+              </p>
             </div>
           )}
 
@@ -397,15 +341,8 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
               <div className="space-y-2 mb-3">
                 {lineItems.map((li) => {
                   const product = productOptions.find(p => `${p.product_name}||${p.bottle_size_ml}` === li.productKey);
-                  let remaining, sublabel;
-                  if (li.batchId) {
-                    const batch = flatBatches.find(b => b.id === li.batchId);
-                    remaining = getRemainingBatchAvail(li.batchId);
-                    sublabel = `${product?.bottle_size_ml}ml • Batch ${batch?.batch_number} • ${remaining} available`;
-                  } else {
-                    remaining = getRemainingAvail(li.productKey);
-                    sublabel = `${product?.bottle_size_ml}ml • ${remaining} available`;
-                  }
+                  const remaining = getRemainingAvail(li.productKey);
+                  const sublabel = `${product?.bottle_size_ml}ml • ${remaining} available`;
                   const liQty = parseInt(li.quantity) || 0;
                   const over = liQty > remaining;
                   return (
@@ -422,45 +359,26 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
               </div>
             )}
             {hasStock && (
-              <div className="space-y-2">
-                <div className="flex gap-1 rounded-md bg-muted p-1">
-                  <button type="button" className={`flex-1 text-xs font-medium py-1 rounded ${allocationMode === 'fifo' ? 'bg-background shadow-sm' : 'text-muted-foreground'}`} onClick={() => setAllocationMode('fifo')}>FIFO (auto)</button>
-                  <button type="button" className={`flex-1 text-xs font-medium py-1 rounded ${allocationMode === 'manual' ? 'bg-background shadow-sm' : 'text-muted-foreground'}`} onClick={() => setAllocationMode('manual')}>Choose batch</button>
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <Select value={newLineProductKey} onValueChange={setNewLineProductKey}>
+                    <SelectTrigger><SelectValue placeholder="Add product…" /></SelectTrigger>
+                    <SelectContent>
+                      {productOptions.map(opt => (
+                        <SelectItem key={`${opt.product_name}||${opt.bottle_size_ml}`} value={`${opt.product_name}||${opt.bottle_size_ml}`}>
+                          {opt.product_name} ({opt.bottle_size_ml}ml) — {getRemainingAvail(`${opt.product_name}||${opt.bottle_size_ml}`)} btls
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div className="flex items-end gap-2">
-                  <div className="flex-1">
-                    {allocationMode === 'manual' ? (
-                      <Select value={newLineBatchId} onValueChange={setNewLineBatchId}>
-                        <SelectTrigger><SelectValue placeholder="Select batch…" /></SelectTrigger>
-                        <SelectContent>
-                          {flatBatches.map(b => (
-                            <SelectItem key={b.id} value={b.id}>
-                              {b.product_name} ({b.bottle_size_ml}ml) — Batch {b.batch_number} — {getRemainingBatchAvail(b.id)} btls
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Select value={newLineProductKey} onValueChange={setNewLineProductKey}>
-                        <SelectTrigger><SelectValue placeholder="Add product…" /></SelectTrigger>
-                        <SelectContent>
-                          {productOptions.map(opt => (
-                            <SelectItem key={`${opt.product_name}||${opt.bottle_size_ml}`} value={`${opt.product_name}||${opt.bottle_size_ml}`}>
-                              {opt.product_name} ({opt.bottle_size_ml}ml) — {getRemainingAvail(`${opt.product_name}||${opt.bottle_size_ml}`)} btls
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-                  <Input type="number" min="1" value={newLineQty} onChange={e => setNewLineQty(e.target.value)} className="w-20" placeholder="Qty" />
-                  <Button variant="outline" size="icon" onClick={addLineItem} disabled={allocationMode === 'manual' ? !newLineBatchId || !newLineQty : !newLineProductKey || !newLineQty}><Plus className="w-4 h-4" /></Button>
-                </div>
+                <Input type="number" min="1" value={newLineQty} onChange={e => setNewLineQty(e.target.value)} className="w-20" placeholder="Qty" />
+                <Button variant="outline" size="icon" onClick={addLineItem} disabled={!newLineProductKey || !newLineQty}><Plus className="w-4 h-4" /></Button>
               </div>
             )}
             {!hasStock && (
               <p className="text-sm text-muted-foreground text-center py-4">
-                {palletId ? 'No stock available on this pallet' : 'No stock available'}
+                {activeDistilleryPallet ? 'No stock available on the active dispatch pallet' : 'Set an active dispatch pallet above to see available stock'}
               </p>
             )}
             {hasOverStock && <p className="text-xs text-destructive mt-1">One or more items exceed available stock</p>}

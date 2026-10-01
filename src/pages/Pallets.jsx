@@ -1,25 +1,37 @@
 import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import PageHeader from '@/components/shared/PageHeader';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Plus, ScanLine, Package, Search } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Plus, ScanLine, Package, Search, Truck } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 import CreatePalletDialog from '@/components/pallets/CreatePalletDialog';
 import ScanPalletDialog from '@/components/pallets/ScanPalletDialog';
-import { groupPalletItems } from '@/lib/palletStock';
+import { groupPalletItems, setActiveDispatchPallet } from '@/lib/palletStock';
 
 export default function Pallets() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
   const [scanning, setScanning] = useState(false);
+
+  const toggleActiveDispatch = useMutation({
+    mutationFn: ({ palletId, active }) => setActiveDispatchPallet(palletId, active),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pallets'] }),
+    onError: (e) => toast.error('Failed: ' + e.message),
+  });
 
   const { data: pallets = [], isLoading } = useQuery({
     queryKey: ['pallets'],
@@ -119,6 +131,33 @@ export default function Pallets() {
                   {p.status === 'full' && <Badge className="bg-amber-100 text-amber-700">Full</Badge>}
                 </div>
                 <p className="text-xs text-muted-foreground mb-2">{p.location} · {p.created_at ? format(new Date(p.created_at), 'd MMM yyyy') : ''}</p>
+                {p.location === 'Distillery' && p.status !== 'archived' && (
+                  <div
+                    className={cn(
+                      'flex items-center justify-between rounded-lg border px-2.5 py-1.5 mb-2',
+                      p.is_active_dispatch_pallet ? 'border-primary/40 bg-primary/5' : 'border-border bg-muted/30'
+                    )}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Truck className={cn('w-3.5 h-3.5', p.is_active_dispatch_pallet ? 'text-primary' : 'text-muted-foreground')} />
+                      <span className="text-xs font-medium">
+                        {p.is_active_dispatch_pallet ? 'Active dispatch pallet' : 'Not active for dispatch'}
+                      </span>
+                    </div>
+                    {isAdmin ? (
+                      <Switch
+                        checked={!!p.is_active_dispatch_pallet}
+                        onCheckedChange={(checked) => toggleActiveDispatch.mutate({ palletId: p.id, active: checked })}
+                        disabled={toggleActiveDispatch.isPending}
+                      />
+                    ) : (
+                      <span className={cn('text-xs font-semibold', p.is_active_dispatch_pallet ? 'text-primary' : 'text-muted-foreground')}>
+                        {p.is_active_dispatch_pallet ? '✓' : '—'}
+                      </span>
+                    )}
+                  </div>
+                )}
                 {batchNumbers.length > 0 && (
                   <div className="flex flex-wrap gap-1 mb-2">
                     {batchNumbers.map(b => (
