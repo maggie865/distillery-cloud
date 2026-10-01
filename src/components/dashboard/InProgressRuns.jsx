@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Flame, Clock, ChevronRight, Timer } from 'lucide-react';
+import { Flame, Clock, ChevronRight, Timer, Wine } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import RunTimeline from '@/components/distillation/RunTimeline';
 import { nowDateTimeLocal, nowTime } from '@/lib/timeInput';
@@ -42,6 +43,7 @@ const distillationStage = (run) => {
 // this only touches the fields you'd actually update mid-run.
 export default function InProgressRuns() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [logging, setLogging] = useState(null); // { kind, run }
 
   const { data: distillationRuns = [] } = useQuery({
@@ -54,6 +56,10 @@ export default function InProgressRuns() {
       try { return await db.SNSRun.list('-date', 5000); } catch { return []; }
     },
   });
+  const { data: bottlingRuns = [] } = useQuery({
+    queryKey: ['bottlingRuns'],
+    queryFn: () => db.BottlingRun.list('-date', 5000),
+  });
   const { data: tanks = [] } = useQuery({
     queryKey: ['storageTanks'],
     queryFn: () => db.StorageTank.list('name', 5000),
@@ -61,15 +67,17 @@ export default function InProgressRuns() {
 
   const activeDistillation = distillationRuns.filter(r => r.status === 'in_progress');
   const activeSns = snsRuns.filter(r => r.status === 'in_progress');
+  const activeBottling = bottlingRuns.filter(r => r.status === 'in_progress');
+  const totalActive = activeDistillation.length + activeSns.length + activeBottling.length;
 
-  if (activeDistillation.length === 0 && activeSns.length === 0) return null;
+  if (totalActive === 0) return null;
 
   return (
     <Card className="p-5 mb-6 border-2 border-primary/20 bg-primary/5">
       <div className="flex items-center gap-2 mb-3">
         <Flame className="w-5 h-5 text-primary" />
         <h2 className="text-sm font-semibold text-foreground">
-          Active Distillation{activeDistillation.length + activeSns.length !== 1 ? 's' : ''}
+          Currently in Production ({totalActive})
         </h2>
       </div>
       <div className="space-y-2">
@@ -96,6 +104,18 @@ export default function InProgressRuns() {
             />
           );
         })}
+        {activeBottling.map(run => (
+          <RunCard
+            key={run.id}
+            icon={Wine}
+            title={`${run.batch_number || 'Batch'}${run.product_name ? ` — ${run.product_name}` : ''}`}
+            sub={run.bottle_size_ml ? `Bottling · ${run.bottle_size_ml}ml` : 'Bottling'}
+            elapsedText={null}
+            tempText={null}
+            actionText="Open"
+            onClick={() => navigate('/bottling-floor')}
+          />
+        ))}
       </div>
 
       {logging && (
@@ -114,14 +134,14 @@ export default function InProgressRuns() {
   );
 }
 
-function RunCard({ title, sub, elapsedText, tempText, onClick }) {
+function RunCard({ icon: Icon = Flame, title, sub, elapsedText, tempText, actionText = 'Quick Log', onClick }) {
   return (
     <button
       onClick={onClick}
       className="w-full flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-left hover:bg-muted/40 transition-colors"
     >
       <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
-        <Flame className="w-4 h-4" />
+        <Icon className="w-4 h-4" />
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-foreground truncate">{title}</p>
@@ -131,7 +151,7 @@ function RunCard({ title, sub, elapsedText, tempText, onClick }) {
           {tempText && <span>{tempText}</span>}
         </p>
       </div>
-      <span className="text-xs font-medium text-primary shrink-0 hidden sm:inline">Quick Log</span>
+      <span className="text-xs font-medium text-primary shrink-0 hidden sm:inline">{actionText}</span>
       <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
     </button>
   );
