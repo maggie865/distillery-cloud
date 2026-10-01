@@ -73,6 +73,7 @@ export default function QuickCreatePalletDialog({ open, onClose, onCreated, titl
                   <SelectItem value="Distillery">Distillery</SelectItem>
                   <SelectItem value="Auckland 3PL">Auckland 3PL</SelectItem>
                   <SelectItem value="UK Bonded">UK Bonded</SelectItem>
+                  <SelectItem value="Shop">Shop</SelectItem>
                 </SelectContent>
               </Select>
             </div>

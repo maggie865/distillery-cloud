@@ -183,6 +183,7 @@ export default function TakeOffPalletDialog({ open, onClose, item, currentPallet
                         <SelectItem value="Distillery">Distillery</SelectItem>
                         <SelectItem value="Auckland 3PL">Auckland 3PL</SelectItem>
                         <SelectItem value="UK Bonded">UK Bonded</SelectItem>
+                        <SelectItem value="Shop">Shop</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
