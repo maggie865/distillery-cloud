@@ -45,6 +45,13 @@ function Stat({ label, value }) {
   );
 }
 
+// A dispatch only actually moves stock once it reaches one of these
+// statuses (see DispatchForm.jsx's deductsStock / DispatchHub.jsx's
+// DEDUCTED_STATUSES) — a 'pending'/'picking'/'ready' row is still sitting
+// in finished-goods or warehouse stock, so counting it as "dispatched"
+// here would double-count it against on-hand and throw off the gap.
+const STOCK_AFFECTING_STATUSES = new Set(['dispatched', 'delivered']);
+
 function LotTag({ icon: Icon, color, label, value }) {
   if (!value) return null;
   return (
@@ -56,7 +63,7 @@ function LotTag({ icon: Icon, color, label, value }) {
   );
 }
 
-function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatches = [], warehouseStock = [], resolveEthanolBatchCode, resolveReceivingBatchCode }) {
+function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatches = [], warehouseStock = [], finishedGoods = [], resolveEthanolBatchCode, resolveReceivingBatchCode }) {
   const [expanded, setExpanded] = useState(false);
   const [showCustomers, setShowCustomers] = useState(false);
 
@@ -95,6 +102,59 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatch
     return acc;
   }, {});
   const bottleSizeBreakdown = Object.entries(bottlesBySize).sort((a, b) => Number(b[0]) - Number(a[0]));
+
+  // Stock reconciliation per bottle size: how many of this batch's bottles
+  // are dispatched to customers, still sitting at a 3PL/warehouse, still on
+  // hand at the distillery, and whether those three add back up to what was
+  // actually produced. This surfaces exactly the kind of batch/size
+  // disparity that's otherwise only found by manually cross-checking the
+  // dispatch, warehouse-transfer and finished-goods records by hand.
+  const dispatchedBySize = batchDispatches
+    .filter(d => STOCK_AFFECTING_STATUSES.has(d.status))
+    .reduce((acc, d) => {
+      const size = d.bottle_size_ml || 'unknown';
+      acc[size] = (acc[size] || 0) + (d.quantity_bottles || 0);
+      return acc;
+    }, {});
+  // Still queued (pending/picking/ready) — not yet deducted anywhere, so
+  // left out of the reconciliation math, but worth surfacing: a pending row
+  // dispatched_from the wrong location (e.g. still defaulted to 'Bluff'
+  // when it should be a 3PL dispatch) won't show up as a problem until it's
+  // actually marked dispatched and deducts stock from the wrong place.
+  const pendingBySize = batchDispatches
+    .filter(d => !STOCK_AFFECTING_STATUSES.has(d.status))
+    .reduce((acc, d) => {
+      const size = d.bottle_size_ml || 'unknown';
+      acc[size] = (acc[size] || 0) + (d.quantity_bottles || 0);
+      return acc;
+    }, {});
+  const totalPending = Object.values(pendingBySize).reduce((s, v) => s + v, 0);
+  const warehouseRemainingBySize = batchTransfers.reduce((acc, t) => {
+    const size = t.bottle_size_ml || 'unknown';
+    acc[size] = (acc[size] || 0) + (t.remaining || 0);
+    return acc;
+  }, {});
+  const batchFinishedGoods = finishedGoods.filter(fg =>
+    (fg.batch_number || '').toLowerCase().trim() === batchNumber.toLowerCase().trim()
+  );
+  const distilleryOnHandBySize = batchFinishedGoods.reduce((acc, fg) => {
+    const size = fg.bottle_size_ml || 'unknown';
+    acc[size] = (acc[size] || 0) + (fg.quantity_bottles || 0);
+    return acc;
+  }, {});
+  const reconciliationSizes = [...new Set([
+    ...bottleSizeBreakdown.map(([size]) => size),
+    ...Object.keys(dispatchedBySize),
+    ...Object.keys(warehouseRemainingBySize),
+    ...Object.keys(distilleryOnHandBySize),
+  ])].sort((a, b) => Number(b) - Number(a));
+  const reconciliation = reconciliationSizes.map(size => {
+    const produced = bottlesBySize[size] || 0;
+    const dispatched = dispatchedBySize[size] || 0;
+    const atWarehouse = warehouseRemainingBySize[size] || 0;
+    const onHand = distilleryOnHandBySize[size] || 0;
+    return { size, produced, dispatched, atWarehouse, onHand, gap: produced - dispatched - atWarehouse - onHand };
+  });
 
   // Collect all unique lot codes across sub-batches for the summary header, resolved to receiving batch codes
   const earliestRunDate = [...distillations].sort((a, b) => (a.date || '').localeCompare(b.date || ''))[0]?.date;
@@ -187,6 +247,42 @@ function BatchCard({ batchNumber, distillations, bottlings, subBatches, dispatch
 
       {expanded && (
         <div className="border-t border-border px-4 pt-5 pb-2">
+          {reconciliation.length > 0 && (
+            <div className="mb-5 rounded-lg border border-border overflow-hidden">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-3 pt-3 pb-1">Stock Reconciliation</p>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-muted-foreground">
+                    <th className="text-left px-3 py-2 font-medium">Size</th>
+                    <th className="text-right px-3 py-2 font-medium">Produced</th>
+                    <th className="text-right px-3 py-2 font-medium">Dispatched</th>
+                    <th className="text-right px-3 py-2 font-medium">At 3PL</th>
+                    <th className="text-right px-3 py-2 font-medium">On Hand (Distillery)</th>
+                    <th className="text-right px-3 py-2 font-medium">Unaccounted</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reconciliation.map(r => (
+                    <tr key={r.size} className="border-t border-border">
+                      <td className="px-3 py-2 font-medium">{r.size === 'unknown' ? 'Unknown size' : `${r.size}ml`}</td>
+                      <td className="px-3 py-2 text-right">{r.produced}</td>
+                      <td className="px-3 py-2 text-right">{r.dispatched}</td>
+                      <td className="px-3 py-2 text-right">{r.atWarehouse}</td>
+                      <td className="px-3 py-2 text-right">{r.onHand}</td>
+                      <td className={`px-3 py-2 text-right font-semibold ${r.gap !== 0 ? 'text-destructive' : 'text-emerald-600'}`}>
+                        {r.gap > 0 ? `+${r.gap}` : r.gap}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {totalPending > 0 && (
+                <p className="text-xs text-muted-foreground px-3 py-2 border-t border-border bg-amber-50/50">
+                  + {totalPending} bottle{totalPending !== 1 ? 's' : ''} still pending dispatch ({Object.entries(pendingBySize).map(([size, qty]) => `${qty} × ${size === 'unknown' ? '?' : `${size}ml`}`).join(', ')}) — not yet deducted from stock, so not counted above. Double-check the source (Bluff vs 3PL) is set correctly before marking these dispatched.
+                </p>
+              )}
+            </div>
+          )}
           {distillations.map((d, i) => {
             // Match sub-batch: prefer by sub_batch_code, then by index order
             const sub = subBatches.find(s => s.sub_batch_code === d.sub_batch_code)
@@ -406,6 +502,11 @@ export default function BatchTraceReport() {
     queryFn: () => base44.entities.Receiving.list('-date_received', 5000),
   });
 
+  const { data: finishedGoods = [] } = useQuery({
+    queryKey: ['finishedGoods'],
+    queryFn: () => base44.entities.FinishedGood.list('product_name', 5000),
+  });
+
   // Build lookup: given a material name and a run date, find the most recent
   // receiving record for that material on or before that date.
   function resolveReceivingBatchCode(materialName, runDate) {
@@ -508,6 +609,7 @@ export default function BatchTraceReport() {
               subBatches={subBatches.filter(s => s.master_batch_code === batchNumber)}
               dispatches={dispatches}
               warehouseStock={warehouseStock}
+              finishedGoods={finishedGoods}
               resolveEthanolBatchCode={resolveEthanolBatchCode}
               resolveReceivingBatchCode={resolveReceivingBatchCode}
             />
