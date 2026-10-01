@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { printPalletLabel } from '@/lib/palletLabel';
 import AddPalletItemDialog from '@/components/pallets/AddPalletItemDialog';
 import TakeOffPalletDialog from '@/components/pallets/TakeOffPalletDialog';
+import { groupPalletItems } from '@/lib/palletStock';
 
 export default function PalletDetail() {
   const { palletCode } = useParams();
@@ -63,6 +64,7 @@ export default function PalletDetail() {
 
   const totalBottles = items.reduce((s, it) => s + (it.quantity_bottles || 0), 0);
   const totalLals = items.reduce((s, it) => s + (it.total_lals || 0), 0);
+  const groupedItems = groupPalletItems(items);
 
   return (
     <div>
@@ -138,23 +140,21 @@ export default function PalletDetail() {
                 <TableHead>Size</TableHead>
                 <TableHead className="text-right">Bottles</TableHead>
                 <TableHead className="text-right">LALs</TableHead>
-                <TableHead>Source</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No items on this pallet yet</TableCell></TableRow>
-              ) : items.map(it => (
-                <TableRow key={it.id}>
-                  <TableCell className="font-medium text-sm">{it.product_name}</TableCell>
-                  <TableCell className="font-mono text-sm">{it.batch_number || '—'}</TableCell>
-                  <TableCell className="text-sm">{it.bottle_size_ml ? `${it.bottle_size_ml}ml` : '—'}</TableCell>
-                  <TableCell className="text-right font-semibold text-sm">{(it.quantity_bottles || 0).toLocaleString()}</TableCell>
-                  <TableCell className="text-right font-mono text-sm">{(it.total_lals || 0).toFixed(2)}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground capitalize">{it.source === 'bottling_run' ? 'Bottling run' : 'Manual'}</TableCell>
+              {groupedItems.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No items on this pallet yet</TableCell></TableRow>
+              ) : groupedItems.map(g => (
+                <TableRow key={g.key}>
+                  <TableCell className="font-medium text-sm">{g.product_name}</TableCell>
+                  <TableCell className="font-mono text-sm">{g.batch_number || '—'}</TableCell>
+                  <TableCell className="text-sm">{g.bottle_size_ml ? `${g.bottle_size_ml}ml` : '—'}</TableCell>
+                  <TableCell className="text-right font-semibold text-sm">{(g.quantity_bottles || 0).toLocaleString()}</TableCell>
+                  <TableCell className="text-right font-mono text-sm">{(g.total_lals || 0).toFixed(2)}</TableCell>
                   <TableCell className="text-right">
-                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setTakingOffItem(it)}>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setTakingOffItem(g)}>
                       <PackageMinus className="w-3.5 h-3.5" /> Take Off
                     </Button>
                   </TableCell>
