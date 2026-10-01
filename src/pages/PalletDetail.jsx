@@ -7,19 +7,24 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowLeft, Plus, Printer, PackageMinus, Archive, ArchiveRestore, Wine, Droplets } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { ArrowLeft, Plus, Printer, PackageMinus, Archive, ArchiveRestore, Wine, Droplets, Truck } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { useAuth } from '@/lib/AuthContext';
+import { cn } from '@/lib/utils';
 import { printPalletLabel } from '@/lib/palletLabel';
 import AddPalletItemDialog from '@/components/pallets/AddPalletItemDialog';
 import TakeOffPalletDialog from '@/components/pallets/TakeOffPalletDialog';
 import TastingBottleOpenedDialog from '@/components/pallets/TastingBottleOpenedDialog';
-import { groupPalletItems } from '@/lib/palletStock';
+import { groupPalletItems, setActiveDispatchPallet } from '@/lib/palletStock';
 
 export default function PalletDetail() {
   const { palletCode } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [addingItem, setAddingItem] = useState(false);
   const [takingOffItem, setTakingOffItem] = useState(null);
 
@@ -45,6 +50,15 @@ export default function PalletDetail() {
     onSuccess: (_, status) => {
       qc.invalidateQueries({ queryKey: ['pallets'] });
       toast.success(status === 'archived' ? 'Pallet archived' : 'Pallet reactivated');
+    },
+    onError: (e) => toast.error('Failed: ' + e.message),
+  });
+
+  const toggleActiveDispatch = useMutation({
+    mutationFn: (active) => setActiveDispatchPallet(pallet.id, active),
+    onSuccess: (_, active) => {
+      qc.invalidateQueries({ queryKey: ['pallets'] });
+      toast.success(active ? 'Dispatches out of the distillery will now draw from this pallet' : 'No longer the active dispatch pallet');
     },
     onError: (e) => toast.error('Failed: ' + e.message),
   });
@@ -122,6 +136,34 @@ export default function PalletDetail() {
       {pallet.notes && (
         <Card className="p-3 mb-4 bg-muted/50">
           <p className="text-sm text-muted-foreground">{pallet.notes}</p>
+        </Card>
+      )}
+
+      {pallet.location === 'Distillery' && pallet.status !== 'archived' && (
+        <Card className={cn(
+          'p-4 mb-4 flex items-center justify-between',
+          pallet.is_active_dispatch_pallet ? 'border-primary/40 bg-primary/5' : ''
+        )}>
+          <div className="flex items-center gap-2">
+            <Truck className={cn('w-4 h-4', pallet.is_active_dispatch_pallet ? 'text-primary' : 'text-muted-foreground')} />
+            <div>
+              <p className="text-sm font-medium">
+                {pallet.is_active_dispatch_pallet ? 'Active dispatch pallet' : 'Not the active dispatch pallet'}
+              </p>
+              <p className="text-xs text-muted-foreground">Dispatches out of the distillery draw from whichever pallet has this on.</p>
+            </div>
+          </div>
+          {isAdmin ? (
+            <Switch
+              checked={!!pallet.is_active_dispatch_pallet}
+              onCheckedChange={(checked) => toggleActiveDispatch.mutate(checked)}
+              disabled={toggleActiveDispatch.isPending}
+            />
+          ) : (
+            <span className={cn('text-sm font-semibold', pallet.is_active_dispatch_pallet ? 'text-primary' : 'text-muted-foreground')}>
+              {pallet.is_active_dispatch_pallet ? '✓' : '—'}
+            </span>
+          )}
         </Card>
       )}
 
