@@ -12,13 +12,17 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Warehouse, Wine, Package, Pencil, Trash2, SlidersHorizontal, ChevronDown, ChevronRight, Bell, AlertTriangle, ClipboardCheck, FlaskConical } from 'lucide-react';
+import { Warehouse, Wine, Package, Pencil, Trash2, SlidersHorizontal, ChevronDown, ChevronRight, Bell, AlertTriangle, ClipboardCheck, FlaskConical, Store } from 'lucide-react';
 import { toast } from 'sonner';
 import MobileCard, { MobileCardGrid, MobileDetailRow } from '@/components/shared/MobileCard';
 import PageHeader from '@/components/shared/PageHeader';
 import StatCard from '@/components/shared/StatCard';
 import StockReconciliation from '@/components/inventory/StockReconciliation';
 import Pagination from '@/components/ui/Pagination';
+import { restoreToPallet } from '@/lib/palletStock';
+import { generatePalletCode } from '@/lib/palletCode';
+
+const NEW_SHOP_PALLET = '__new_shop_pallet__';
 
 const typeColors = {
   ethanol: 'bg-amber-100 text-amber-800',
@@ -289,13 +293,16 @@ function DeleteConfirm({ item, entity, label, onClose, queryKey }) {
 }
 
 // ── Action buttons ───────────────────────────────────────────────────────────
-function Actions({ onAdjust, onEdit, onDelete, onMoveToTasting, isTasting }) {
+function Actions({ onAdjust, onEdit, onDelete, onMoveToTasting, onSendToShop, isTasting }) {
   return (
     <div className="flex items-center gap-1">
       <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onAdjust} title="Adjust stock"><SlidersHorizontal className="w-3.5 h-3.5" /></Button>
       <Button size="icon" variant="ghost" className="h-7 w-7" onClick={onEdit} title="Edit"><Pencil className="w-3.5 h-3.5" /></Button>
       {!isTasting && onMoveToTasting && (
         <Button size="icon" variant="ghost" className="h-7 w-7 text-amber-600 hover:text-amber-700" onClick={onMoveToTasting} title="Move bottles to tasting stock"><FlaskConical className="w-3.5 h-3.5" /></Button>
+      )}
+      {!isTasting && onSendToShop && (
+        <Button size="icon" variant="ghost" className="h-7 w-7 text-teal-600 hover:text-teal-700" onClick={onSendToShop} title="Send bottles to the shop"><Store className="w-3.5 h-3.5" /></Button>
       )}
       <Button size="icon" variant="ghost" className="h-7 w-7 hover:text-destructive" onClick={onDelete} title="Delete"><Trash2 className="w-3.5 h-3.5" /></Button>
     </div>
@@ -410,6 +417,7 @@ function FinishedGoodsTable({ finishedGoods, loading, onOpen }) {
                             onEdit={() => onOpen('edit', b, 'FinishedGood', 'finishedGoods')}
                             onDelete={() => onOpen('delete', b, 'FinishedGood', 'finishedGoods')}
                             onMoveToTasting={() => onOpen('moveToTasting', b, 'FinishedGood', 'finishedGoods')}
+                            onSendToShop={() => onOpen('sendToShop', b, 'FinishedGood', 'finishedGoods')}
                             isTasting={b.is_tasting === true || (b.product_name || '').includes('Tasting')}
                           />
                         </TableCell>
@@ -729,6 +737,13 @@ export default function Inventory() {
   const totalFinishedLALs = finishedGoods.reduce((s, g) => s + (g.total_lals || 0), 0);
 
   const [tastingDialog, setTastingDialog] = useState(null);
+  const [shopDialog, setShopDialog] = useState(null);
+
+  const { data: shopPallets = [] } = useQuery({
+    queryKey: ['pallets'],
+    queryFn: () => base44.entities.Pallet.list('-created_at', 5000),
+  });
+  const activeShopPallets = shopPallets.filter(p => p.location === 'Shop' && p.status !== 'archived');
 
   const moveToTastingMutation = useMutation({
     mutationFn: async ({ item, qty }) => {
@@ -776,8 +791,60 @@ export default function Inventory() {
     onError: (e) => toast.error(e.message || 'Failed'),
   });
 
+  // Deducts from distillery FinishedGood stock exactly like Move to
+  // Tasting, but adds the bottles to a Shop-location pallet (PalletItem)
+  // instead of a parallel FinishedGood row — Shop stock already lives on
+  // pallets (see the Pallets pages), so this keeps it in the same place
+  // rather than inventing a second "— Shop" stock pool.
+  const sendToShopMutation = useMutation({
+    mutationFn: async ({ item, qty, palletId, newLocation }) => {
+      const moveQty = parseInt(qty);
+      if (!moveQty || moveQty <= 0) throw new Error('Enter a valid quantity');
+      if (moveQty > (item.quantity_bottles || 0)) throw new Error('Not enough stock');
+      if (!palletId) throw new Error('Choose a shop pallet');
+      const lalsPerBottle = (item.quantity_bottles > 0 && item.total_lals)
+        ? item.total_lals / item.quantity_bottles : 0;
+      const moveLals = parseFloat((moveQty * lalsPerBottle).toFixed(4));
+
+      let targetPalletId = palletId;
+      if (palletId === NEW_SHOP_PALLET) {
+        const pallet_code = await generatePalletCode();
+        const pallet = await base44.entities.Pallet.create({ pallet_code, location: newLocation || 'Shop' });
+        targetPalletId = pallet.id;
+      }
+
+      const newQty = item.quantity_bottles - moveQty;
+      if (newQty <= 0) {
+        await base44.entities.FinishedGood.delete(item.id);
+      } else {
+        await base44.entities.FinishedGood.update(item.id, {
+          quantity_bottles: newQty,
+          total_lals: parseFloat(((item.total_lals || 0) - moveLals).toFixed(4)),
+        });
+      }
+
+      await restoreToPallet(targetPalletId, {
+        product_name: item.product_name,
+        batch_number: item.batch_number,
+        bottle_size_ml: item.bottle_size_ml,
+        quantity_bottles: moveQty,
+        total_lals: moveLals,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['finishedGoods'] });
+      qc.invalidateQueries({ queryKey: ['pallets'] });
+      qc.invalidateQueries({ queryKey: ['palletItemsAll'] });
+      qc.invalidateQueries({ queryKey: ['palletItems'] });
+      toast.success('Bottles sent to the shop');
+      setShopDialog(null);
+    },
+    onError: (e) => toast.error(e.message || 'Failed'),
+  });
+
   const open = (type, item, entity, queryKey) => {
     if (type === 'moveToTasting') { setTastingDialog({ item, qty: '1' }); return; }
+    if (type === 'sendToShop') { setShopDialog({ item, qty: '1', palletId: activeShopPallets[0]?.id || NEW_SHOP_PALLET }); return; }
     setDialog({ type, item, entity, queryKey });
   };
   const close = () => setDialog(null);
@@ -1010,6 +1077,56 @@ export default function Inventory() {
                   {moveToTastingMutation.isPending ? 'Moving...' : `Move ${tastingDialog.qty || 0} bottles`}
                 </Button>
                 <Button variant="outline" onClick={() => setTastingDialog(null)}>Cancel</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Send to Shop dialog */}
+      {shopDialog && (
+        <Dialog open={!!shopDialog} onOpenChange={(v) => !v && setShopDialog(null)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="font-display flex items-center gap-2">
+                <Store className="w-4 h-4 text-teal-600" /> Send to Shop
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 mt-2">
+              <div className="rounded-lg bg-muted p-3 text-sm space-y-1">
+                <p className="font-medium">{shopDialog.item.product_name}</p>
+                <p className="text-muted-foreground">Batch {shopDialog.item.batch_number} · {shopDialog.item.bottle_size_ml}ml · {shopDialog.item.quantity_bottles} bottles available</p>
+              </div>
+              <div>
+                <Label>How many bottles to send?</Label>
+                <Input
+                  type="number" min="1" max={shopDialog.item.quantity_bottles}
+                  value={shopDialog.qty}
+                  onChange={e => setShopDialog(d => ({ ...d, qty: e.target.value }))}
+                  className="mt-1 text-base h-12 text-center font-bold"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <Label>Send to</Label>
+                <Select value={shopDialog.palletId} onValueChange={v => setShopDialog(d => ({ ...d, palletId: v }))}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {activeShopPallets.map(p => <SelectItem key={p.id} value={p.id}>{p.pallet_code}</SelectItem>)}
+                    <SelectItem value={NEW_SHOP_PALLET}>+ New shop pallet</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">These bottles leave distillery stock and are added to the chosen shop pallet.</p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  className="flex-1 bg-teal-600 hover:bg-teal-700 text-white"
+                  onClick={() => sendToShopMutation.mutate(shopDialog)}
+                  disabled={sendToShopMutation.isPending || !shopDialog.qty || parseInt(shopDialog.qty) <= 0 || !shopDialog.palletId}
+                >
+                  {sendToShopMutation.isPending ? 'Sending...' : `Send ${shopDialog.qty || 0} bottles`}
+                </Button>
+                <Button variant="outline" onClick={() => setShopDialog(null)}>Cancel</Button>
               </div>
             </div>
           </DialogContent>

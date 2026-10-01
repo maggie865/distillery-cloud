@@ -14,6 +14,7 @@ import StockOverview from '@/components/dashboard/StockOverview';
 import ActiveTanks from '@/components/dashboard/ActiveTanks';
 import ComplianceAlerts from '@/components/dashboard/ComplianceAlerts';
 import UserDashboard from '@/components/dashboard/UserDashboard';
+import InProgressRuns from '@/components/dashboard/InProgressRuns';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -142,6 +143,8 @@ export default function Dashboard() {
       />
 
       <QuickActions />
+
+      <InProgressRuns />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard
