@@ -82,8 +82,14 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
     [finishedGoods]
   );
 
+  const { data: selectedPalletItems = [] } = useQuery({
+    queryKey: ['palletItems', palletId],
+    queryFn: () => db.PalletItem.filter({ pallet_id: palletId }),
+    enabled: !!palletId && dispatchedFrom === 'Bluff',
+  });
+
   // Bluff: grouped by product+size, FIFO sorted batches
-  const bluffProductOptions = useMemo(() => {
+  const rawBluffProductOptions = useMemo(() => {
     const map = {};
     for (const fg of sellableGoods) {
       const key = `${fg.product_name}||${fg.bottle_size_ml || ''}`;
@@ -121,6 +127,31 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
       return { ...opt, batches: batchesWithAvail, totalAvailable: batchesWithAvail.reduce((s, b) => s + b.available, 0) };
     }).filter(opt => opt.totalAvailable > 0);
   }, [sellableGoods, getStock]);
+
+  // When a specific pallet is chosen as the source, it isn't just a tag
+  // applied after the fact — the picker below should only offer what's
+  // actually on that pallet, capped by what's still really in FinishedGood
+  // (the pallet is a manifest, not the source of truth, same reasoning as
+  // deductFromPallet), so you can't select stock that pallet doesn't hold.
+  const bluffProductOptions = useMemo(() => {
+    if (dispatchedFrom !== 'Bluff' || !palletId) return rawBluffProductOptions;
+    const palletQtyByKey = {};
+    for (const it of selectedPalletItems) {
+      const key = `${it.product_name}||${it.batch_number || ''}||${it.bottle_size_ml || ''}`;
+      palletQtyByKey[key] = (palletQtyByKey[key] || 0) + (it.quantity_bottles || 0);
+    }
+    return rawBluffProductOptions
+      .map(opt => {
+        const batches = opt.batches
+          .map(b => {
+            const key = `${b.product_name}||${b.batch_number || ''}||${b.bottle_size_ml || ''}`;
+            return { ...b, available: Math.min(b.available, palletQtyByKey[key] || 0) };
+          })
+          .filter(b => b.available > 0);
+        return { ...opt, batches, totalAvailable: batches.reduce((s, b) => s + b.available, 0) };
+      })
+      .filter(opt => opt.totalAvailable > 0);
+  }, [dispatchedFrom, palletId, selectedPalletItems, rawBluffProductOptions]);
 
   const bluffBatches = useMemo(() => {
     const list = [];
@@ -406,14 +437,28 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
           {palletOptions.length > 0 && (
             <div>
               <Label>From Pallet (optional)</Label>
-              <Select value={palletId || 'none'} onValueChange={(v) => setPalletId(v === 'none' ? '' : v)}>
+              <Select
+                value={palletId || 'none'}
+                onValueChange={(v) => {
+                  setPalletId(v === 'none' ? '' : v);
+                  setLineItems([]);
+                  setNewLineProductKey('');
+                  setNewLineBatchId('');
+                  setNewLineWSId('');
+                  setNewLineQty('');
+                }}
+              >
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Not from a specific pallet" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Not from a specific pallet</SelectItem>
                   {palletOptions.map(p => <SelectItem key={p.id} value={p.id}>{p.pallet_code}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground mt-1">If this order is coming off a specific pallet, picking it here takes the cases off that pallet's contents too.</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {dispatchedFrom === 'Bluff'
+                  ? "Picking a pallet restricts the products below to what's actually on it, and takes the cases off its contents when dispatched."
+                  : "If this order is coming off a specific pallet, picking it here takes the cases off that pallet's contents too."}
+              </p>
             </div>
           )}
 
@@ -510,7 +555,11 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
                 </div>
               </div>
             )}
-            {!hasStock && <p className="text-sm text-muted-foreground text-center py-4">No stock available at this location</p>}
+            {!hasStock && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                {dispatchedFrom === 'Bluff' && palletId ? 'No stock available on this pallet' : 'No stock available at this location'}
+              </p>
+            )}
             {hasOverStock && <p className="text-xs text-destructive mt-1">One or more items exceed available stock</p>}
           </div>
 

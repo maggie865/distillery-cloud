@@ -69,6 +69,37 @@ export async function restoreToPallet(palletId, { product_name, batch_number, bo
   }
 }
 
+// A pallet can accumulate several PalletItem rows for the same
+// product/batch/size — one per time stock was added to it (a bottling run
+// output, a manual top-up, bottles moved in from another pallet). Pallet
+// list cards and the pallet detail page both want to show one line per
+// batch/size with its combined total, not every individual add event, so
+// this is shared between them. Each group also carries its underlying
+// itemIds so a caller can act across all of them (e.g. taking stock off).
+export function groupPalletItems(items) {
+  const map = {};
+  for (const it of items) {
+    const key = `${it.product_name}||${it.batch_number || ''}||${it.bottle_size_ml || ''}`;
+    if (!map[key]) {
+      map[key] = {
+        key,
+        product_name: it.product_name,
+        batch_number: it.batch_number || null,
+        bottle_size_ml: it.bottle_size_ml || null,
+        quantity_bottles: 0,
+        total_lals: 0,
+        itemIds: [],
+        items: [],
+      };
+    }
+    map[key].quantity_bottles += it.quantity_bottles || 0;
+    map[key].total_lals += it.total_lals || 0;
+    map[key].itemIds.push(it.id);
+    map[key].items.push(it);
+  }
+  return Object.values(map).map(g => ({ ...g, total_lals: parseFloat(g.total_lals.toFixed(4)) }));
+}
+
 // Called after merging two FinishedGood product-name variants of the same
 // physical product/batch/size into one canonical name (e.g. a repair tool
 // collapsing "London Dry Gin 200ml" into "London Dry Gin") — any pallet_item

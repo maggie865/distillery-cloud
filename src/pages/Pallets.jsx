@@ -12,6 +12,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import CreatePalletDialog from '@/components/pallets/CreatePalletDialog';
 import ScanPalletDialog from '@/components/pallets/ScanPalletDialog';
+import { groupPalletItems } from '@/lib/palletStock';
 
 export default function Pallets() {
   const navigate = useNavigate();
@@ -103,7 +104,9 @@ export default function Pallets() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map(p => {
             const items = itemsByPallet[p.id] || [];
-            const totalBottles = items.reduce((s, it) => s + (it.quantity_bottles || 0), 0);
+            const grouped = groupPalletItems(items);
+            const totalBottles = grouped.reduce((s, g) => s + (g.quantity_bottles || 0), 0);
+            const batchNumbers = [...new Set(grouped.map(g => g.batch_number).filter(Boolean))];
             return (
               <Card
                 key={p.id}
@@ -116,14 +119,21 @@ export default function Pallets() {
                   {p.status === 'full' && <Badge className="bg-amber-100 text-amber-700">Full</Badge>}
                 </div>
                 <p className="text-xs text-muted-foreground mb-2">{p.location} · {p.created_at ? format(new Date(p.created_at), 'd MMM yyyy') : ''}</p>
-                {items.length === 0 ? (
+                {batchNumbers.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {batchNumbers.map(b => (
+                      <Badge key={b} variant="outline" className="text-xs font-mono">{b}</Badge>
+                    ))}
+                  </div>
+                )}
+                {grouped.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No items yet</p>
                 ) : (
                   <div className="space-y-0.5">
-                    {items.slice(0, 3).map(it => (
-                      <p key={it.id} className="text-sm truncate">{it.product_name} {it.bottle_size_ml}ml — {it.quantity_bottles}</p>
+                    {grouped.slice(0, 3).map(g => (
+                      <p key={g.key} className="text-sm truncate">{g.product_name} {g.bottle_size_ml}ml — {g.quantity_bottles}</p>
                     ))}
-                    {items.length > 3 && <p className="text-xs text-muted-foreground">+{items.length - 3} more</p>}
+                    {grouped.length > 3 && <p className="text-xs text-muted-foreground">+{grouped.length - 3} more</p>}
                   </div>
                 )}
                 <p className="text-xs font-medium mt-2">{totalBottles.toLocaleString()} bottles total</p>

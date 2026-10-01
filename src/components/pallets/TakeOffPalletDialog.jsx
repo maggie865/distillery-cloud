@@ -11,9 +11,12 @@ import { generatePalletCode } from '@/lib/palletCode';
 
 const NEW_PALLET = '__new__';
 
-// Handles taking bottles off a pallet line item, whichever way it's leaving:
+// Handles taking bottles off a pallet line, whichever way it's leaving:
 // dispatched/used up (just reduce it), a correction, or physically moved
-// onto another pallet (a "split" — reduces here, adds there).
+// onto another pallet (a "split" — reduces here, adds there). `item` is a
+// grouped batch/size total (see groupPalletItems) that may be backed by
+// several underlying PalletItem rows added at different times — the take
+// is applied oldest-row-first across `item.items` until it's covered.
 export default function TakeOffPalletDialog({ open, onClose, item, currentPalletId }) {
   const qc = useQueryClient();
   const [qty, setQty] = useState('');
@@ -45,13 +48,29 @@ export default function TakeOffPalletDialog({ open, onClose, item, currentPallet
 
       const lalsPerBottle = (item.quantity_bottles || 0) > 0 && item.total_lals ? item.total_lals / item.quantity_bottles : 0;
       const takeLals = parseFloat((takeQty * lalsPerBottle).toFixed(4));
-      const remainingQty = item.quantity_bottles - takeQty;
-      const remainingLals = parseFloat(((item.total_lals || 0) - takeLals).toFixed(4));
 
-      if (remainingQty <= 0) {
-        await base44.entities.PalletItem.delete(item.id);
-      } else {
-        await base44.entities.PalletItem.update(item.id, { quantity_bottles: remainingQty, total_lals: remainingLals });
+      // Deplete the oldest underlying rows first, so a batch/size total
+      // backed by several add-events (bottling run output, a later manual
+      // top-up, bottles moved in from elsewhere) comes off in the order it
+      // was added, same as every other FIFO lot-depletion in this app.
+      const sourceRows = [...(item.items && item.items.length ? item.items : [item])]
+        .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+      let remaining = takeQty;
+      for (const row of sourceRows) {
+        if (remaining <= 0) break;
+        const rowLalsPerBottle = (row.quantity_bottles || 0) > 0 && row.total_lals ? row.total_lals / row.quantity_bottles : 0;
+        const take = Math.min(remaining, row.quantity_bottles || 0);
+        if (take <= 0) continue;
+        const rowRemainingQty = (row.quantity_bottles || 0) - take;
+        if (rowRemainingQty <= 0) {
+          await base44.entities.PalletItem.delete(row.id);
+        } else {
+          await base44.entities.PalletItem.update(row.id, {
+            quantity_bottles: rowRemainingQty,
+            total_lals: parseFloat(Math.max(0, (row.total_lals || 0) - take * rowLalsPerBottle).toFixed(4)),
+          });
+        }
+        remaining -= take;
       }
 
       if (reason === 'moved') {
@@ -78,6 +97,10 @@ export default function TakeOffPalletDialog({ open, onClose, item, currentPallet
             total_lals: parseFloat(((existing.total_lals || 0) + takeLals).toFixed(4)),
           });
         } else {
+          // A grouped take can span several source rows with different
+          // provenance — fall back to the oldest row's for the new line,
+          // since there's no single correct answer once they're merged.
+          const provenance = sourceRows[0] || {};
           await base44.entities.PalletItem.create({
             pallet_id: destPalletId,
             product_name: item.product_name,
@@ -85,8 +108,8 @@ export default function TakeOffPalletDialog({ open, onClose, item, currentPallet
             bottle_size_ml: item.bottle_size_ml,
             quantity_bottles: takeQty,
             total_lals: takeLals,
-            source: item.source,
-            bottling_run_id: item.bottling_run_id || null,
+            source: provenance.source || item.source,
+            bottling_run_id: provenance.bottling_run_id || null,
           });
         }
         return { destCode };
