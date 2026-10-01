@@ -31,6 +31,9 @@ import { deductFromPallet, restoreToPallet } from '@/lib/palletStock';
 
 const DISTILLERY_ORIGIN = '250 Ocean Beach Road, Bluff, New Zealand';
 const WAREHOUSE_ADDRESS = '27 Pavillion Drive, Māngere, Auckland 2015, New Zealand';
+// dispatched_from uses 'Bluff' for the distillery; pallets use 'Distillery'
+// for the same physical place (matches DispatchForm.jsx's mapping).
+const PALLET_LOCATION_FOR_SOURCE = { Bluff: 'Distillery', 'Auckland 3PL': 'Auckland 3PL', 'UK Bonded': 'UK Bonded' };
 const CHANNEL_LABELS = { wholesale: 'Wholesale', cellar_door: 'Cellar Door', shopify: 'Shopify', airpoints: 'Airpoints', website: 'Website', other: 'Other' };
 // Physical stock is only ever committed (deducted) once a dispatch reaches
 // one of these statuses; Pending/Picking/Ready reserve the line item (see
@@ -78,6 +81,7 @@ export default function DispatchHub() {
 
   const { data: finishedGoods = [] } = useQuery({ queryKey: ['finishedGoods'], queryFn: () => db.FinishedGood.list('-created_at', 5000) });
   const { data: warehouseStock = [] } = useQuery({ queryKey: ['warehouseStock'], queryFn: () => db.WarehouseStock.list('-date_transferred_in', 5000) });
+  const { data: pallets = [] } = useQuery({ queryKey: ['pallets'], queryFn: () => db.Pallet.list('-created_at', 5000) });
   const { data: allDispatchesRaw = [] } = useQuery({ queryKey: ['dispatches-all'], queryFn: () => db.Dispatch.list('-dispatch_date', 5000) });
   const { data: customers = [] } = useQuery({ queryKey: ['customers'], queryFn: () => db.Customer.list('business_name', 5000) });
   const { data: customerLocations = [] } = useQuery({ queryKey: ['allCustomerLocations'], queryFn: () => db.CustomerLocation.list('location_name', 5000) });
@@ -146,6 +150,7 @@ export default function DispatchHub() {
       transport_method: d.transport_method || 'road', customer_name: d.customer_name || '', customer_address: d.customer_address || '',
       dispatched_from: d.dispatched_from || 'Bluff',
       sample_dispatch: d.sample_dispatch || false, duty_free: d.duty_free || false, is_export: d.is_export || false,
+      pallet_id: d.pallet_id || '',
     });
   };
 
@@ -265,7 +270,8 @@ export default function DispatchHub() {
       orig.product_name !== data.product_name ||
       Number(orig.bottle_size_ml) !== Number(data.bottle_size_ml) ||
       Number(orig.quantity_bottles) !== Number(data.quantity_bottles) ||
-      (orig.dispatched_from || 'Bluff') !== (data.dispatched_from || 'Bluff');
+      (orig.dispatched_from || 'Bluff') !== (data.dispatched_from || 'Bluff') ||
+      (orig.pallet_id || null) !== (data.pallet_id || null);
   };
 
   const editMutation = useMutation({
@@ -285,6 +291,11 @@ export default function DispatchHub() {
         is_export: data.is_export === true,
       };
       Object.assign(cleanData, flagPayload);
+      // pallet_id needs its own explicit assignment — the generic cleanData
+      // filter above drops any '' value (picking "not from a specific
+      // pallet" to clear it), which would otherwise leave the old pallet_id
+      // untouched in the database instead of actually clearing it.
+      cleanData.pallet_id = data.pallet_id || null;
 
       // Physical stock moves only on transition into/out of {dispatched,
       // delivered} — not on every edit, and not based on which fields
@@ -694,7 +705,10 @@ export default function DispatchHub() {
                 // warehouse's warehouse_stock) — clearing it forces
                 // BatchPicker to re-resolve against the newly-selected
                 // location instead of showing a stale batch as "settled".
-                { ...f, dispatched_from: v, batch_number: '' }
+                // The pallet choice is location-specific too, so it's
+                // cleared the same way rather than carrying over a pallet
+                // that lives at the old location.
+                { ...f, dispatched_from: v, batch_number: '', pallet_id: '' }
               ))}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -705,6 +719,24 @@ export default function DispatchHub() {
               </Select>
               <p className="text-xs text-muted-foreground mt-1">
                 Xero invoices don't say which warehouse fulfilled the sale — correct this before approving if it wasn't dispatched from Bluff.
+              </p>
+            </div>
+            <div>
+              <Label>Pallet</Label>
+              <Select
+                value={editForm.pallet_id || 'none'}
+                onValueChange={v => setEditForm(f => ({ ...f, pallet_id: v === 'none' ? '' : v }))}
+              >
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Not from a specific pallet" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not from a specific pallet</SelectItem>
+                  {pallets
+                    .filter(p => p.status !== 'archived' && p.location === PALLET_LOCATION_FOR_SOURCE[editForm.dispatched_from || 'Bluff'])
+                    .map(p => <SelectItem key={p.id} value={p.id}>{p.pallet_code}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Changing this moves the quantity between pallets' recorded contents — the old pallet gets it back, the new one gets it deducted.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
