@@ -53,7 +53,9 @@ export default function CreatePalletDialog({ open, onClose, finishedGoods = [], 
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (validItems.length === 0) throw new Error('Add at least one item to the pallet');
+      // Items are optional — a pallet can be created empty, pre-labelled
+      // and ready to scan, with stock added later via "Add Item" on its
+      // detail page once something is actually bottled or allocated to it.
       if (hasInvalid) throw new Error('Fix quantity errors before creating the pallet');
 
       const pallet_code = await generatePalletCode();
@@ -113,6 +115,7 @@ export default function CreatePalletDialog({ open, onClose, finishedGoods = [], 
 
           <div className="space-y-2">
             <Label>What's on this pallet?</Label>
+            <p className="text-xs text-muted-foreground -mt-1.5">Optional — leave empty to pre-label this pallet and add stock to it later.</p>
             {rows.map((row, idx) => (
               <PalletItemPicker
                 key={idx}
