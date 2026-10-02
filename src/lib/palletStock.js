@@ -100,18 +100,13 @@ export function groupPalletItems(items) {
   return Object.values(map).map(g => ({ ...g, total_lals: parseFloat(g.total_lals.toFixed(4)) }));
 }
 
-// Marks a pallet as THE active distillery dispatch pallet — mirrors
-// storage_tank.is_ready_for_bottling, but exclusive: only one pallet can be
-// active at a time (dispatches draw from exactly one source, not a pool),
-// so activating one clears the flag off whichever pallet had it before.
+// Marks a pallet as available to be picked as a dispatch source — mirrors
+// storage_tank.is_ready_for_bottling: not exclusive, several pallets can be
+// flagged at once, same as several tanks can be ready for bottling at
+// once. It only curates which pallets show up in the dispatch form's
+// optional "From Pallet" picker; picking one there restricts the stock on
+// offer to that pallet's contents, picking none leaves stock unrestricted.
 export async function setActiveDispatchPallet(palletId, active) {
-  if (active) {
-    const all = await base44.entities.Pallet.list('-created_at', 5000);
-    const others = all.filter(p => p.id !== palletId && p.location === 'Distillery' && p.is_active_dispatch_pallet);
-    for (const p of others) {
-      await base44.entities.Pallet.update(p.id, { is_active_dispatch_pallet: false });
-    }
-  }
   await base44.entities.Pallet.update(palletId, { is_active_dispatch_pallet: active });
 }
 

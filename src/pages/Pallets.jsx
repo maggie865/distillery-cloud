@@ -20,7 +20,7 @@ import { groupPalletItems, setActiveDispatchPallet } from '@/lib/palletStock';
 export default function Pallets() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
@@ -142,7 +142,7 @@ export default function Pallets() {
                     <div className="flex items-center gap-1.5">
                       <Truck className={cn('w-3.5 h-3.5', p.is_active_dispatch_pallet ? 'text-primary' : 'text-muted-foreground')} />
                       <span className="text-xs font-medium">
-                        {p.is_active_dispatch_pallet ? 'Active dispatch pallet' : 'Not active for dispatch'}
+                        {p.is_active_dispatch_pallet ? 'Available for dispatch' : 'Not shown in dispatch'}
                       </span>
                     </div>
                     {isAdmin ? (
