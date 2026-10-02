@@ -53,12 +53,15 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
     queryKey: ['pallets'],
     queryFn: () => db.Pallet.list('-created_at', 5000),
   });
-  const palletOptions = pallets.filter(p => p.status !== 'archived' && p.location === PALLET_LOCATION_FOR_SOURCE[dispatchedFrom]);
-  // Distillery dispatches always draw from whichever pallet is tagged
-  // "active" on the Pallets page (see setActiveDispatchPallet) — no more
-  // per-dispatch FIFO-vs-manual-batch choice, the pallet itself is now the
-  // only source of truth for what's available to dispatch from Bluff.
-  const activeDistilleryPallet = pallets.find(p => p.location === 'Distillery' && p.status !== 'archived' && p.is_active_dispatch_pallet);
+  // For Bluff, only pallets flagged "available for dispatch" (toggled on
+  // the Pallets page) show up here, so the dropdown stays curated instead
+  // of listing every pallet in the building. 3PL/UK Bonded don't have that
+  // flag exposed, so every non-archived pallet at that location is offered.
+  const palletOptions = pallets.filter(p =>
+    p.status !== 'archived' &&
+    p.location === PALLET_LOCATION_FOR_SOURCE[dispatchedFrom] &&
+    (dispatchedFrom !== 'Bluff' || p.is_active_dispatch_pallet)
+  );
 
   // Only relevant once a customer with more than one store/branch on file
   // is selected - see CustomerLocationsPanel on the customer detail page.
@@ -86,9 +89,9 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
   );
 
   const { data: selectedPalletItems = [] } = useQuery({
-    queryKey: ['palletItems', activeDistilleryPallet?.id],
-    queryFn: () => db.PalletItem.filter({ pallet_id: activeDistilleryPallet.id }),
-    enabled: !!activeDistilleryPallet?.id && dispatchedFrom === 'Bluff',
+    queryKey: ['palletItems', palletId],
+    queryFn: () => db.PalletItem.filter({ pallet_id: palletId }),
+    enabled: !!palletId && dispatchedFrom === 'Bluff',
   });
 
   // Bluff: grouped by product+size, FIFO sorted batches
@@ -131,13 +134,14 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
     }).filter(opt => opt.totalAvailable > 0);
   }, [sellableGoods, getStock]);
 
-  // Distillery dispatches only ever offer what's actually on the active
-  // pallet, capped by what's still really in FinishedGood (the pallet is a
-  // manifest, not the source of truth, same reasoning as deductFromPallet)
-  // — without an active pallet there's nothing to dispatch from at all.
+  // When a specific pallet is chosen as the source, it isn't just a tag
+  // applied after the fact — the picker below should only offer what's
+  // actually on that pallet, capped by what's still really in FinishedGood
+  // (the pallet is a manifest, not the source of truth, same reasoning as
+  // deductFromPallet), so you can't select stock that pallet doesn't hold.
+  // Picking nothing leaves stock unrestricted, same as every other dispatch.
   const bluffProductOptions = useMemo(() => {
-    if (dispatchedFrom !== 'Bluff') return rawBluffProductOptions;
-    if (!activeDistilleryPallet) return [];
+    if (dispatchedFrom !== 'Bluff' || !palletId) return rawBluffProductOptions;
     const palletQtyByKey = {};
     for (const it of selectedPalletItems) {
       const key = `${it.product_name}||${it.batch_number || ''}||${it.bottle_size_ml || ''}`;
@@ -154,7 +158,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
         return { ...opt, batches, totalAvailable: batches.reduce((s, b) => s + b.available, 0) };
       })
       .filter(opt => opt.totalAvailable > 0);
-  }, [dispatchedFrom, activeDistilleryPallet, selectedPalletItems, rawBluffProductOptions]);
+  }, [dispatchedFrom, palletId, selectedPalletItems, rawBluffProductOptions]);
 
   // 3PL: individual WarehouseStock records, filtered by the selected source location
   const threePLProductOptions = useMemo(() => {
@@ -313,7 +317,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
             co2e_kg: a.co2e,
             dispatched_from: 'Bluff',
             location_id: locationId || undefined,
-            pallet_id: activeDistilleryPallet?.id || undefined,
+            pallet_id: palletId || undefined,
             sample_dispatch: form.sample_dispatch === true,
             duty_free: form.duty_free === true,
             is_export: form.is_export === true,
@@ -325,8 +329,8 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
           if (newQty <= 0) await db.FinishedGood.delete(a.batch.id);
           else await db.FinishedGood.update(a.batch.id, { quantity_bottles: newQty, total_lals: parseFloat(newLals.toFixed(4)) });
           runningStock[a.batch.id] = { quantity_bottles: newQty, total_lals: newLals };
-          if (activeDistilleryPallet) {
-            const result = await deductFromPallet(activeDistilleryPallet.id, { product_name: a.batch.product_name, batch_number: a.batch.batch_number, bottle_size_ml: a.batch.bottle_size_ml, quantity_bottles: a.take });
+          if (palletId) {
+            const result = await deductFromPallet(palletId, { product_name: a.batch.product_name, batch_number: a.batch.batch_number, bottle_size_ml: a.batch.bottle_size_ml, quantity_bottles: a.take });
             if (!result.ok) palletMismatch = true;
           }
         }
@@ -400,21 +404,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
             )}
           </div>
 
-          {dispatchedFrom === 'Bluff' ? (
-            activeDistilleryPallet ? (
-              <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-primary flex-shrink-0" />
-                <p className="text-sm">Dispatching from <span className="font-semibold font-mono">{activeDistilleryPallet.pallet_code}</span> — the active dispatch pallet.</p>
-              </div>
-            ) : (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-                <p className="text-sm text-destructive font-medium">No active dispatch pallet set.</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Go to <Link to="/pallets" className="text-primary hover:underline">Pallets</Link> and mark one as the active dispatch pallet before dispatching from the distillery.
-                </p>
-              </div>
-            )
-          ) : palletOptions.length > 0 && (
+          {palletOptions.length > 0 ? (
             <div>
               <Label>From Pallet (optional)</Label>
               <Select
@@ -422,6 +412,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
                 onValueChange={(v) => {
                   setPalletId(v === 'none' ? '' : v);
                   setLineItems([]);
+                  setNewLineProductKey('');
                   setNewLineWSId('');
                   setNewLineQty('');
                 }}
@@ -432,8 +423,16 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
                   {palletOptions.map(p => <SelectItem key={p.id} value={p.id}>{p.pallet_code}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground mt-1">If this order is coming off a specific pallet, picking it here takes the cases off that pallet's contents too.</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {dispatchedFrom === 'Bluff'
+                  ? "Picking a pallet restricts the products below to what's actually on it, and takes the cases off its contents when dispatched."
+                  : "If this order is coming off a specific pallet, picking it here takes the cases off that pallet's contents too."}
+              </p>
             </div>
+          ) : dispatchedFrom === 'Bluff' && (
+            <p className="text-xs text-muted-foreground">
+              No pallets are marked "available for dispatch" yet — <Link to="/pallets" className="text-primary hover:underline">turn one on</Link> to dispatch off a specific pallet, or continue without one to use stock from anywhere.
+            </p>
           )}
 
           <div>
@@ -506,9 +505,7 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
             )}
             {!hasStock && (
               <p className="text-sm text-muted-foreground text-center py-4">
-                {dispatchedFrom === 'Bluff'
-                  ? (activeDistilleryPallet ? 'No stock available on the active dispatch pallet' : 'Set an active dispatch pallet above to see available stock')
-                  : 'No stock available at this location'}
+                {dispatchedFrom === 'Bluff' && palletId ? 'No stock available on this pallet' : 'No stock available at this location'}
               </p>
             )}
             {hasOverStock && <p className="text-xs text-destructive mt-1">One or more items exceed available stock</p>}

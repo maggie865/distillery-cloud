@@ -24,7 +24,7 @@ export default function PalletDetail() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const [addingItem, setAddingItem] = useState(false);
   const [takingOffItem, setTakingOffItem] = useState(null);
 
@@ -58,7 +58,7 @@ export default function PalletDetail() {
     mutationFn: (active) => setActiveDispatchPallet(pallet.id, active),
     onSuccess: (_, active) => {
       qc.invalidateQueries({ queryKey: ['pallets'] });
-      toast.success(active ? 'Dispatches out of the distillery will now draw from this pallet' : 'No longer the active dispatch pallet');
+      toast.success(active ? 'Now selectable as a dispatch source' : 'No longer shown as a dispatch source');
     },
     onError: (e) => toast.error('Failed: ' + e.message),
   });
@@ -148,9 +148,9 @@ export default function PalletDetail() {
             <Truck className={cn('w-4 h-4', pallet.is_active_dispatch_pallet ? 'text-primary' : 'text-muted-foreground')} />
             <div>
               <p className="text-sm font-medium">
-                {pallet.is_active_dispatch_pallet ? 'Active dispatch pallet' : 'Not the active dispatch pallet'}
+                {pallet.is_active_dispatch_pallet ? 'Available for dispatch' : 'Not shown in dispatch'}
               </p>
-              <p className="text-xs text-muted-foreground">Dispatches out of the distillery draw from whichever pallet has this on.</p>
+              <p className="text-xs text-muted-foreground">Shows up as a choosable source in the dispatch form's "From Pallet" picker when turned on.</p>
             </div>
           </div>
           {isAdmin ? (

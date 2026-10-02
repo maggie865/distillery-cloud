@@ -72,6 +72,8 @@ export default function DispatchHub() {
   const [editCalcingDistance, setEditCalcingDistance] = useState(false);
   const [returningDispatch, setReturningDispatch] = useState(null);
   const [deletingDispatch, setDeletingDispatch] = useState(null);
+  const [returnPalletChoice, setReturnPalletChoice] = useState('');
+  const [deletePalletChoice, setDeletePalletChoice] = useState('');
   const [reviewingDuplicate, setReviewingDuplicate] = useState(null); // { xero, match }
 
   const queryClient = useQueryClient();
@@ -366,7 +368,20 @@ export default function DispatchHub() {
     } catch (err) { toast.error(err.message || 'Could not calculate distance'); } finally { setEditCalcingDistance(false); }
   };
 
-  const restoreStock = async (dispatch) => {
+  // Whether this dispatch's own pallet is still around to receive stock
+  // back — gone (deleted) or archived both count, since neither is a
+  // sensible place to silently drop returned bottles onto.
+  const palletUnavailable = (dispatch) => {
+    if (!dispatch?.pallet_id) return false;
+    const p = pallets.find(p => p.id === dispatch.pallet_id);
+    return !p || p.status === 'archived';
+  };
+
+  // palletOverride, when passed, replaces dispatch.pallet_id as the target
+  // to restore pallet contents to — '' / null means "Finished Goods only,
+  // skip the pallet restore entirely" (used when the original pallet is
+  // gone and the user picked that option in the prompt).
+  const restoreStock = async (dispatch, palletOverride) => {
     const from = dispatch.dispatched_from || 'Bluff';
     const is3PL = from === 'Auckland 3PL' || from === 'UK Bonded';
     if (is3PL) {
@@ -387,8 +402,9 @@ export default function DispatchHub() {
         await db.FinishedGood.create({ product_name: dispatch.product_name, batch_number: dispatch.batch_number, bottle_size_ml: dispatch.bottle_size_ml, quantity_bottles: dispatch.quantity_bottles, total_lals: dispatch.total_lals });
       }
     }
-    if (dispatch.pallet_id) {
-      await restoreToPallet(dispatch.pallet_id, { product_name: dispatch.product_name, batch_number: dispatch.batch_number, bottle_size_ml: dispatch.bottle_size_ml, quantity_bottles: dispatch.quantity_bottles, total_lals: dispatch.total_lals });
+    const targetPalletId = palletOverride !== undefined ? palletOverride : dispatch.pallet_id;
+    if (targetPalletId) {
+      await restoreToPallet(targetPalletId, { product_name: dispatch.product_name, batch_number: dispatch.batch_number, bottle_size_ml: dispatch.bottle_size_ml, quantity_bottles: dispatch.quantity_bottles, total_lals: dispatch.total_lals });
     }
   };
 
@@ -403,22 +419,26 @@ export default function DispatchHub() {
   };
 
   const returnMutation = useMutation({
-    mutationFn: async (dispatch) => {
+    mutationFn: async ({ dispatch, palletOverride }) => {
       // Only restore physical stock if this row actually had any deducted —
       // a still-Pending/Picking/Ready row was only ever reserved.
-      if (DEDUCTED_STATUSES.has(dispatch.status)) await restoreStock(dispatch);
-      await db.Dispatch.update(dispatch.id, { status: 'pending', notes: (dispatch.notes ? dispatch.notes + ' [RETURNED]' : '[RETURNED]') });
+      if (DEDUCTED_STATUSES.has(dispatch.status)) await restoreStock(dispatch, palletOverride);
+      await db.Dispatch.update(dispatch.id, {
+        status: 'pending',
+        notes: (dispatch.notes ? dispatch.notes + ' [RETURNED]' : '[RETURNED]'),
+        ...(palletOverride !== undefined ? { pallet_id: palletOverride || null } : {}),
+      });
     },
-    onSuccess: () => { invalidateAll(); setReturningDispatch(null); toast.success('Stock returned'); },
+    onSuccess: () => { invalidateAll(); setReturningDispatch(null); setReturnPalletChoice(''); toast.success('Stock returned'); },
     onError: (err) => toast.error(err.message || 'Failed to return stock'),
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (dispatch) => {
-      if (DEDUCTED_STATUSES.has(dispatch.status)) await restoreStock(dispatch);
+    mutationFn: async ({ dispatch, palletOverride }) => {
+      if (DEDUCTED_STATUSES.has(dispatch.status)) await restoreStock(dispatch, palletOverride);
       await db.Dispatch.delete(dispatch.id);
     },
-    onSuccess: () => { invalidateAll(); setDeletingDispatch(null); toast.success('Dispatch deleted and stock restored'); },
+    onSuccess: () => { invalidateAll(); setDeletingDispatch(null); setDeletePalletChoice(''); toast.success('Dispatch deleted and stock restored'); },
     onError: (err) => toast.error(err.message || 'Failed to delete dispatch'),
   });
 
@@ -806,7 +826,7 @@ export default function DispatchHub() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!returningDispatch} onOpenChange={v => !v && setReturningDispatch(null)}>
+      <AlertDialog open={!!returningDispatch} onOpenChange={v => { if (!v) { setReturningDispatch(null); setReturnPalletChoice(''); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Return Stock?</AlertDialogTitle>
@@ -814,14 +834,39 @@ export default function DispatchHub() {
               This will restore <strong>{returningDispatch?.quantity_bottles} bottles</strong> of <strong>{returningDispatch?.product_name}</strong> back to {(returningDispatch?.dispatched_from === 'Auckland 3PL' || returningDispatch?.dispatched_from === 'UK Bonded') ? 'warehouse' : 'distillery'} stock. The dispatch record will be kept and marked as returned.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {returningDispatch && palletUnavailable(returningDispatch) && (
+            <div>
+              <Label className="text-sm">
+                {pallets.find(p => p.id === returningDispatch.pallet_id) ? 'The pallet this came from is archived.' : 'The pallet this came from no longer exists.'} Where should this stock go?
+              </Label>
+              <Select value={returnPalletChoice || 'fg'} onValueChange={v => setReturnPalletChoice(v === 'fg' ? '' : v)}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fg">Finished Goods inventory only</SelectItem>
+                  {pallets
+                    .filter(p => p.status !== 'archived' && p.location === PALLET_LOCATION_FOR_SOURCE[returningDispatch.dispatched_from || 'Bluff'])
+                    .map(p => <SelectItem key={p.id} value={p.id}>{p.pallet_code}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-amber-600 hover:bg-amber-700" onClick={() => returnMutation.mutate(returningDispatch)} disabled={returnMutation.isPending}>{returnMutation.isPending ? 'Returning…' : 'Return Stock'}</AlertDialogAction>
+            <AlertDialogAction
+              className="bg-amber-600 hover:bg-amber-700"
+              onClick={() => returnMutation.mutate({
+                dispatch: returningDispatch,
+                palletOverride: palletUnavailable(returningDispatch) ? (returnPalletChoice || null) : undefined,
+              })}
+              disabled={returnMutation.isPending}
+            >
+              {returnMutation.isPending ? 'Returning…' : 'Return Stock'}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!deletingDispatch} onOpenChange={v => !v && setDeletingDispatch(null)}>
+      <AlertDialog open={!!deletingDispatch} onOpenChange={v => { if (!v) { setDeletingDispatch(null); setDeletePalletChoice(''); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Dispatch?</AlertDialogTitle>
@@ -830,9 +875,34 @@ export default function DispatchHub() {
               <p className="mt-2 font-medium text-destructive">This cannot be undone.</p>
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {deletingDispatch && palletUnavailable(deletingDispatch) && (
+            <div>
+              <Label className="text-sm">
+                {pallets.find(p => p.id === deletingDispatch.pallet_id) ? 'The pallet this came from is archived.' : 'The pallet this came from no longer exists.'} Where should this stock go?
+              </Label>
+              <Select value={deletePalletChoice || 'fg'} onValueChange={v => setDeletePalletChoice(v === 'fg' ? '' : v)}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fg">Finished Goods inventory only</SelectItem>
+                  {pallets
+                    .filter(p => p.status !== 'archived' && p.location === PALLET_LOCATION_FOR_SOURCE[deletingDispatch.dispatched_from || 'Bluff'])
+                    .map(p => <SelectItem key={p.id} value={p.id}>{p.pallet_code}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive hover:bg-destructive/90" onClick={() => deleteMutation.mutate(deletingDispatch)} disabled={deleteMutation.isPending}>{deleteMutation.isPending ? 'Deleting…' : 'Delete & Restore Stock'}</AlertDialogAction>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              onClick={() => deleteMutation.mutate({
+                dispatch: deletingDispatch,
+                palletOverride: palletUnavailable(deletingDispatch) ? (deletePalletChoice || null) : undefined,
+              })}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete & Restore Stock'}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
