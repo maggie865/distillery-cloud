@@ -99,6 +99,7 @@ function makeEntity(entityName) {
 export const db = {
   AppSettings:       makeEntity('AppSettings'),
   BottlingRun:       makeEntity('BottlingRun'),
+  CarbonOffset:      makeEntity('CarbonOffset'),
   Customer:          makeEntity('Customer'),
   CustomerActivity:  makeEntity('CustomerActivity'),
   CustomerGroup:     makeEntity('CustomerGroup'),
