@@ -22,6 +22,7 @@ import ExciseReturn from '@/components/reports/ExciseReturn';
 import ForecastReport from '@/components/reports/ForecastReport';
 import MovementsReport from '@/components/reports/MovementsReport';
 import CarbonReport from '@/components/reports/CarbonReport';
+import CarbonOffsetsPanel from '@/components/reports/CarbonOffsetsPanel';
 import IsoLifecycleReport from '@/components/reports/IsoLifecycleReport';
 import BatchTraceReport from '@/components/reports/BatchTraceReport';
 import { useRawMaterialsNetStock } from '@/hooks/useRawMaterialsNetStock';
@@ -523,6 +524,11 @@ export default function Reports() {
             warehouseStock={warehouseStock}
             startDate={startDate}
             endDate={endDate}
+          />
+          <CarbonOffsetsPanel
+            receiving={receiving}
+            dispatches={dispatches}
+            warehouseStock={warehouseStock}
           />
         </TabsContent>
 
