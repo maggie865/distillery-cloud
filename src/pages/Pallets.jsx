@@ -129,6 +129,7 @@ export default function Pallets() {
                   <p className="font-mono font-semibold">{p.pallet_code}</p>
                   {p.status === 'archived' && <Badge variant="outline">Archived</Badge>}
                   {p.status === 'full' && <Badge className="bg-amber-100 text-amber-700">Full</Badge>}
+                  {p.status === 'emptied' && <Badge className="bg-sky-100 text-sky-700">Emptied — ready to reuse</Badge>}
                 </div>
                 <p className="text-xs text-muted-foreground mb-2">{p.location} · {p.created_at ? format(new Date(p.created_at), 'd MMM yyyy') : ''}</p>
                 {p.location === 'Distillery' && p.status !== 'archived' && (

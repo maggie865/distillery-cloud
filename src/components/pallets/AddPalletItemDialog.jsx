@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import PalletItemPicker, { groupFinishedGoods } from './PalletItemPicker';
+import { reactivatePalletIfEmptied } from '@/lib/palletStock';
 
 export default function AddPalletItemDialog({ open, onClose, pallet, finishedGoods = [] }) {
   const qc = useQueryClient();
@@ -21,19 +22,23 @@ export default function AddPalletItemDialog({ open, onClose, pallet, finishedGoo
   const isValid = resolved?.product_name && (resolved.quantity_bottles || 0) > 0 && resolved.quantity_bottles <= available;
 
   const addMutation = useMutation({
-    mutationFn: () => base44.entities.PalletItem.create({
-      pallet_id: pallet.id,
-      product_name: resolved.product_name,
-      batch_number: resolved.batch_number,
-      bottle_size_ml: resolved.bottle_size_ml,
-      quantity_bottles: resolved.quantity_bottles,
-      total_lals: resolved.total_lals,
-      source: 'manual',
-      added_by_user_id: user?.id || null,
-      added_by_name: user?.full_name || user?.email || null,
-    }),
+    mutationFn: async () => {
+      await base44.entities.PalletItem.create({
+        pallet_id: pallet.id,
+        product_name: resolved.product_name,
+        batch_number: resolved.batch_number,
+        bottle_size_ml: resolved.bottle_size_ml,
+        quantity_bottles: resolved.quantity_bottles,
+        total_lals: resolved.total_lals,
+        source: 'manual',
+        added_by_user_id: user?.id || null,
+        added_by_name: user?.full_name || user?.email || null,
+      });
+      await reactivatePalletIfEmptied(pallet.id);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['palletItems', pallet.id] });
+      qc.invalidateQueries({ queryKey: ['pallets'] });
       toast.success('Item added to pallet');
       setRow({ productKey: '', qty: '', batchId: '' });
       setResolved(null);

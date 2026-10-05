@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { generatePalletCode } from '@/lib/palletCode';
+import { markPalletEmptiedIfBare, reactivatePalletIfEmptied } from '@/lib/palletStock';
 
 const NEW_PALLET = '__new__';
 
@@ -29,7 +30,7 @@ export default function TakeOffPalletDialog({ open, onClose, item, currentPallet
     queryFn: () => base44.entities.Pallet.list('-created_at', 5000),
     enabled: open,
   });
-  const otherPallets = pallets.filter(p => p.status === 'active' && p.id !== currentPalletId);
+  const otherPallets = pallets.filter(p => (p.status === 'active' || p.status === 'emptied') && p.id !== currentPalletId);
 
   const max = item?.quantity_bottles || 0;
   const takeQty = qty === '' ? max : (parseInt(qty) || 0);
@@ -72,6 +73,7 @@ export default function TakeOffPalletDialog({ open, onClose, item, currentPallet
         }
         remaining -= take;
       }
+      await markPalletEmptiedIfBare(currentPalletId);
 
       if (reason === 'moved') {
         let destPalletId = destChoice;
@@ -112,6 +114,7 @@ export default function TakeOffPalletDialog({ open, onClose, item, currentPallet
             bottling_run_id: provenance.bottling_run_id || null,
           });
         }
+        await reactivatePalletIfEmptied(destPalletId);
         return { destCode };
       }
       return {};
@@ -171,7 +174,11 @@ export default function TakeOffPalletDialog({ open, onClose, item, currentPallet
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value={NEW_PALLET}>+ New pallet</SelectItem>
-                    {otherPallets.map(p => <SelectItem key={p.id} value={p.id}>{p.pallet_code} — {p.location}</SelectItem>)}
+                    {otherPallets.map(p => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.pallet_code} — {p.location}{p.status === 'emptied' ? ' (emptied)' : ''}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 {destChoice === NEW_PALLET && (
