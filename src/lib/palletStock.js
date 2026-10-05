@@ -28,6 +28,7 @@ export async function deductFromPallet(palletId, { product_name, batch_number, b
     const newQty = (item.quantity_bottles || 0) - take;
     if (newQty <= 0) {
       await base44.entities.PalletItem.delete(item.id);
+      await markPalletEmptiedIfBare(palletId);
     } else {
       await base44.entities.PalletItem.update(item.id, {
         quantity_bottles: newQty,
@@ -37,6 +38,42 @@ export async function deductFromPallet(palletId, { product_name, batch_number, b
     return { ok: take >= quantity_bottles };
   } catch {
     return { ok: false, reason: 'error' };
+  }
+}
+
+// Flips a pallet to 'emptied' once its last PalletItem row is gone, so a
+// depleted pallet is distinguishable from one still genuinely active/full
+// instead of silently sitting in whatever status it last had with nothing
+// on it. Never touches an archived pallet — that's a deliberate end state,
+// not a depletion. Called from every path that can take the last item off
+// a pallet (deductFromPallet here, and TakeOffPalletDialog's manual take-off).
+export async function markPalletEmptiedIfBare(palletId) {
+  if (!palletId) return;
+  try {
+    const remaining = await base44.entities.PalletItem.filter({ pallet_id: palletId });
+    if (remaining.length > 0) return;
+    const pallet = await base44.entities.Pallet.get(palletId);
+    if (pallet && pallet.status !== 'archived' && pallet.status !== 'emptied') {
+      await base44.entities.Pallet.update(palletId, { status: 'emptied' });
+    }
+  } catch {
+    // Best-effort only.
+  }
+}
+
+// Mirror of markPalletEmptiedIfBare — a pallet picked back up to receive
+// stock (scanned on the bottling floor, chosen in "Add to Pallet", or a
+// dispatch return/move landing back on it) needs its 'emptied' status
+// cleared so it reads as a normal working pallet again.
+export async function reactivatePalletIfEmptied(palletId) {
+  if (!palletId) return;
+  try {
+    const pallet = await base44.entities.Pallet.get(palletId);
+    if (pallet && pallet.status === 'emptied') {
+      await base44.entities.Pallet.update(palletId, { status: 'active' });
+    }
+  } catch {
+    // Best-effort only.
   }
 }
 
@@ -64,6 +101,7 @@ export async function restoreToPallet(palletId, { product_name, batch_number, bo
         source: 'manual',
       });
     }
+    await reactivatePalletIfEmptied(palletId);
   } catch {
     // Best-effort only.
   }

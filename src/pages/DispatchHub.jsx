@@ -752,7 +752,21 @@ export default function DispatchHub() {
                   <SelectItem value="none">Not from a specific pallet</SelectItem>
                   {pallets
                     .filter(p => p.status !== 'archived' && p.location === PALLET_LOCATION_FOR_SOURCE[editForm.dispatched_from || 'Bluff'])
-                    .map(p => <SelectItem key={p.id} value={p.id}>{p.pallet_code}</SelectItem>)}
+                    .sort((a, b) => (b.is_active_dispatch_pallet ? 1 : 0) - (a.is_active_dispatch_pallet ? 1 : 0))
+                    .map(p => (
+                      <SelectItem key={p.id} value={p.id}>
+                        <span className="flex items-center gap-1.5">
+                          {p.pallet_code}
+                          {p.is_active_dispatch_pallet ? (
+                            <Badge className="bg-primary/10 text-primary text-[10px] px-1 py-0 h-4 gap-0.5 font-normal">
+                              <Truck className="w-2.5 h-2.5" /> Marked for dispatch
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">not marked for dispatch</span>
+                          )}
+                        </span>
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground mt-1">

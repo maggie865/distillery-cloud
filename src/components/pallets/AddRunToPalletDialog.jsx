@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { generatePalletCode } from '@/lib/palletCode';
+import { reactivatePalletIfEmptied } from '@/lib/palletStock';
 
 const NEW_PALLET = '__new__';
 
@@ -29,7 +30,10 @@ export default function AddRunToPalletDialog({ open, onClose, run }) {
     queryFn: () => base44.entities.Pallet.list('-created_at', 5000),
     enabled: open,
   });
-  const activePallets = pallets.filter(p => p.status === 'active');
+  // Emptied pallets (everything dispatched off them) are offered alongside
+  // active ones so the bottling team can reuse the physical pallet instead
+  // of only ever being able to start a fresh one.
+  const choosablePallets = pallets.filter(p => p.status === 'active' || p.status === 'emptied');
 
   const effectiveQty = qty === '' ? (run?.bottles_produced || 0) : parseInt(qty) || 0;
   const isValid = effectiveQty > 0 && effectiveQty <= (run?.bottles_produced || 0);
@@ -46,7 +50,7 @@ export default function AddRunToPalletDialog({ open, onClose, run }) {
       if (!isValid) throw new Error(`Enter a quantity up to ${run.bottles_produced} bottles`);
 
       let palletId = palletChoice;
-      let palletCode = activePallets.find(p => p.id === palletChoice)?.pallet_code;
+      let palletCode = choosablePallets.find(p => p.id === palletChoice)?.pallet_code;
 
       if (palletChoice === NEW_PALLET) {
         const pallet_code = await generatePalletCode();
@@ -58,6 +62,8 @@ export default function AddRunToPalletDialog({ open, onClose, run }) {
         });
         palletId = pallet.id;
         palletCode = pallet.pallet_code;
+      } else {
+        await reactivatePalletIfEmptied(palletId);
       }
 
       const lalsPerBottle = run.lals_per_bottle || 0;
@@ -111,7 +117,11 @@ export default function AddRunToPalletDialog({ open, onClose, run }) {
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NEW_PALLET}>+ New pallet</SelectItem>
-                      {activePallets.map(p => <SelectItem key={p.id} value={p.id}>{p.pallet_code} — {p.location}</SelectItem>)}
+                      {choosablePallets.map(p => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.pallet_code} — {p.location}{p.status === 'emptied' ? ' (emptied)' : ''}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

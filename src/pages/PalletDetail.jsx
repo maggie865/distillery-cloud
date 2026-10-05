@@ -95,6 +95,8 @@ export default function PalletDetail() {
             <Badge variant="outline" className="self-center">Archived</Badge>
           ) : pallet.status === 'full' ? (
             <Badge className="self-center bg-amber-100 text-amber-700">Full</Badge>
+          ) : pallet.status === 'emptied' ? (
+            <Badge className="self-center bg-sky-100 text-sky-700">Emptied — ready to reuse</Badge>
           ) : null}
           <Button variant="outline" onClick={() => printPalletLabel(pallet)} className="gap-1.5">
             <Printer className="w-4 h-4" /> Print Label

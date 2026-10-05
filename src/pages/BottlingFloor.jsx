@@ -20,6 +20,7 @@ import BottlingRunTracker from '@/components/bottling/BottlingRunTracker';
 import Pagination from '@/components/ui/Pagination';
 import PreUseChecksTab from '@/components/maintenance/PreUseChecksTab';
 import { isBoxOrCase, findPackagingMaterial, checkPackagingStock } from '@/lib/packagingStock';
+import { reactivatePalletIfEmptied } from '@/lib/palletStock';
 import AddRunToPalletDialog from '@/components/pallets/AddRunToPalletDialog';
 import ChoosePalletDialog from '@/components/pallets/ChoosePalletDialog';
 import ScanPalletDialog from '@/components/pallets/ScanPalletDialog';
@@ -264,20 +265,26 @@ export default function BottlingFloor() {
 
   const handleChooseNewPallet = () => {
     setChoosingPallet(false);
-    setQuickCreateMode('start');
     setQuickCreateOpen(true);
   };
 
-  const handlePalletScanned = (code) => {
+  const handlePalletScanned = async (code) => {
     setScanningPallet(false);
     const match = pallets.find(p => p.pallet_code.toLowerCase() === code.trim().toLowerCase());
     if (!match) {
       toast.error(`No pallet found with code "${code}"`);
       return;
     }
-    if (match.status !== 'active') {
+    // An 'emptied' pallet (everything dispatched off it) is fair game to
+    // stack onto again, same as a fresh 'active' one — only 'full' and
+    // 'archived' pallets are rejected here.
+    if (match.status !== 'active' && match.status !== 'emptied') {
       toast.error(`Pallet ${match.pallet_code} is ${match.status} — scan or create an active pallet instead.`);
       return;
+    }
+    if (match.status === 'emptied') {
+      await reactivatePalletIfEmptied(match.id);
+      queryClient.invalidateQueries({ queryKey: ['pallets'] });
     }
     setCurrentPalletId(match.id);
     if (quickCreateMode === 'start') doStartRun();
@@ -303,7 +310,7 @@ export default function BottlingFloor() {
       setCurrentPalletId(null);
       toast.success(finishedCode ? `${finishedCode} marked full` : 'Pallet marked full');
       setQuickCreateMode('swap');
-      setQuickCreateOpen(true);
+      setChoosingPallet(true);
     },
     onError: (err) => toast.error(err.message || 'Failed to complete pallet'),
   });
@@ -784,6 +791,7 @@ export default function BottlingFloor() {
           onClose={() => setChoosingPallet(false)}
           onChooseExisting={handleChooseExistingPallet}
           onChooseNew={handleChooseNewPallet}
+          description={quickCreateMode === 'swap' ? 'That pallet is full — scan an emptied one to reuse, or start a new one.' : undefined}
         />
         <ScanPalletDialog open={scanningPallet} onClose={() => setScanningPallet(false)} onResolve={handlePalletScanned} />
         <QuickCreatePalletDialog
