@@ -4,9 +4,9 @@ import { base44 } from '@/api/base44Client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { Zap, Droplets, Truck, Building2, Leaf, Factory } from 'lucide-react';
+import { Zap, Droplets, Truck, Building2, Leaf, Factory, Flame, Car } from 'lucide-react';
 import { format, parseISO, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
-import { ELECTRICITY_EF, WATER_EF } from '@/pages/UtilityTracker';
+import { ELECTRICITY_EF, WATER_EF, LPG_EF, VEHICLE_FUEL_EF } from '@/pages/UtilityTracker';
 import StatCard from '@/components/shared/StatCard';
 
 /**
@@ -42,6 +42,14 @@ export default function IsoLifecycleReport({ receiving = [], dispatches = [], wa
   const totalWaterL = periodLogs.reduce((s, l) => s + (l.water_litres || 0), 0);
   const waterCo2e = (totalWaterL / 1000) * WATER_EF;
 
+  // Scope 1 — fuel burned directly: LPG for kitchen hot water (stationary
+  // combustion) and company vehicle fuel (mobile combustion).
+  const totalLpgKg = periodLogs.reduce((s, l) => s + (l.lpg_kg || 0), 0);
+  const lpgCo2e = totalLpgKg * LPG_EF;
+  const totalVehicleFuelL = periodLogs.reduce((s, l) => s + (l.vehicle_fuel_litres || 0), 0);
+  const vehicleFuelCo2e = periodLogs.reduce((s, l) => s + (l.vehicle_fuel_litres || 0) * (VEHICLE_FUEL_EF[l.vehicle_fuel_type] || 0), 0);
+  const scope1Co2e = lpgCo2e + vehicleFuelCo2e;
+
   // Logistics emissions (from existing carbon data)
   const monthReceiving = receiving.filter(r => inRange(r.date_received));
   const monthDispatches = dispatches.filter(d => inRange(d.dispatch_date));
@@ -51,16 +59,17 @@ export default function IsoLifecycleReport({ receiving = [], dispatches = [], wa
   const transferCo2e = monthTransfers.reduce((s, w) => s + (w.co2e_kg || 0), 0);
   const logisticsCo2e = inboundCo2e + outboundCo2e + transferCo2e;
 
-  const totalCo2e = elecCo2e + waterCo2e + logisticsCo2e;
+  const totalCo2e = scope1Co2e + elecCo2e + waterCo2e + logisticsCo2e;
 
   // Per-period breakdown for chart
   const byPeriod = useMemo(() => {
     const map = {};
     for (const l of periodLogs) {
       const key = l.period || (l.reading_date ? format(parseISO(l.reading_date), 'MMM yy') : '—');
-      if (!map[key]) map[key] = { period: key, electricity: 0, water: 0 };
+      if (!map[key]) map[key] = { period: key, electricity: 0, water: 0, fuel: 0 };
       map[key].electricity += (l.electricity_kwh || 0) * ELECTRICITY_EF;
       map[key].water += ((l.water_litres || 0) / 1000) * WATER_EF;
+      map[key].fuel += (l.lpg_kg || 0) * LPG_EF + (l.vehicle_fuel_litres || 0) * (VEHICLE_FUEL_EF[l.vehicle_fuel_type] || 0);
     }
     return Object.values(map).sort((a, b) => a.period.localeCompare(b.period));
   }, [periodLogs]);
@@ -68,6 +77,8 @@ export default function IsoLifecycleReport({ receiving = [], dispatches = [], wa
   const periodLabel = `${format(rangeStart, 'dd MMM yyyy')} – ${format(rangeEnd, 'dd MMM yyyy')}`;
 
   const breakdownRows = [
+    { scope: 'Scope 1', source: 'LPG (kitchen hot water)', factor: `${LPG_EF} kg/kg`, qty: `${totalLpgKg.toLocaleString()} kg`, co2e: lpgCo2e, icon: Flame },
+    { scope: 'Scope 1', source: 'Company vehicle fuel', factor: `petrol ${VEHICLE_FUEL_EF.petrol} / diesel ${VEHICLE_FUEL_EF.diesel} kg/L`, qty: `${totalVehicleFuelL.toLocaleString()} L`, co2e: vehicleFuelCo2e, icon: Car },
     { scope: 'Scope 2', source: 'Grid electricity (mains)', factor: `${ELECTRICITY_EF} kg/kWh`, qty: `${totalKwh.toLocaleString()} kWh`, co2e: elecCo2e, icon: Zap },
     { scope: 'Scope 3', source: 'Town water supply', factor: `${WATER_EF} kg/m³`, qty: `${(totalWaterL / 1000).toFixed(1)} m³`, co2e: waterCo2e, icon: Droplets },
     { scope: 'Scope 3', source: 'Inbound freight (receiving)', factor: 'per shipment', qty: `${monthReceiving.length} receipts`, co2e: inboundCo2e, icon: Truck },
@@ -80,12 +91,13 @@ export default function IsoLifecycleReport({ receiving = [], dispatches = [], wa
       <div>
         <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">ISO Lifecycle Report — {periodLabel}</h3>
         <p className="text-xs text-muted-foreground mt-1">
-          Consolidated operational carbon footprint: mains electricity (Scope 2), town water supply, and logistics (Scope 3).
-          Emission factors: electricity {ELECTRICITY_EF} kg CO₂e/kWh · water {WATER_EF} kg CO₂e/m³.
+          Consolidated operational carbon footprint: direct fuel use (Scope 1), mains electricity (Scope 2), town water supply, and logistics (Scope 3).
+          Emission factors: LPG {LPG_EF} kg CO₂e/kg · petrol {VEHICLE_FUEL_EF.petrol} / diesel {VEHICLE_FUEL_EF.diesel} kg CO₂e/L · electricity {ELECTRICITY_EF} kg CO₂e/kWh · water {WATER_EF} kg CO₂e/m³.
         </p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <StatCard label="Scope 1 CO₂e" value={`${scope1Co2e.toFixed(1)} kg`} sub="LPG + vehicle fuel" icon={Flame} color="text-rose-600" bg="bg-rose-50 border-rose-200" />
         <StatCard label="Electricity CO₂e" value={`${elecCo2e.toFixed(1)} kg`} sub={`${totalKwh.toLocaleString()} kWh`} icon={Zap} color="text-amber-600" bg="bg-amber-50 border-amber-200" />
         <StatCard label="Water CO₂e" value={`${waterCo2e.toFixed(1)} kg`} sub={`${(totalWaterL / 1000).toFixed(1)} m³`} icon={Droplets} color="text-sky-600" bg="bg-sky-50 border-sky-200" />
         <StatCard label="Logistics CO₂e" value={`${logisticsCo2e.toFixed(1)} kg`} sub="inbound + outbound + 3PL" icon={Truck} color="text-indigo-600" bg="bg-indigo-50 border-indigo-200" />
@@ -102,6 +114,7 @@ export default function IsoLifecycleReport({ receiving = [], dispatches = [], wa
               <YAxis tick={{ fontSize: 12 }} unit=" kg" />
               <Tooltip unit=" kg CO₂e" />
               <Legend />
+              <Bar dataKey="fuel" name="Scope 1 fuel (kg CO₂e)" stackId="a" fill="#e11d48" radius={[0, 0, 0, 0]} />
               <Bar dataKey="electricity" name="Electricity (kg CO₂e)" stackId="a" fill="#d97706" radius={[0, 0, 0, 0]} />
               <Bar dataKey="water" name="Water (kg CO₂e)" stackId="a" fill="#0284c7" radius={[4, 4, 0, 0]} />
             </BarChart>
@@ -155,18 +168,23 @@ export default function IsoLifecycleReport({ receiving = [], dispatches = [], wa
                   <TableHead>Reading Date</TableHead>
                   <TableHead className="text-right">Electricity (kWh)</TableHead>
                   <TableHead className="text-right">Water (L)</TableHead>
+                  <TableHead className="text-right">LPG (kg)</TableHead>
+                  <TableHead className="text-right">Vehicle Fuel (L)</TableHead>
                   <TableHead className="text-right">CO₂e (kg)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {periodLogs.map(l => {
-                  const co2e = (l.electricity_kwh || 0) * ELECTRICITY_EF + ((l.water_litres || 0) / 1000) * WATER_EF;
+                  const co2e = (l.electricity_kwh || 0) * ELECTRICITY_EF + ((l.water_litres || 0) / 1000) * WATER_EF
+                    + (l.lpg_kg || 0) * LPG_EF + (l.vehicle_fuel_litres || 0) * (VEHICLE_FUEL_EF[l.vehicle_fuel_type] || 0);
                   return (
                     <TableRow key={l.id}>
                       <TableCell className="font-mono text-sm">{l.period}</TableCell>
                       <TableCell className="text-sm">{l.reading_date ? format(parseISO(l.reading_date), 'dd MMM yyyy') : '—'}</TableCell>
                       <TableCell className="text-right">{(l.electricity_kwh || 0).toLocaleString()}</TableCell>
                       <TableCell className="text-right">{(l.water_litres || 0).toLocaleString()}</TableCell>
+                      <TableCell className="text-right">{(l.lpg_kg || 0).toLocaleString()}</TableCell>
+                      <TableCell className="text-right">{l.vehicle_fuel_litres ? `${Number(l.vehicle_fuel_litres).toLocaleString()} (${l.vehicle_fuel_type})` : '—'}</TableCell>
                       <TableCell className="text-right font-semibold text-primary">{co2e.toFixed(2)}</TableCell>
                     </TableRow>
                   );

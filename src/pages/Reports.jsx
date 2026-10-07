@@ -27,6 +27,7 @@ import IsoLifecycleReport from '@/components/reports/IsoLifecycleReport';
 import BatchTraceReport from '@/components/reports/BatchTraceReport';
 import { useRawMaterialsNetStock } from '@/hooks/useRawMaterialsNetStock';
 import { computeExciseReturn } from '@/lib/exciseCalc';
+import { ELECTRICITY_EF, WATER_EF, LPG_EF, VEHICLE_FUEL_EF } from '@/pages/UtilityTracker';
 
 export default function Reports() {
   const now = new Date();
@@ -382,18 +383,22 @@ export default function Reports() {
         case 'iso': {
           const logs = await base44.entities.UtilityLog.list('-reading_date', 5000);
           const periodLogs = logs.filter(l => inRange(l.reading_date));
-          const ELECTRICITY_EF = 0.105;
-          const WATER_EF = 0.149;
           const totalKwh = periodLogs.reduce((s, l) => s + (l.electricity_kwh || 0), 0);
           const totalWaterL = periodLogs.reduce((s, l) => s + (l.water_litres || 0), 0);
+          const totalLpgKg = periodLogs.reduce((s, l) => s + (l.lpg_kg || 0), 0);
+          const totalVehicleFuelL = periodLogs.reduce((s, l) => s + (l.vehicle_fuel_litres || 0), 0);
           const elecCo2e = totalKwh * ELECTRICITY_EF;
           const waterCo2e = (totalWaterL / 1000) * WATER_EF;
+          const lpgCo2e = totalLpgKg * LPG_EF;
+          const vehicleFuelCo2e = periodLogs.reduce((s, l) => s + (l.vehicle_fuel_litres || 0) * (VEHICLE_FUEL_EF[l.vehicle_fuel_type] || 0), 0);
           const inboundCo2e = receiving.filter(r => inRange(r.date_received)).reduce((s, r) => s + (r.co2e_kg || 0), 0);
           const outboundCo2e = dispatches.filter(d => inRange(d.dispatch_date)).reduce((s, d) => s + (d.co2e_kg || 0), 0);
           const transferCo2e = warehouseStock.filter(w => inRange(w.transfer_date || w.date_transferred_in)).reduce((s, w) => s + (w.co2e_kg || 0), 0);
-          const totalCo2e = elecCo2e + waterCo2e + inboundCo2e + outboundCo2e + transferCo2e;
+          const totalCo2e = elecCo2e + waterCo2e + lpgCo2e + vehicleFuelCo2e + inboundCo2e + outboundCo2e + transferCo2e;
           const share = (v) => totalCo2e > 0 ? ((v / totalCo2e) * 100).toFixed(1) : '0.0';
           const rows = [
+            { scope: 'Scope 1', source: 'LPG (kitchen hot water)', factor: `${LPG_EF} kg/kg`, quantity: `${totalLpgKg.toLocaleString()} kg`, co2e_kg: lpgCo2e.toFixed(2), share_pct: share(lpgCo2e) },
+            { scope: 'Scope 1', source: 'Company vehicle fuel', factor: `petrol ${VEHICLE_FUEL_EF.petrol} / diesel ${VEHICLE_FUEL_EF.diesel} kg/L`, quantity: `${totalVehicleFuelL.toLocaleString()} L`, co2e_kg: vehicleFuelCo2e.toFixed(2), share_pct: share(vehicleFuelCo2e) },
             { scope: 'Scope 2', source: 'Grid electricity (mains)', factor: `${ELECTRICITY_EF} kg/kWh`, quantity: `${totalKwh.toLocaleString()} kWh`, co2e_kg: elecCo2e.toFixed(2), share_pct: share(elecCo2e) },
             { scope: 'Scope 3', source: 'Town water supply', factor: `${WATER_EF} kg/m³`, quantity: `${(totalWaterL / 1000).toFixed(1)} m³`, co2e_kg: waterCo2e.toFixed(2), share_pct: share(waterCo2e) },
             { scope: 'Scope 3', source: 'Inbound freight (receiving)', factor: 'per shipment', quantity: `${receiving.filter(r => inRange(r.date_received)).length} receipts`, co2e_kg: inboundCo2e.toFixed(2), share_pct: share(inboundCo2e) },
