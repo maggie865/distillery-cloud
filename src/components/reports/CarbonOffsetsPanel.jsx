@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { db } from '@/api/supabaseClient';
+import { utilityTotalCo2e } from '@/pages/UtilityTracker';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,11 +49,12 @@ function CertificateViewer({ url, onClose }) {
   );
 }
 
-// Weighs purchased carbon offset certificates against the transport
-// emissions already computed elsewhere in this report (receiving/dispatch/
-// warehouse_stock co2e_kg, in kg) for the same calendar year, so "how much
-// have we offset" sits next to "how much did we actually emit" rather than
-// as a standalone running total with no reference point.
+// Weighs purchased carbon offset certificates against the FULL footprint
+// for the same calendar year — not just transport — so "how much have we
+// offset" is measured against everything CarbonReport/IsoLifecycleReport
+// count: transport (receiving/dispatch/warehouse_stock co2e_kg) plus
+// utility_log's electricity, water and Scope 1 fuel (LPG, vehicle), rather
+// than as a standalone running total compared to a partial number.
 export default function CarbonOffsetsPanel({ receiving = [], dispatches = [], warehouseStock = [] }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -64,6 +66,13 @@ export default function CarbonOffsetsPanel({ receiving = [], dispatches = [], wa
   const { data: offsets = [], isLoading } = useQuery({
     queryKey: ['carbonOffsets'],
     queryFn: () => db.CarbonOffset.list('-purchase_date', 500),
+  });
+
+  // Shared queryKey with UtilityTracker/IsoLifecycleReport — same cached
+  // data, no extra fetch when either has already loaded it this session.
+  const { data: utilityLogs = [] } = useQuery({
+    queryKey: ['utilityLogs'],
+    queryFn: () => db.UtilityLog.list('-reading_date', 5000),
   });
 
   const yearOf = (dateStr) => {
@@ -79,12 +88,15 @@ export default function CarbonOffsetsPanel({ receiving = [], dispatches = [], wa
   const yearTonnesOffset = yearOffsets.reduce((s, o) => s + (o.tonnes_co2e || 0), 0);
   const yearCost = yearOffsets.reduce((s, o) => s + (o.cost || 0), 0);
 
-  // Same inbound+outbound+3PL co2e_kg formula CarbonReport.jsx uses for its
-  // YTD figure, generalised to any selected calendar year.
+  // Transport (same inbound+outbound+3PL co2e_kg formula CarbonReport.jsx
+  // uses for its YTD figure, generalised to any selected calendar year)
+  // plus utility_log's electricity/water/Scope 1 fuel for the same year.
   const inYear = (dateStr) => yearOf(dateStr) === year;
-  const emittedKg = receiving.filter(r => inYear(r.date_received)).reduce((s, r) => s + (r.co2e_kg || 0), 0)
+  const transportKg = receiving.filter(r => inYear(r.date_received)).reduce((s, r) => s + (r.co2e_kg || 0), 0)
     + dispatches.filter(d => inYear(d.dispatch_date)).reduce((s, d) => s + (d.co2e_kg || 0), 0)
     + warehouseStock.filter(w => inYear(w.transfer_date)).reduce((s, w) => s + (w.co2e_kg || 0), 0);
+  const utilityKg = utilityLogs.filter(l => inYear(l.reading_date)).reduce((s, l) => s + utilityTotalCo2e(l), 0);
+  const emittedKg = transportKg + utilityKg;
   const emittedTonnes = emittedKg / 1000;
   const netTonnes = emittedTonnes - yearTonnesOffset;
   const pctOffset = emittedTonnes > 0 ? Math.min(100, (yearTonnesOffset / emittedTonnes) * 100) : null;
@@ -147,7 +159,7 @@ export default function CarbonOffsetsPanel({ receiving = [], dispatches = [], wa
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label={`Offset in ${year}`} value={yearTonnesOffset.toFixed(2)} sub="tonnes CO2e purchased" icon={Leaf} color="text-emerald-600" bg="bg-emerald-50 border-emerald-200" />
-        <StatCard label="Emitted" value={emittedTonnes.toFixed(2)} sub={`tonnes CO2e in ${year}`} icon={Leaf} color="text-amber-600" bg="bg-amber-50 border-amber-200" />
+        <StatCard label="Emitted" value={emittedTonnes.toFixed(2)} sub={`tonnes CO2e in ${year} — all scopes`} icon={Leaf} color="text-amber-600" bg="bg-amber-50 border-amber-200" />
         <StatCard
           label="Net Position"
           value={`${netTonnes >= 0 ? '' : '−'}${Math.abs(netTonnes).toFixed(2)} t`}
@@ -168,7 +180,7 @@ export default function CarbonOffsetsPanel({ receiving = [], dispatches = [], wa
           <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${pctOffset || 0}%` }} />
         </div>
         <p className="text-xs text-muted-foreground mt-2">
-          {emittedTonnes.toFixed(2)} t CO2e emitted in {year} vs {yearTonnesOffset.toFixed(2)} t offset.
+          {emittedTonnes.toFixed(2)} t CO2e emitted in {year} (transport + electricity + water + fuel) vs {yearTonnesOffset.toFixed(2)} t offset.
         </p>
       </Card>
 
