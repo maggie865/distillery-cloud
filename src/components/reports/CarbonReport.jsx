@@ -3,14 +3,23 @@ import { base44 } from '@/api/base44Client';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { TrendingDown, ArrowDownToLine, ArrowUpFromLine, Building2, MapPin, Leaf, Calendar } from 'lucide-react';
+import { TrendingDown, ArrowDownToLine, ArrowUpFromLine, Building2, MapPin, Leaf, Calendar, Flame, Zap, Droplets, Factory } from 'lucide-react';
 import { format, startOfMonth, startOfYear, parseISO } from 'date-fns';
 import StatCard from '@/components/shared/StatCard';
+import { ELECTRICITY_EF, WATER_EF, utilityScope1Co2e } from '@/pages/UtilityTracker';
 
 export default function CarbonReport({ receiving, dispatches, warehouseStock, startDate, endDate }) {
   const { data: appSettings = [] } = useQuery({
     queryKey: ['appSettings'],
     queryFn: () => base44.entities.AppSettings.list('key', 100),
+  });
+
+  // Shared queryKey with UtilityTracker/IsoLifecycleReport/CarbonOffsetsPanel
+  // — same cached data, no extra fetch when one of those has already loaded
+  // it this session.
+  const { data: utilityLogs = [] } = useQuery({
+    queryKey: ['utilityLogs'],
+    queryFn: () => base44.entities.UtilityLog.list('-reading_date', 5000),
   });
   const distilleryAddress = appSettings.find(s => s.key === 'distillery_address')?.value || '250 Ocean Beach Road, Bluff, New Zealand';
   const warehouseAddress = appSettings.find(s => s.key === 'warehouse_address')?.value || '27 Pavillion Drive, Māngere, Auckland 2015, New Zealand';
@@ -46,6 +55,16 @@ export default function CarbonReport({ receiving, dispatches, warehouseStock, st
   const totalCo2e = inboundCo2e + dispatchCo2e + transferCo2e;
   const totalDistance = monthDispatches.reduce((s, d) => s + (d.transport_distance_km || 0), 0);
 
+  // ── Month direct & utility emissions (Scope 1 fuel, Scope 2 electricity,
+  // Scope 3 town water) — the rest of this report only ever covered
+  // transport; this is what closes that gap. ──
+  const monthUtilityLogs = utilityLogs.filter(l => inRange(l.reading_date));
+  const monthScope1Co2e = monthUtilityLogs.reduce((s, l) => s + utilityScope1Co2e(l), 0);
+  const monthElecCo2e = monthUtilityLogs.reduce((s, l) => s + (l.electricity_kwh || 0) * ELECTRICITY_EF, 0);
+  const monthWaterCo2e = monthUtilityLogs.reduce((s, l) => s + ((l.water_litres || 0) / 1000) * WATER_EF, 0);
+  const monthUtilityCo2e = monthScope1Co2e + monthElecCo2e + monthWaterCo2e;
+  const monthGrandTotalCo2e = totalCo2e + monthUtilityCo2e;
+
   // ── YTD calculations ──
   const now = new Date();
   const yearStart = startOfYear(now);
@@ -70,6 +89,13 @@ export default function CarbonReport({ receiving, dispatches, warehouseStock, st
   const ytdDistance = ytdDispatches.reduce((s, d) => s + (d.transport_distance_km || 0), 0);
   const ytdBottles = ytdDispatches.reduce((s, d) => s + (d.quantity_bottles || 0), 0);
   const ytdAvgPerBottle = ytdBottles > 0 ? ytdTotalCo2e / ytdBottles : 0;
+
+  const ytdUtilityLogs = utilityLogs.filter(l => inYTD(l.reading_date));
+  const ytdScope1Co2e = ytdUtilityLogs.reduce((s, l) => s + utilityScope1Co2e(l), 0);
+  const ytdElecCo2e = ytdUtilityLogs.reduce((s, l) => s + (l.electricity_kwh || 0) * ELECTRICITY_EF, 0);
+  const ytdWaterCo2e = ytdUtilityLogs.reduce((s, l) => s + ((l.water_litres || 0) / 1000) * WATER_EF, 0);
+  const ytdUtilityCo2e = ytdScope1Co2e + ytdElecCo2e + ytdWaterCo2e;
+  const ytdGrandTotalCo2e = ytdTotalCo2e + ytdUtilityCo2e;
 
   // CO2e saved vs road-only baseline (for non-road dispatches)
   const ytdRoadBaseline = ytdDispatches.reduce((s, d) => {
@@ -108,10 +134,20 @@ export default function CarbonReport({ receiving, dispatches, warehouseStock, st
       {/* YTD Summary */}
       <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Year to Date — Carbon Summary</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Total CO2e YTD" value={ytdTotalCo2e.toFixed(1)} sub="kg (inbound + outbound + 3PL)" icon={Calendar} color="text-green-600" bg="bg-green-50 border-green-200" />
+        <StatCard label="Total CO2e YTD" value={ytdGrandTotalCo2e.toFixed(1)} sub="kg — all scopes (fuel + electricity + water + transport)" icon={Calendar} color="text-green-600" bg="bg-green-50 border-green-200" />
         <StatCard label="Distance YTD" value={ytdDistance.toLocaleString()} sub="km outbound" icon={MapPin} color="text-muted-foreground" bg="bg-card border-border" />
-        <StatCard label="Avg CO2e / Bottle" value={ytdAvgPerBottle.toFixed(3)} sub="kg per bottle dispatched" icon={ArrowDownToLine} color="text-primary" bg="bg-accent border-accent-foreground/10" />
+        <StatCard label="Avg CO2e / Bottle" value={ytdAvgPerBottle.toFixed(3)} sub="kg transport per bottle dispatched" icon={ArrowDownToLine} color="text-primary" bg="bg-accent border-accent-foreground/10" />
         <StatCard label="CO2e Saved vs Road" value={ytdSaved >= 0 ? `${ytdSaved.toFixed(1)} kg` : `+${Math.abs(ytdSaved).toFixed(1)} kg`} sub={ytdSaved >= 0 ? 'saved by non-road methods' : 'extra from non-road methods'} icon={Leaf} color={ytdSaved >= 0 ? 'text-emerald-600' : 'text-amber-600'} bg={ytdSaved >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'} />
+      </div>
+
+      {/* Direct & Utility Emissions — Scope 1 (fuel), Scope 2 (electricity),
+          and the water slice of Scope 3, logged in the Utility Tracker */}
+      <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">{monthLabel} — Direct &amp; Utility Emissions</h3>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="Scope 1 (Fuel)" value={monthScope1Co2e.toFixed(1)} sub="kg — LPG + vehicle fuel" icon={Flame} color="text-rose-600" bg="bg-rose-50 border-rose-200" />
+        <StatCard label="Scope 2 (Electricity)" value={monthElecCo2e.toFixed(1)} sub="kg — grid electricity" icon={Zap} color="text-amber-600" bg="bg-amber-50 border-amber-200" />
+        <StatCard label="Water" value={monthWaterCo2e.toFixed(1)} sub="kg — town water (Scope 3)" icon={Droplets} color="text-sky-600" bg="bg-sky-50 border-sky-200" />
+        <StatCard label="Total Footprint" value={monthGrandTotalCo2e.toFixed(1)} sub={`kg — all scopes, ${monthLabel}`} icon={Factory} color="text-primary" bg="bg-primary/10 border-primary/20" />
       </div>
 
       {/* Monthly Summary */}
