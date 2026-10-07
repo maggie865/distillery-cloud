@@ -10,9 +10,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import MobileCard, { MobileCardGrid, MobileDetailRow } from '@/components/shared/MobileCard';
 import Pagination from '@/components/ui/Pagination';
-import { Plus, Search, Pencil, Trash2, Zap, Droplets, DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Zap, Droplets, DollarSign, TrendingUp, TrendingDown, Flame, Car } from 'lucide-react';
 import { format, parseISO, startOfQuarter, endOfQuarter, startOfYear, subMonths } from 'date-fns';
 import StillEnergyReport from '@/components/utilities/StillEnergyReport';
 import WaterUsagePerLitre from '@/components/utilities/WaterUsagePerLitre';
@@ -25,8 +26,27 @@ const PRESETS = [
 ];
 
 // NZ emission factors (kg CO2e) — mains electricity + town water supply
-export const ELECTRICITY_EF = 0.105; // kg CO2e / kWh (NZ grid)
-export const WATER_EF = 0.149; // kg CO2e / m³ town water (=> 0.000149 / L)
+export const ELECTRICITY_EF = 0.105; // kg CO2e / kWh (NZ grid) — Scope 2
+export const WATER_EF = 0.149; // kg CO2e / m³ town water (=> 0.000149 / L) — Scope 3
+
+// Scope 1 — fuel burned directly on site (LPG) or in a company-owned
+// vehicle, per NZ MfE "Measuring Emissions" 2023 guidance factors.
+export const LPG_EF = 3.00; // kg CO2e / kg LPG (stationary combustion)
+export const VEHICLE_FUEL_EF = { petrol: 2.46, diesel: 2.66 }; // kg CO2e / litre (mobile combustion)
+
+// Single source of truth for a reading's total CO2e — every page that
+// shows utility emissions (this tracker, Reports.jsx's ISO export,
+// IsoLifecycleReport.jsx) calls this rather than re-deriving the formula,
+// so adding a new fuel type only ever needs changing here.
+export function utilityScope1Co2e(l) {
+  return (l.lpg_kg || 0) * LPG_EF + (l.vehicle_fuel_litres || 0) * (VEHICLE_FUEL_EF[l.vehicle_fuel_type] || 0);
+}
+export function utilityScope2And3Co2e(l) {
+  return (l.electricity_kwh || 0) * ELECTRICITY_EF + ((l.water_litres || 0) / 1000) * WATER_EF;
+}
+export function utilityTotalCo2e(l) {
+  return utilityScope1Co2e(l) + utilityScope2And3Co2e(l);
+}
 
 export default function UtilityTracker() {
   const { toast } = useToast();
@@ -111,8 +131,16 @@ export default function UtilityTracker() {
     const totalWater = dateFiltered.reduce((s, l) => s + (l.water_litres || 0), 0);
     const totalElecCost = dateFiltered.reduce((s, l) => s + (l.electricity_cost || 0), 0);
     const totalWaterCost = dateFiltered.reduce((s, l) => s + (l.water_cost || 0), 0);
-    const totalCo2e = totalKwh * ELECTRICITY_EF + (totalWater / 1000) * WATER_EF;
-    return { count: dateFiltered.length, totalKwh, totalWater, totalElecCost, totalWaterCost, totalCo2e };
+    const totalLpgKg = dateFiltered.reduce((s, l) => s + (l.lpg_kg || 0), 0);
+    const totalLpgCost = dateFiltered.reduce((s, l) => s + (l.lpg_cost || 0), 0);
+    const totalVehicleFuelL = dateFiltered.reduce((s, l) => s + (l.vehicle_fuel_litres || 0), 0);
+    const totalVehicleFuelCost = dateFiltered.reduce((s, l) => s + (l.vehicle_fuel_cost || 0), 0);
+    const totalScope1Co2e = dateFiltered.reduce((s, l) => s + utilityScope1Co2e(l), 0);
+    const totalCo2e = dateFiltered.reduce((s, l) => s + utilityTotalCo2e(l), 0);
+    return {
+      count: dateFiltered.length, totalKwh, totalWater, totalElecCost, totalWaterCost,
+      totalLpgKg, totalLpgCost, totalVehicleFuelL, totalVehicleFuelCost, totalScope1Co2e, totalCo2e,
+    };
   }, [dateFiltered]);
 
   // Unit price per reading — cost ÷ consumption, calculated at read time
@@ -141,6 +169,11 @@ export default function UtilityTracker() {
       water_litres: '',
       electricity_cost: '',
       water_cost: '',
+      lpg_kg: '',
+      lpg_cost: '',
+      vehicle_fuel_type: 'petrol',
+      vehicle_fuel_litres: '',
+      vehicle_fuel_cost: '',
       notes: '',
     });
     setDialogOpen(true);
@@ -158,9 +191,11 @@ export default function UtilityTracker() {
       return;
     }
     const payload = { ...form };
-    ['electricity_kwh', 'water_litres', 'electricity_cost', 'water_cost'].forEach(k => {
+    ['electricity_kwh', 'water_litres', 'electricity_cost', 'water_cost', 'lpg_kg', 'lpg_cost', 'vehicle_fuel_litres', 'vehicle_fuel_cost'].forEach(k => {
       payload[k] = payload[k] === '' || payload[k] === null ? undefined : Number(payload[k]);
     });
+    // No point keeping a fuel type on record with no fuel quantity logged.
+    if (!payload.vehicle_fuel_litres) payload.vehicle_fuel_type = undefined;
     if (editing) {
       updateMutation.mutate({ id: editing.id, data: payload });
     } else {
@@ -172,7 +207,7 @@ export default function UtilityTracker() {
 
   return (
     <div className="p-4 md:p-6 space-y-6">
-      <PageHeader title="Utilities Tracker" subtitle="Log mains electricity and town water consumption for ISO lifecycle reporting">
+      <PageHeader title="Utilities Tracker" subtitle="Log mains electricity, town water, LPG and vehicle fuel consumption for ISO lifecycle reporting">
         <Button onClick={openNew} className="gap-2">
           <Plus className="w-4 h-4" /> Add Reading
         </Button>
@@ -222,6 +257,25 @@ export default function UtilityTracker() {
         <Card><CardContent className="p-4">
           <p className="text-xs text-muted-foreground flex items-center gap-1"><Zap className="w-3 h-3" /> Est. CO₂e</p>
           <p className="text-2xl font-bold font-display text-primary">{stats.totalCo2e.toFixed(1)}<span className="text-sm font-normal text-muted-foreground"> kg</span></p>
+        </CardContent></Card>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground flex items-center gap-1"><Flame className="w-3 h-3" /> Total LPG</p>
+          <p className="text-2xl font-bold font-display text-primary">{stats.totalLpgKg.toLocaleString()}<span className="text-sm font-normal text-muted-foreground"> kg</span></p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground flex items-center gap-1"><Car className="w-3 h-3" /> Total Vehicle Fuel</p>
+          <p className="text-2xl font-bold font-display text-primary">{stats.totalVehicleFuelL.toLocaleString()}<span className="text-sm font-normal text-muted-foreground"> L</span></p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground flex items-center gap-1"><DollarSign className="w-3 h-3" /> Fuel Costs</p>
+          <p className="text-2xl font-bold font-display text-primary">${(stats.totalLpgCost + stats.totalVehicleFuelCost).toLocaleString()}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground flex items-center gap-1"><Flame className="w-3 h-3" /> Scope 1 CO₂e</p>
+          <p className="text-2xl font-bold font-display text-primary">{stats.totalScope1Co2e.toFixed(1)}<span className="text-sm font-normal text-muted-foreground"> kg</span></p>
         </CardContent></Card>
       </div>
 
@@ -292,13 +346,15 @@ export default function UtilityTracker() {
                   <TableHead className="text-right">$/kWh</TableHead>
                   <TableHead className="text-right">Water Cost</TableHead>
                   <TableHead className="text-right">$/m³</TableHead>
+                  <TableHead className="text-right">LPG (kg)</TableHead>
+                  <TableHead className="text-right">Vehicle Fuel (L)</TableHead>
                   <TableHead className="text-right">CO₂e (kg)</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {paginated.map(l => {
-                  const co2e = (l.electricity_kwh || 0) * ELECTRICITY_EF + ((l.water_litres || 0) / 1000) * WATER_EF;
+                  const co2e = utilityTotalCo2e(l);
                   const eRate = elecRate(l);
                   const wRate = waterRate(l);
                   return (
@@ -311,6 +367,8 @@ export default function UtilityTracker() {
                       <TableCell className="text-right text-muted-foreground">{eRate !== null ? `$${eRate.toFixed(3)}` : '—'}</TableCell>
                       <TableCell className="text-right">{l.water_cost ? `$${Number(l.water_cost).toLocaleString()}` : '—'}</TableCell>
                       <TableCell className="text-right text-muted-foreground">{wRate !== null ? `$${wRate.toFixed(2)}` : '—'}</TableCell>
+                      <TableCell className="text-right">{(l.lpg_kg || 0).toLocaleString()}</TableCell>
+                      <TableCell className="text-right">{l.vehicle_fuel_litres ? `${Number(l.vehicle_fuel_litres).toLocaleString()} (${l.vehicle_fuel_type})` : '—'}</TableCell>
                       <TableCell className="text-right font-semibold text-primary">{co2e.toFixed(2)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
@@ -327,7 +385,7 @@ export default function UtilityTracker() {
 
           <MobileCardGrid>
             {paginated.map(l => {
-              const co2e = (l.electricity_kwh || 0) * ELECTRICITY_EF + ((l.water_litres || 0) / 1000) * WATER_EF;
+              const co2e = utilityTotalCo2e(l);
               const eRate = elecRate(l);
               const wRate = waterRate(l);
               return (
@@ -347,6 +405,8 @@ export default function UtilityTracker() {
                   <MobileDetailRow label="Water" value={`${(l.water_litres || 0).toLocaleString()} L`} />
                   {l.electricity_cost != null && <MobileDetailRow label="Elec cost" value={`$${Number(l.electricity_cost).toLocaleString()}${eRate !== null ? ` ($${eRate.toFixed(3)}/kWh)` : ''}`} />}
                   {l.water_cost != null && <MobileDetailRow label="Water cost" value={`$${Number(l.water_cost).toLocaleString()}${wRate !== null ? ` ($${wRate.toFixed(2)}/m³)` : ''}`} />}
+                  {l.lpg_kg != null && <MobileDetailRow label="LPG" value={`${Number(l.lpg_kg).toLocaleString()} kg`} />}
+                  {l.vehicle_fuel_litres != null && <MobileDetailRow label="Vehicle fuel" value={`${Number(l.vehicle_fuel_litres).toLocaleString()} L (${l.vehicle_fuel_type})`} />}
                   {l.notes && <MobileDetailRow label="Notes" value={l.notes} />}
                 </MobileCard>
               );
@@ -386,6 +446,35 @@ export default function UtilityTracker() {
             <div className="space-y-1.5">
               <Label>Water Cost ($)</Label>
               <Input type="number" step="0.01" value={form.water_cost ?? ''} onChange={e => setField('water_cost', e.target.value)} />
+            </div>
+            <div className="col-span-2 pt-1 border-t border-border">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mt-3">Scope 1 — Direct Fuel Use</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>LPG (kg)</Label>
+              <Input type="number" step="0.1" value={form.lpg_kg ?? ''} onChange={e => setField('lpg_kg', e.target.value)} placeholder="Kitchen hot water" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>LPG Cost ($)</Label>
+              <Input type="number" step="0.01" value={form.lpg_cost ?? ''} onChange={e => setField('lpg_cost', e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Vehicle Fuel Type</Label>
+              <Select value={form.vehicle_fuel_type || 'petrol'} onValueChange={v => setField('vehicle_fuel_type', v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="petrol">Petrol</SelectItem>
+                  <SelectItem value="diesel">Diesel</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Vehicle Fuel (litres)</Label>
+              <Input type="number" step="0.1" value={form.vehicle_fuel_litres ?? ''} onChange={e => setField('vehicle_fuel_litres', e.target.value)} placeholder="Company vehicle" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Vehicle Fuel Cost ($)</Label>
+              <Input type="number" step="0.01" value={form.vehicle_fuel_cost ?? ''} onChange={e => setField('vehicle_fuel_cost', e.target.value)} />
             </div>
             <div className="space-y-1.5 col-span-2">
               <Label>Notes</Label>

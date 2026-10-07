@@ -36,6 +36,10 @@ const UTILITY_METRICS = [
   { id: 'water_litres', label: 'Water (litres)', unit: 'L' },
   { id: 'electricity_cost', label: 'Electricity cost ($)', unit: '$' },
   { id: 'water_cost', label: 'Water cost ($)', unit: '$' },
+  { id: 'lpg_kg', label: 'LPG (kg) — Scope 1', unit: 'kg' },
+  { id: 'lpg_cost', label: 'LPG cost ($)', unit: '$' },
+  { id: 'vehicle_fuel_litres', label: 'Vehicle fuel (litres) — Scope 1', unit: 'L' },
+  { id: 'vehicle_fuel_cost', label: 'Vehicle fuel cost ($)', unit: '$' },
 ];
 
 const STATUSES = ['in_progress', 'achieved', 'missed', 'on_hold'];
