@@ -778,6 +778,7 @@ export default function DispatchHub() {
                 finishedGoods={finishedGoods}
                 warehouseStock={warehouseStock}
                 dispatchedFrom={editForm.dispatched_from || 'Bluff'}
+                palletId={editForm.pallet_id || ''}
                 productName={editForm.product_name}
                 bottleSizeMl={editForm.bottle_size_ml}
                 batchNumber={editForm.batch_number}

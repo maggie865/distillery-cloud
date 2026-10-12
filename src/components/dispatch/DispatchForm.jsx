@@ -93,6 +93,18 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
     queryFn: () => db.PalletItem.filter({ pallet_id: palletId }),
     enabled: !!palletId && dispatchedFrom === 'Bluff',
   });
+  // Needed for the "no pallet chosen" branch below — what's recorded on
+  // ANY Distillery pallet, so that stock can be excluded from the
+  // unrestricted picker (it's reachable by choosing that pallet instead).
+  const { data: allPalletItems = [] } = useQuery({
+    queryKey: ['palletItemsAll'],
+    queryFn: () => db.PalletItem.list('-created_at', 5000),
+    enabled: !palletId && dispatchedFrom === 'Bluff',
+  });
+  const distilleryPalletIds = useMemo(
+    () => new Set(pallets.filter(p => p.location === 'Distillery').map(p => p.id)),
+    [pallets]
+  );
 
   // Bluff: grouped by product+size, FIFO sorted batches
   const rawBluffProductOptions = useMemo(() => {
@@ -139,26 +151,40 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
   // actually on that pallet, capped by what's still really in FinishedGood
   // (the pallet is a manifest, not the source of truth, same reasoning as
   // deductFromPallet), so you can't select stock that pallet doesn't hold.
-  // Picking nothing leaves stock unrestricted, same as every other dispatch.
+  // Picking nothing restricts the opposite way: only stock not recorded on
+  // ANY Distillery pallet is offered, so "loose" stock and pallet stock
+  // never get mixed up — anything sitting on a pallet has to be dispatched
+  // by choosing that pallet.
+  const palletLineKey = (row) => `${row.product_name}||${row.batch_number || ''}||${row.bottle_size_ml || ''}`;
   const bluffProductOptions = useMemo(() => {
-    if (dispatchedFrom !== 'Bluff' || !palletId) return rawBluffProductOptions;
-    const palletQtyByKey = {};
-    for (const it of selectedPalletItems) {
-      const key = `${it.product_name}||${it.batch_number || ''}||${it.bottle_size_ml || ''}`;
-      palletQtyByKey[key] = (palletQtyByKey[key] || 0) + (it.quantity_bottles || 0);
-    }
-    return rawBluffProductOptions
+    if (dispatchedFrom !== 'Bluff') return rawBluffProductOptions;
+
+    const capBatches = (byKeyQty) => rawBluffProductOptions
       .map(opt => {
         const batches = opt.batches
-          .map(b => {
-            const key = `${b.product_name}||${b.batch_number || ''}||${b.bottle_size_ml || ''}`;
-            return { ...b, available: Math.min(b.available, palletQtyByKey[key] || 0) };
-          })
+          .map(b => ({ ...b, available: byKeyQty(b) }))
           .filter(b => b.available > 0);
         return { ...opt, batches, totalAvailable: batches.reduce((s, b) => s + b.available, 0) };
       })
       .filter(opt => opt.totalAvailable > 0);
-  }, [dispatchedFrom, palletId, selectedPalletItems, rawBluffProductOptions]);
+
+    if (palletId) {
+      const palletQtyByKey = {};
+      for (const it of selectedPalletItems) {
+        const key = palletLineKey(it);
+        palletQtyByKey[key] = (palletQtyByKey[key] || 0) + (it.quantity_bottles || 0);
+      }
+      return capBatches(b => Math.min(b.available, palletQtyByKey[palletLineKey(b)] || 0));
+    }
+
+    const allocatedByKey = {};
+    for (const it of allPalletItems) {
+      if (!distilleryPalletIds.has(it.pallet_id)) continue;
+      const key = palletLineKey(it);
+      allocatedByKey[key] = (allocatedByKey[key] || 0) + (it.quantity_bottles || 0);
+    }
+    return capBatches(b => Math.max(0, b.available - (allocatedByKey[palletLineKey(b)] || 0)));
+  }, [dispatchedFrom, palletId, selectedPalletItems, allPalletItems, distilleryPalletIds, rawBluffProductOptions]);
 
   // 3PL: individual WarehouseStock records, filtered by the selected source location
   const threePLProductOptions = useMemo(() => {
@@ -505,7 +531,9 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
             )}
             {!hasStock && (
               <p className="text-sm text-muted-foreground text-center py-4">
-                {dispatchedFrom === 'Bluff' && palletId ? 'No stock available on this pallet' : 'No stock available at this location'}
+                {dispatchedFrom === 'Bluff'
+                  ? (palletId ? 'No stock available on this pallet' : 'No stock available that isn’t already on a pallet')
+                  : 'No stock available at this location'}
               </p>
             )}
             {hasOverStock && <p className="text-xs text-destructive mt-1">One or more items exceed available stock</p>}

@@ -24,7 +24,7 @@ import { buildBluffProductOptions, build3PLProductOptions, allocateBluffLineItem
 // shows as a summary instead of re-allocating on open — silently changing an
 // already-committed allocation just because current stock has since moved
 // would be wrong; reassigning is an explicit action.
-export default function BatchPicker({ finishedGoods = [], warehouseStock = [], dispatchedFrom = 'Bluff', productName, bottleSizeMl, batchNumber, quantityBottles, distanceKm = 0, transportMethod, onAllocate }) {
+export default function BatchPicker({ finishedGoods = [], warehouseStock = [], dispatchedFrom = 'Bluff', palletId = '', productName, bottleSizeMl, batchNumber, quantityBottles, distanceKm = 0, transportMethod, onAllocate }) {
   const [manualProductId, setManualProductId] = useState('');
   const [allocationMode, setAllocationMode] = useState('fifo');
   const [manualBatchId, setManualBatchId] = useState('');
@@ -36,10 +36,70 @@ export default function BatchPicker({ finishedGoods = [], warehouseStock = [], d
   });
 
   const isBluff = dispatchedFrom === 'Bluff';
-  const productOptions = useMemo(
+
+  // Same pallet-awareness DispatchForm.jsx applies at creation time: a
+  // pallet chosen as the dispatch source restricts the picker to what's
+  // actually on that pallet; no pallet chosen restricts it to stock not
+  // recorded on ANY Distillery pallet, so "loose" stock and pallet stock
+  // never get mixed up. Only applies to Bluff — 3PL/UK Bonded dispatch
+  // straight off warehouse_stock, no pallet concept there.
+  const { data: pallets = [] } = useQuery({
+    queryKey: ['pallets'],
+    queryFn: () => base44.entities.Pallet.list('-created_at', 5000),
+    enabled: isBluff,
+  });
+  const { data: selectedPalletItems = [] } = useQuery({
+    queryKey: ['palletItems', palletId],
+    queryFn: () => base44.entities.PalletItem.filter({ pallet_id: palletId }),
+    enabled: isBluff && !!palletId,
+  });
+  const { data: allPalletItems = [] } = useQuery({
+    queryKey: ['palletItemsAll'],
+    queryFn: () => base44.entities.PalletItem.list('-created_at', 5000),
+    enabled: isBluff && !palletId,
+  });
+
+  const rawProductOptions = useMemo(
     () => isBluff ? buildBluffProductOptions(finishedGoods) : build3PLProductOptions(warehouseStock, dispatchedFrom),
     [isBluff, finishedGoods, warehouseStock, dispatchedFrom]
   );
+
+  const distilleryPalletIds = useMemo(
+    () => new Set(pallets.filter(p => p.location === 'Distillery').map(p => p.id)),
+    [pallets]
+  );
+
+  const palletLineKey = (row) => `${row.product_name}||${row.batch_number || ''}||${row.bottle_size_ml || ''}`;
+
+  const productOptions = useMemo(() => {
+    if (!isBluff) return rawProductOptions;
+
+    const capBatches = (byKeyQty) => rawProductOptions
+      .map(opt => {
+        const batches = opt.batches
+          .map(b => ({ ...b, available: byKeyQty(b) }))
+          .filter(b => b.available > 0);
+        return { ...opt, batches, totalAvailable: batches.reduce((s, b) => s + b.available, 0) };
+      })
+      .filter(opt => opt.totalAvailable > 0);
+
+    if (palletId) {
+      const palletQtyByKey = {};
+      for (const it of selectedPalletItems) {
+        const key = palletLineKey(it);
+        palletQtyByKey[key] = (palletQtyByKey[key] || 0) + (it.quantity_bottles || 0);
+      }
+      return capBatches(b => Math.min(b.available, palletQtyByKey[palletLineKey(b)] || 0));
+    }
+
+    const allocatedByKey = {};
+    for (const it of allPalletItems) {
+      if (!distilleryPalletIds.has(it.pallet_id)) continue;
+      const key = palletLineKey(it);
+      allocatedByKey[key] = (allocatedByKey[key] || 0) + (it.quantity_bottles || 0);
+    }
+    return capBatches(b => Math.max(0, b.available - (allocatedByKey[palletLineKey(b)] || 0)));
+  }, [isBluff, palletId, rawProductOptions, selectedPalletItems, allPalletItems, distilleryPalletIds]);
 
   // The product catalog (Settings → Products) names each size variant with
   // the size baked into the string — e.g. "London Dry Gin 200ml" — while
@@ -64,6 +124,10 @@ export default function BatchPicker({ finishedGoods = [], warehouseStock = [], d
     || (manualProduct ? productOptions.find(o => stripSizeSuffix(o.product_name) === stripSizeSuffix(manualProduct.name) && Number(o.bottle_size_ml) === Number(manualProduct.bottle_size_ml)) : null);
 
   const showPicker = reassigning || !batchNumber;
+  const selectedPallet = isBluff && palletId ? pallets.find(p => p.id === palletId) : null;
+  const noStockReason = isBluff
+    ? (palletId ? `on pallet ${selectedPallet?.pallet_code || palletId}` : 'at Bluff that isn’t already on a pallet')
+    : `at ${dispatchedFrom}`;
 
   const allocate = (batchId) => {
     if (!effectiveOption) return;
@@ -136,7 +200,7 @@ export default function BatchPicker({ finishedGoods = [], warehouseStock = [], d
           </Select>
         </div>
         {manualProduct && !effectiveOption && (
-          <p className="text-xs text-destructive">No stock available for {manualProduct.name}{manualProduct.bottle_size_ml ? ` (${manualProduct.bottle_size_ml}ml)` : ''} at {dispatchedFrom}.</p>
+          <p className="text-xs text-destructive">No stock available for {manualProduct.name}{manualProduct.bottle_size_ml ? ` (${manualProduct.bottle_size_ml}ml)` : ''} {noStockReason}.</p>
         )}
         {manualProduct && effectiveOption && (
           <BatchSelector effectiveOption={effectiveOption} allocationMode={allocationMode} setAllocationMode={setAllocationMode} manualBatchId={manualBatchId} setManualBatchId={setManualBatchId} onPick={allocate} />
@@ -148,7 +212,7 @@ export default function BatchPicker({ finishedGoods = [], warehouseStock = [], d
   if (!effectiveOption) {
     return (
       <div className="col-span-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
-        <p className="text-xs text-destructive flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> No stock available for {productName}{bottleSizeMl ? ` (${bottleSizeMl}ml)` : ''} at {dispatchedFrom}.</p>
+        <p className="text-xs text-destructive flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> No stock available for {productName}{bottleSizeMl ? ` (${bottleSizeMl}ml)` : ''} {noStockReason}.</p>
       </div>
     );
   }

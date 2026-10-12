@@ -70,6 +70,18 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
     queryFn: () => db.PalletItem.filter({ pallet_id: palletId }),
     enabled: !!palletId,
   });
+  // Needed for the "no pallet chosen" branch below — what's recorded on
+  // ANY Distillery pallet, so that stock can be excluded from the
+  // unrestricted picker (it's reachable by choosing that pallet instead).
+  const { data: allPalletItems = [] } = useQuery({
+    queryKey: ['palletItemsAll'],
+    queryFn: () => db.PalletItem.list('-created_at', 5000),
+    enabled: !palletId,
+  });
+  const distilleryPalletIds = useMemo(
+    () => new Set(pallets.filter(p => p.location === 'Distillery').map(p => p.id)),
+    [pallets]
+  );
 
   const sellableGoods = useMemo(
     () => finishedGoods.filter(fg => !fg.product_name?.includes('Tasting')),
@@ -102,27 +114,37 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
   // When a specific pallet is chosen as the source, only offer what's
   // actually on that pallet — capped by what's still really in FinishedGood
   // (the pallet is a manifest, not the source of truth), same reasoning as
-  // DispatchForm.jsx's pallet-filtered picker. Picking none leaves stock
-  // unrestricted.
+  // DispatchForm.jsx's pallet-filtered picker. Picking none restricts the
+  // opposite way: only stock not recorded on ANY Distillery pallet is
+  // offered, so "loose" stock and pallet stock never get mixed up.
+  const palletLineKey = (row) => `${row.product_name}||${row.batch_number || ''}||${row.bottle_size_ml || ''}`;
   const productOptions = useMemo(() => {
-    if (!palletId) return rawProductOptions;
-    const palletQtyByKey = {};
-    for (const it of selectedPalletItems) {
-      const key = `${it.product_name}||${it.batch_number || ''}||${it.bottle_size_ml || ''}`;
-      palletQtyByKey[key] = (palletQtyByKey[key] || 0) + (it.quantity_bottles || 0);
-    }
-    return rawProductOptions
+    const capBatches = (byKeyQty) => rawProductOptions
       .map(opt => {
         const batches = opt.batches
-          .map(b => {
-            const key = `${b.product_name}||${b.batch_number || ''}||${b.bottle_size_ml || ''}`;
-            return { ...b, available: Math.min(b.available, palletQtyByKey[key] || 0) };
-          })
+          .map(b => ({ ...b, available: byKeyQty(b) }))
           .filter(b => b.available > 0);
         return { ...opt, batches, totalAvailable: batches.reduce((s, b) => s + b.available, 0) };
       })
       .filter(opt => opt.totalAvailable > 0);
-  }, [palletId, selectedPalletItems, rawProductOptions]);
+
+    if (palletId) {
+      const palletQtyByKey = {};
+      for (const it of selectedPalletItems) {
+        const key = palletLineKey(it);
+        palletQtyByKey[key] = (palletQtyByKey[key] || 0) + (it.quantity_bottles || 0);
+      }
+      return capBatches(b => Math.min(b.available, palletQtyByKey[palletLineKey(b)] || 0));
+    }
+
+    const allocatedByKey = {};
+    for (const it of allPalletItems) {
+      if (!distilleryPalletIds.has(it.pallet_id)) continue;
+      const key = palletLineKey(it);
+      allocatedByKey[key] = (allocatedByKey[key] || 0) + (it.quantity_bottles || 0);
+    }
+    return capBatches(b => Math.max(0, b.available - (allocatedByKey[palletLineKey(b)] || 0)));
+  }, [palletId, selectedPalletItems, allPalletItems, distilleryPalletIds, rawProductOptions]);
 
   const committedByProduct = useMemo(() => {
     const map = {};
@@ -392,7 +414,7 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
             )}
             {!hasStock && (
               <p className="text-sm text-muted-foreground text-center py-4">
-                {palletId ? 'No stock available on this pallet' : 'No stock available'}
+                {palletId ? 'No stock available on this pallet' : 'No stock available that isn’t already on a pallet'}
               </p>
             )}
             {hasOverStock && <p className="text-xs text-destructive mt-1">One or more items exceed available stock</p>}
