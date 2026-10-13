@@ -369,7 +369,7 @@ export default function Reports() {
             { description: 'Export/overseas: UK Bonded transfers', lals: `-${calc.ukBondedExportLals.toFixed(4)}`, bottles: -calc.ukBondedTransferBottles, amount_nzd: '' },
             { description: 'Transferred to 3PL', lals: calc.transferLals.toFixed(4), bottles: calc.threePLTransferBottles, amount_nzd: '' },
             { description: 'Less: Duty free from 3PL', lals: `-${calc.dutyFreeFrom3PL.toFixed(4)}`, bottles: -calc.threePLDutyFreeBottles, amount_nzd: '' },
-            { description: 'Net 3PL taxable LALs', lals: calc.net3PLTaxableLals.toFixed(4), bottles: calc.threePLTransferBottles - calc.threePLDutyFreeBottles, amount_nzd: '' },
+            { description: 'Net 3PL taxable LALs', lals: calc.net3PLTaxableLals.toFixed(4), bottles: Math.max(0, calc.threePLTransferBottles - calc.threePLDutyFreeBottles), amount_nzd: '' },
             { description: 'TOTAL TAXABLE LALs', lals: calc.totalTaxableLals.toFixed(4), bottles: calc.totalTaxableBottles, amount_nzd: '' },
             { description: '(Export/overseas from 3PL — duty already paid at transfer, not deducted)', lals: calc.exportFrom3PL.toFixed(4), bottles: calc.threePLExportBottles, amount_nzd: '' },
             { description: `Excise rate (spirits >23% vol, ${calc.rateInfo.label})`, lals: '', bottles: '', amount_nzd: `$${calc.exciseRate}/LAL` },

@@ -295,12 +295,12 @@ export default function ExciseReturn({
               ))}
             </div>
           )}
-          {net3PLTaxableLals < 0 && (
+          {dutyFreeFrom3PL > transferLals && (
             <div className="px-6 py-2 bg-blue-50 border-l-4 border-blue-400">
-              <p className="text-xs text-blue-700">ℹ No 3PL transfer this month — duty free dispatches ({dutyFreeFrom3PL.toFixed(3)} LALs) are deducted from total payable as a credit against prior transfer excise.</p>
+              <p className="text-xs text-blue-700">ℹ Duty free dispatches this month ({dutyFreeFrom3PL.toFixed(3)} LALs) exceed this month's 3PL transfers ({transferLals.toFixed(3)} LALs) — that stock was very likely transferred (and already taxed) in an earlier month, so it contributes nothing here rather than crediting this month's total.</p>
             </div>
           )}
-          <ExciseRow label="Net 3PL Taxable LALs" value={net3PLTaxableLals} displayValue={net3PLTaxableLals < 0 ? `(${Math.abs(net3PLTaxableLals).toFixed(3)}) credit` : net3PLTaxableLals.toFixed(3)} bottles={threePLTransferBottles - threePLDutyFreeBottles} sub={transferLals === 0 && dutyFreeFrom3PL > 0 ? "credit — duty free dispatches exceed transfers" : "transfers minus duty free dispatches"} indent />
+          <ExciseRow label="Net 3PL Taxable LALs" value={net3PLTaxableLals} displayValue={net3PLTaxableLals.toFixed(3)} bottles={Math.max(0, threePLTransferBottles - threePLDutyFreeBottles)} sub="transfers minus duty free dispatches, floored at zero" indent />
 
           {/* Total */}
           <ExciseRow label="TOTAL EXCISE PAYABLE LALs" value={totalTaxableLals} bottles={totalTaxableBottles} sub="Net distillery + Net 3PL taxable" highlight />
