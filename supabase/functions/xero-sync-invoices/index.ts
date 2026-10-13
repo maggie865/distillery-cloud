@@ -218,12 +218,14 @@ Deno.serve(async (req: Request) => {
     // full detail, so fetch each invoice individually rather than trust the
     // list response's line items.
     const invoices: XeroInvoice[] = [];
+    const failedInvoiceIds: string[] = [];
     for (const stub of invoiceStubs) {
       const detailRes = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${stub.InvoiceID}`, {
         headers: { Authorization: `Bearer ${accessToken}`, 'Xero-tenant-id': connection.tenant_id as string, Accept: 'application/json' },
       });
       if (!detailRes.ok) {
         console.error(`Failed to fetch full detail for invoice ${stub.InvoiceID}:`, detailRes.status, await detailRes.text());
+        failedInvoiceIds.push(stub.InvoiceID); // surfaced below, and blocks advancing last_synced_at
         continue; // skip this one rather than fail the whole sync
       }
       const detailBody = await detailRes.json();
@@ -312,13 +314,22 @@ Deno.serve(async (req: Request) => {
       linesCreated = upserted?.length ?? 0;
     }
 
-    await supabase.from('xero_connection').update({ last_synced_at: new Date().toISOString() }).eq('id', connection.id);
+    // If any invoice's detail fetch failed, DON'T advance last_synced_at —
+    // the next normal sync's If-Modified-Since is based on this value, so
+    // moving it forward anyway would mean that invoice is never asked for
+    // again (unless it happens to be edited in Xero later) and is lost for
+    // good. Leaving it unchanged means the same "modified since" window is
+    // requested again next time, giving the failed invoice another chance.
+    if (failedInvoiceIds.length === 0) {
+      await supabase.from('xero_connection').update({ last_synced_at: new Date().toISOString() }).eq('id', connection.id);
+    }
 
     return jsonResponse({
       success: true,
       invoices_processed: invoices.length,
       lines_created: linesCreated,
       lines_unmatched: unmatchedCount,
+      invoices_failed: failedInvoiceIds.length,
       debug_where: whereClause,
       debug_if_modified_since: invoiceHeaders['If-Modified-Since'] ?? null,
       debug_sample: debugSample,
