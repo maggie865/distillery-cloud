@@ -7,10 +7,10 @@ import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Truck, PackageCheck, MapPin, Trash2, Search, Map as MapIcon, Pencil, RotateCcw, ArrowRightLeft, Plus, Store, FileCheck, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Truck, PackageCheck, MapPin, Trash2, Search, Map as MapIcon, Pencil, RotateCcw, ArrowRightLeft, Plus, Store, FileCheck, RefreshCw, AlertTriangle, CalendarClock } from 'lucide-react';
 import MobileCard, { MobileCardGrid, MobileDetailRow } from '@/components/shared/MobileCard';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -442,9 +442,20 @@ export default function DispatchHub() {
     onError: (err) => toast.error(err.message || 'Failed to delete dispatch'),
   });
 
+  const [showXeroBackfill, setShowXeroBackfill] = useState(false);
+  const [backfillDate, setBackfillDate] = useState('');
+
+  // Normal syncs only ask Xero for invoices modified since the last sync
+  // (xero-sync-invoices' If-Modified-Since) — if a single invoice's detail
+  // fetch ever fails mid-sync (rate limit, network blip) it's silently
+  // skipped and, unless it's edited again in Xero, never picked up by a
+  // later sync since its modified date won't move past that cutoff again.
+  // Passing since_date bypasses that filter entirely and re-checks every
+  // invoice from that date forward — safe to re-run any time, since the
+  // dispatch upsert is idempotent on xero_line_item_id.
   const xeroSyncMutation = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('xero-sync-invoices', {});
+    mutationFn: async (sinceDate) => {
+      const { data, error } = await supabase.functions.invoke('xero-sync-invoices', { body: sinceDate ? { since_date: sinceDate } : {} });
       if (error) throw error;
       if (!data?.success) throw new Error(data?.error || 'Sync failed');
       return data;
@@ -455,7 +466,12 @@ export default function DispatchHub() {
       const parts = [`${data.invoices_processed} invoice${data.invoices_processed === 1 ? '' : 's'} checked`];
       if (data.lines_created > 0) parts.push(`${data.lines_created} new draft dispatch${data.lines_created === 1 ? '' : 'es'} added`);
       if (data.lines_unmatched > 0) parts.push(`${data.lines_unmatched} unmatched — needs a product mapping or manual completion`);
-      toast.success(parts.join(' · '));
+      if (data.invoices_failed > 0) {
+        toast.warning(`${parts.join(' · ')} · ${data.invoices_failed} invoice${data.invoices_failed === 1 ? '' : 's'} failed to fetch — will retry on the next sync`);
+      } else {
+        toast.success(parts.join(' · '));
+      }
+      setShowXeroBackfill(false);
     },
     onError: (e) => toast.error(e.message || 'Xero sync failed'),
   });
@@ -479,7 +495,42 @@ export default function DispatchHub() {
             {xeroSyncMutation.isPending ? 'Syncing…' : 'Sync Xero'}
           </Button>
         )}
+        {!isSalesRep && (
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => { setBackfillDate(''); setShowXeroBackfill(true); }}
+            disabled={xeroSyncMutation.isPending || !xeroStatus?.connected}
+            title="Backfill Xero invoices from a specific date — use this if a sale seems to be missing from Xero sync"
+          >
+            <CalendarClock className="w-4 h-4" />
+          </Button>
+        )}
       </PageHeader>
+
+      <Dialog open={showXeroBackfill} onOpenChange={setShowXeroBackfill}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="font-display">Backfill Xero Invoices</DialogTitle></DialogHeader>
+          <div className="space-y-3 mt-2">
+            <p className="text-xs text-muted-foreground">
+              The normal "Sync Xero" only checks invoices Xero says have changed since the last sync — if one was ever
+              missed (a one-off fetch failure), it won't be picked up by that. This re-checks every invoice from the
+              date you choose forward, regardless of whether Xero thinks it's changed. Safe to run any time — it won't
+              duplicate dispatches already imported.
+            </p>
+            <div>
+              <Label>From date</Label>
+              <Input type="date" value={backfillDate} onChange={e => setBackfillDate(e.target.value)} className="mt-1" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowXeroBackfill(false)}>Cancel</Button>
+            <Button onClick={() => xeroSyncMutation.mutate(backfillDate)} disabled={!backfillDate || xeroSyncMutation.isPending}>
+              {xeroSyncMutation.isPending ? 'Syncing…' : 'Run Backfill Sync'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {showMap && <div className="mb-6"><DeliveryMap dispatches={allDispatches} customers={customers} distilleryOrigin={DISTILLERY_ORIGIN} /></div>}
 

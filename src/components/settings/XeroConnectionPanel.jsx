@@ -67,7 +67,8 @@ export default function XeroConnectionPanel() {
           Connect Xero to pull authorised sales invoices in as draft dispatches you can review, allocate a real batch
           against, and approve — nothing here touches stock until you approve a dispatch. Configure which Xero line
           items map to which products under Xero Product Mapping. Once connected, use the "Sync Xero" button on the
-          Dispatch page to pull in new invoices.
+          Dispatch page to pull in new invoices — or the calendar icon next to it to backfill from a specific date if
+          a sale ever seems to be missing.
         </p>
 
         {isLoading ? (
