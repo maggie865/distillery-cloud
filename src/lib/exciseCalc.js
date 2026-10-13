@@ -125,9 +125,16 @@ export function computeExciseReturn({
     .filter(d => (d.dispatched_from || '').includes('Auckland') && d.is_export === true)
     .reduce((s, d) => s + (d.total_lals || 0), 0);
 
-  // 4. Net taxable 3PL LALs — can be negative (a credit) when duty free
-  // dispatches this month exceed transfers this month.
-  const net3PLTaxableLals = transferLals - dutyFreeFrom3PL;
+  // 4. Net taxable 3PL LALs. Floored at zero: a duty-free dispatch this
+  // month very often draws down stock transferred (and already taxed) in
+  // an EARLIER month, not this one — there's no guarantee the two are the
+  // same cohort. Letting dutyFreeFrom3PL exceed this month's own
+  // transferLals would produce a negative "credit" that then silently
+  // reduces totalTaxableLals below what bluffDispatchLals alone already
+  // owes, bleeding a 3PL-only adjustment into an unrelated Bluff-direct
+  // total. Flooring at zero stops that leak: a heavy duty-free month with
+  // light/no transfers simply contributes nothing, rather than a negative.
+  const net3PLTaxableLals = Math.max(0, transferLals - dutyFreeFrom3PL);
 
   // 5. Bottle size breakdowns for each category
   const bluffTaxableDispatches = monthDispatches.filter(d => isBluffDispatch(d) && d.duty_free !== true && d.is_export !== true);
@@ -181,7 +188,7 @@ export function computeExciseReturn({
   const sampleBluffBottles = sumBottles(sampleBluffBreakdown);
   const standard3PLBottles = sumBottles(standard3PLBreakdown);
   const sample3PLBottles = sumBottles(sample3PLBreakdown);
-  const totalTaxableBottles = bluffTaxableBottles + threePLTransferBottles - threePLDutyFreeBottles;
+  const totalTaxableBottles = bluffTaxableBottles + Math.max(0, threePLTransferBottles - threePLDutyFreeBottles);
 
   // --- All dispatched LALs this month (for the customer breakdown / reconciliation) ---
   const allDispatchedLals = monthDispatches.reduce((s, d) => s + (d.total_lals || 0), 0);
