@@ -287,7 +287,11 @@ export default function BottlingFloor() {
       queryClient.invalidateQueries({ queryKey: ['pallets'] });
     }
     setCurrentPalletId(match.id);
-    if (quickCreateMode === 'start') doStartRun();
+    if (quickCreateMode === 'start') {
+      doStartRun();
+    } else {
+      toast.success(`Now stacking onto ${match.pallet_code}`);
+    }
   };
 
   const handlePalletCreated = (pallet) => {
@@ -809,10 +813,25 @@ export default function BottlingFloor() {
     <div>
       <PageHeader title="Bottling Floor" subtitle="Live production tracking and case management">
         <div className="flex items-center gap-3">
-          {currentPallet && (
-            <Badge variant="outline" className="gap-1.5 h-9 px-3 font-mono">
-              <Package className="w-3.5 h-3.5" /> {currentPallet.pallet_code}
-            </Badge>
+          {currentPallet ? (
+            <button
+              type="button"
+              onClick={() => { setQuickCreateMode('swap'); setChoosingPallet(true); }}
+              title="Switch to a different pallet before the next run"
+            >
+              <Badge variant="outline" className="gap-1.5 h-9 px-3 font-mono cursor-pointer hover:bg-accent transition-colors">
+                <Package className="w-3.5 h-3.5" /> {currentPallet.pallet_code}
+                <Pencil className="w-3 h-3 ml-0.5 text-muted-foreground" />
+              </Badge>
+            </button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={() => { setQuickCreateMode('swap'); setChoosingPallet(true); }}
+              className="gap-2"
+            >
+              <Package className="w-4 h-4" /> Choose Pallet
+            </Button>
           )}
           <Button onClick={() => setShowNewRun(true)} className="gap-2">
             <Plus className="w-4 h-4" />
@@ -1249,6 +1268,7 @@ export default function BottlingFloor() {
         onClose={() => setChoosingPallet(false)}
         onChooseExisting={handleChooseExistingPallet}
         onChooseNew={handleChooseNewPallet}
+        description={quickCreateMode === 'swap' ? 'Scan an emptied pallet to reuse, or start a new one — this run (and any after it) will stack here instead.' : undefined}
       />
       <ScanPalletDialog open={scanningPallet} onClose={() => setScanningPallet(false)} onResolve={handlePalletScanned} />
       <QuickCreatePalletDialog
@@ -1256,6 +1276,7 @@ export default function BottlingFloor() {
         onClose={() => setQuickCreateOpen(false)}
         onCreated={handlePalletCreated}
         title="New Pallet"
+        continueLabel={quickCreateMode === 'swap' ? 'Done' : 'Start Bottling'}
       />
     </div>
   );
