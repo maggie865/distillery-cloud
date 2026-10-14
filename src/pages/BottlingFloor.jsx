@@ -976,6 +976,28 @@ export default function BottlingFloor() {
               )}
             </div>
 
+            {/* Pallet */}
+            <div>
+              <Label>Pallet</Label>
+              <div className="flex items-center justify-between gap-2 mt-1 rounded-lg border border-border px-3 py-2.5">
+                {currentPallet ? (
+                  <span className="flex items-center gap-1.5 font-mono text-sm">
+                    <Package className="w-3.5 h-3.5 text-muted-foreground" /> {currentPallet.pallet_code}
+                  </span>
+                ) : (
+                  <span className="text-sm text-muted-foreground">No pallet chosen yet</span>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setQuickCreateMode('swap'); setChoosingPallet(true); }}
+                >
+                  {currentPallet ? 'Change' : 'Choose'}
+                </Button>
+              </div>
+            </div>
+
             {/* Team */}
             <div>
               <Label>Production Team</Label>
