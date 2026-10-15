@@ -35,7 +35,7 @@ const FIRST_AID_ITEMS = [
   { key: 'incident_forms', label: 'Incident report forms', qty: '' },
 ];
 
-function YesNo({ value, onChange, yesLabel = '✅ Good', noLabel = '❌ Issue Found' }) {
+export function YesNo({ value, onChange, yesLabel = '✅ Good', noLabel = '❌ Issue Found' }) {
   return (
     <div className="flex gap-2">
       <button type="button" onClick={() => onChange(true)}
@@ -180,7 +180,7 @@ const VEHICLE_CHECK_SECTIONS = [
 // Each check starts collapsed to just its title + status badge - tap to
 // expand into the actual form. Keeps the page scannable now that there
 // are 6 checks (one, Workplace Inspection, has 39 items on its own).
-function CollapsibleCheckCard({ icon, title, badge, borderClass = 'border-border', children }) {
+export function CollapsibleCheckCard({ icon, title, badge, borderClass = 'border-border', children }) {
   const [open, setOpen] = useState(false);
   return (
     <Card className={`border-2 overflow-hidden ${borderClass}`}>
@@ -200,7 +200,7 @@ function CollapsibleCheckCard({ icon, title, badge, borderClass = 'border-border
   );
 }
 
-function SectionHistory({ records, checkItemName, columns, renderRow }) {
+export function SectionHistory({ records, checkItemName, columns, renderRow }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -278,6 +278,80 @@ function StillCheck({ records, now, selectedMonth, onSave, saving }) {
             <TableCell className={`text-sm ${RESULT_CLS[r.result] || ''}`}>{RESULT_LABEL[r.result] || '—'}</TableCell>
             <TableCell className="text-sm">{r.performed_by || '—'}</TableCell>
             <TableCell className="text-sm text-muted-foreground">{r.notes?.split(' | ').slice(3).join(' | ') || '—'}</TableCell>
+          </TableRow>
+        )}
+      />
+    </CollapsibleCheckCard>
+  );
+}
+
+const STILL_ELECTRICAL_ITEMS = [
+  { key: 'element_condition', label: 'Element condition' },
+  { key: 'connections_tight', label: 'Electrical connections tight' },
+  { key: 'control_panel', label: 'Control panel condition' },
+  { key: 'extension_leads', label: 'Extension leads (if used)' },
+  { key: 'emergency_stop', label: 'Emergency stop functionality' },
+  { key: 'rcd_test', label: 'Push-button test of RCD protecting the circuit' },
+];
+
+function StillElectricalCheck({ records, now, selectedMonth, onSave, saving }) {
+  const today = format(now, 'yyyy-MM-dd');
+  const blank = Object.fromEntries(STILL_ELECTRICAL_ITEMS.map(i => [i.key, null]));
+  const [form, setForm] = useState({ ...blank, notes: '', performed_by: '', date: today });
+  const [submitted, setSubmitted] = useState(false);
+  const doneThisMonth = records.find(r => r.check_item_name === 'Still Electrical Safety Inspection' && r.date?.startsWith(selectedMonth));
+
+  const handleSave = async () => {
+    if (STILL_ELECTRICAL_ITEMS.some(i => form[i.key] === null)) { toast.error('Please answer all checks'); return; }
+    if (!form.performed_by.trim()) { toast.error('Please enter your name'); return; }
+    const allGood = STILL_ELECTRICAL_ITEMS.every(i => form[i.key]);
+    const notesParts = STILL_ELECTRICAL_ITEMS.map(i => `${i.label}: ${form[i.key] ? 'Good' : 'Issue Found'}`);
+    if (form.notes) notesParts.push(`Notes: ${form.notes}`);
+    try {
+      await onSave([{ maintenance_type: 'monthly_check', check_item_name: 'Still Electrical Safety Inspection', equipment_name: 'Still', date: form.date, result: allGood ? 'pass' : 'needs_attention', notes: notesParts.join(' | '), performed_by: form.performed_by.trim(), requires_followup: !allGood, status: 'completed' }]);
+      toast.success('Still electrical inspection saved');
+      setSubmitted(true);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save still electrical inspection');
+    }
+  };
+
+  const hasIssue = STILL_ELECTRICAL_ITEMS.some(i => form[i.key] === false);
+
+  return (
+    <CollapsibleCheckCard
+      icon="⚡" title="Still Electrical Safety Inspection"
+      borderClass={doneThisMonth ? 'border-emerald-300' : 'border-amber-300'}
+      badge={doneThisMonth ? <Badge className="bg-emerald-100 text-emerald-700">✅ Done {doneThisMonth.date ? format(parseISO(doneThisMonth.date), 'd MMM') : ''}</Badge> : <Badge className="bg-amber-100 text-amber-700">⚠ Due this month</Badge>}
+    >
+      {!submitted && (
+        <div className="space-y-4">
+          {STILL_ELECTRICAL_ITEMS.map(item => (
+            <div key={item.key}>
+              <Label className="text-xs font-semibold">{item.label}</Label>
+              <div className="mt-1"><YesNo value={form[item.key]} onChange={v => setForm(f => ({ ...f, [item.key]: v }))} /></div>
+            </div>
+          ))}
+          {hasIssue && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">⚠ Issues found — this record will be flagged for follow-up.</div>
+          )}
+          <div><Label className="text-xs font-semibold">Additional Notes (optional)</Label><Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} className="mt-1" /></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><Label className="text-xs font-semibold">Date</Label><Input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} className="mt-1" /></div>
+            <div><Label className="text-xs font-semibold">Completed by *</Label><Input value={form.performed_by} onChange={e => setForm(f => ({ ...f, performed_by: e.target.value }))} placeholder="Your name" className="mt-1" /></div>
+          </div>
+          <Button onClick={handleSave} disabled={saving} className="w-full">Save Electrical Inspection</Button>
+        </div>
+      )}
+      {submitted && <p className="text-sm text-emerald-600 font-medium">✅ Saved successfully</p>}
+      <SectionHistory records={records} checkItemName="Still Electrical Safety Inspection" columns={['Date', 'Summary', 'Result', 'By', 'Notes']}
+        renderRow={r => (
+          <TableRow key={r.id}>
+            <TableCell className="text-sm whitespace-nowrap">{r.date ? format(parseISO(r.date), 'd MMM yyyy') : '—'}</TableCell>
+            <TableCell className="text-sm">{r.notes?.split(' | ').slice(0, STILL_ELECTRICAL_ITEMS.length).join(', ') || '—'}</TableCell>
+            <TableCell className={`text-sm ${RESULT_CLS[r.result] || ''}`}>{RESULT_LABEL[r.result] || '—'}</TableCell>
+            <TableCell className="text-sm">{r.performed_by || '—'}</TableCell>
+            <TableCell className="text-sm text-muted-foreground">{r.notes?.split(' | ').slice(STILL_ELECTRICAL_ITEMS.length).join(' | ') || '—'}</TableCell>
           </TableRow>
         )}
       />
@@ -628,7 +702,7 @@ export default function MonthlyChecksTab({ records, onCreate, saving }) {
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(format(now, 'yyyy-MM'));
   const monthlyCheckRecords = useMemo(() => records.filter(r => ['monthly_check', 'fire_extinguisher_service'].includes(r.maintenance_type)), [records]);
-  const TRACKED = ['Still Condition Inspection', 'Condenser Check', 'First Aid Kit Check', 'Workplace Inspection', 'Vehicle Check'];
+  const TRACKED = ['Still Condition Inspection', 'Still Electrical Safety Inspection', 'Condenser Check', 'First Aid Kit Check', 'Workplace Inspection', 'Vehicle Check'];
   const completedCount = TRACKED.filter(item => records.some(r => r.maintenance_type === 'monthly_check' && r.check_item_name === item && r.date?.startsWith(selectedMonth))).length;
 
   return (
@@ -647,6 +721,7 @@ export default function MonthlyChecksTab({ records, onCreate, saving }) {
         </div>
       </Card>
       <StillCheck records={monthlyCheckRecords} now={now} selectedMonth={selectedMonth} onSave={onCreate} saving={saving} />
+      <StillElectricalCheck records={monthlyCheckRecords} now={now} selectedMonth={selectedMonth} onSave={onCreate} saving={saving} />
       <CondenserCheck records={monthlyCheckRecords} now={now} selectedMonth={selectedMonth} onSave={onCreate} saving={saving} />
       <FirstAidCheck records={monthlyCheckRecords} now={now} selectedMonth={selectedMonth} onSave={onCreate} saving={saving} />
       <SectionedChecklistCheck

@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CalendarCheck, ShieldCheck } from 'lucide-react';
+import { CalendarCheck, ShieldCheck, ClipboardCheck } from 'lucide-react';
+import DailyChecksTab from '@/components/maintenance/DailyChecksTab';
 import MonthlyChecksTab from '@/components/maintenance/MonthlyChecksTab';
 import YearlyChecksTab from '@/components/maintenance/YearlyChecksTab';
 import LegacyRecords from '@/components/maintenance/LegacyRecords';
@@ -46,11 +47,15 @@ export default function MaintenanceRecords() {
         <p className="text-xs text-muted-foreground">Looking for the bottle washer's pre-use check? That's moved to Bottling Floor.</p>
       </div>
 
-      <Tabs defaultValue="monthly">
+      <Tabs defaultValue="daily">
         <TabsList className="w-full justify-start overflow-x-auto">
+          <TabsTrigger value="daily" className="gap-1.5"><ClipboardCheck className="w-4 h-4" /> Daily / Before Use</TabsTrigger>
           <TabsTrigger value="monthly" className="gap-1.5"><CalendarCheck className="w-4 h-4" /> Monthly Checks</TabsTrigger>
           <TabsTrigger value="yearly" className="gap-1.5"><ShieldCheck className="w-4 h-4" /> Yearly Safety</TabsTrigger>
         </TabsList>
+        <TabsContent value="daily" className="mt-4">
+          <DailyChecksTab records={records} onCreate={createRecords} saving={saving} />
+        </TabsContent>
         <TabsContent value="monthly" className="mt-4">
           <MonthlyChecksTab records={records} onCreate={createRecords} saving={saving} />
         </TabsContent>
