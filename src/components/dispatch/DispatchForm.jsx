@@ -260,7 +260,10 @@ export default function DispatchForm({ open, onClose, finishedGoods = [], wareho
   const addLineItem = () => {
     if (!newLineQty) return;
     const qty = parseInt(newLineQty) || 0;
-    if (qty <= 0) return;
+    if (qty <= 0) {
+      toast.error('Enter a quantity greater than 0');
+      return;
+    }
     if (dispatchedFrom === 'Bluff') {
       if (!newLineProductKey) return;
       setLineItems(prev => [...prev, { id: Date.now() + Math.random(), productKey: newLineProductKey, quantity: String(qty) }]);

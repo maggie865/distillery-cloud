@@ -134,8 +134,10 @@ export default function QuickOrderModal({ customer, open, onOpenChange, prefill 
         if (emailError) throw emailError;
         await db.CustomerOrder.update(order.id, { email_status: 'sent', email_sent_at: new Date().toISOString() });
       } catch (emailErr) {
-        await db.CustomerOrder.update(order.id, { email_status: 'failed', email_error: emailErr.message || String(emailErr) });
         toast.error('Order placed, but the notification email failed to send — you can resend it from the order.');
+        try {
+          await db.CustomerOrder.update(order.id, { email_status: 'failed', email_error: emailErr.message || String(emailErr) });
+        } catch { /* best-effort status note — the order itself is already committed */ }
       }
 
       return order;
