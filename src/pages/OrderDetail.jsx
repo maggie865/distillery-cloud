@@ -41,9 +41,11 @@ export default function OrderDetail() {
       toast.success('Order email sent');
     },
     onError: async (e) => {
-      await db.CustomerOrder.update(order.id, { email_status: 'failed', email_error: e.message || String(e) });
-      queryClient.invalidateQueries({ queryKey: ['customerOrder', orderId] });
       toast.error('Email failed to send — order is unaffected, try resending');
+      try {
+        await db.CustomerOrder.update(order.id, { email_status: 'failed', email_error: e.message || String(e) });
+        queryClient.invalidateQueries({ queryKey: ['customerOrder', orderId] });
+      } catch { /* best-effort status note — the error toast already fired */ }
     },
   });
 

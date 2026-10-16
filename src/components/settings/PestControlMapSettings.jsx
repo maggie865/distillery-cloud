@@ -45,7 +45,12 @@ export default function PestControlMapSettings() {
   const handleRemove = async () => {
     if (!confirm('Remove the floor plan image?')) return;
     if (mapSettingId) {
-      try { await base44.entities.AppSettings.delete(mapSettingId); } catch {}
+      try {
+        await base44.entities.AppSettings.delete(mapSettingId);
+      } catch (err) {
+        toast.error('Failed to remove floor plan: ' + err.message);
+        return;
+      }
     }
     qc.invalidateQueries({ queryKey: ['appSettings'] });
     toast.success('Floor plan removed');

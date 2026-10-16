@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Pencil, Trash2, RefreshCw, MapPin } from 'lucide-react';
+import { Plus, Pencil, Trash2, MapPin } from 'lucide-react';
 import MobileCard, { MobileCardGrid, MobileDetailRow } from '@/components/shared/MobileCard';
 import { toast } from 'sonner';
 import PageHeader from '@/components/shared/PageHeader';
@@ -31,7 +31,6 @@ export default function Suppliers() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(BLANK_FORM);
-  const [syncing, setSyncing] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const queryClient = useQueryClient();
@@ -101,23 +100,6 @@ export default function Suppliers() {
     onError: (err) => toast.error(err.message || 'Failed to delete supplier'),
   });
 
-  const syncMutation = useMutation({
-    mutationFn: async () => {
-      setSyncing(true);
-      toast.info('Sheet sync removed — add suppliers manually');
-      return;
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['suppliers'] });
-      toast.success(data?.message || 'Suppliers synced from Google Sheet');
-      setSyncing(false);
-    },
-    onError: () => {
-      toast.error('Failed to sync suppliers');
-      setSyncing(false);
-    },
-  });
-
   const handleSubmit = (e) => {
     e.preventDefault();
     if (editingId) {
@@ -141,15 +123,6 @@ export default function Suppliers() {
   return (
     <div>
       <PageHeader title="Suppliers" subtitle="Manage supplier information for receiving goods">
-        <Button 
-          variant="outline" 
-          onClick={() => syncMutation.mutate()}
-          disabled={syncing}
-          className="gap-2"
-        >
-          <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-          {syncing ? 'Syncing...' : 'Sync from Sheet'}
-        </Button>
         <Button onClick={openNew} className="gap-2">
           <Plus className="w-4 h-4" />
           Add Supplier
