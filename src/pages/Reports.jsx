@@ -2,19 +2,14 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { db } from '@/api/supabaseClient';
 import { base44 } from '@/api/base44Client';
-import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
-import { FileSpreadsheet, Loader2, TrendingDown, PackageCheck, ArrowDownToLine, ArrowUpFromLine, Building2, Truck, MapPin } from 'lucide-react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { FileSpreadsheet, Loader2, Menu, ChevronRight } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, parseISO, isWithinInterval, startOfQuarter, endOfQuarter, startOfYear, subMonths } from 'date-fns';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import PageHeader from '@/components/shared/PageHeader';
-import StatCard from '@/components/shared/StatCard';
-import Pagination from '@/components/ui/Pagination';
 import InventoryReport from '@/components/reports/InventoryReport';
 import SalesReport from '@/components/reports/SalesReport';
 import CostOfGoodsReport from '@/components/reports/CostOfGoodsReport';
@@ -25,6 +20,11 @@ import CarbonReport from '@/components/reports/CarbonReport';
 import CarbonOffsetsPanel from '@/components/reports/CarbonOffsetsPanel';
 import IsoLifecycleReport from '@/components/reports/IsoLifecycleReport';
 import BatchTraceReport from '@/components/reports/BatchTraceReport';
+import WastageReport from '@/components/reports/WastageReport';
+import ReportsNavSidebar from '@/components/reports/ReportsNavSidebar';
+import ReportsLanding from '@/components/reports/ReportsLanding';
+import ReportsSearch from '@/components/reports/ReportsSearch';
+import { findReportItem } from '@/lib/reportsNav';
 import { useRawMaterialsNetStock } from '@/hooks/useRawMaterialsNetStock';
 import { computeExciseReturn } from '@/lib/exciseCalc';
 import { ELECTRICITY_EF, WATER_EF, LPG_EF, VEHICLE_FUEL_EF } from '@/pages/UtilityTracker';
@@ -40,13 +40,12 @@ export default function Reports() {
   const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const [exciseMonth, setExciseMonth] = useState(`${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`);
   const [exporting, setExporting] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
-  const [recvPage, setRecvPage] = useState(1);
-  const [recvPageSize, setRecvPageSize] = useState(50);
-  const [dispPage, setDispPage] = useState(1);
-  const [dispPageSize, setDispPageSize] = useState(50);
-  const [wastePage, setWastePage] = useState(1);
-  const [wastePageSize, setWastePageSize] = useState(50);
+  const [selected, setSelected] = useState(null); // { categoryKey, itemKey } | null = landing page
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const handleSelect = (categoryKey, itemKey) => setSelected({ categoryKey, itemKey });
+  const resolved = selected ? findReportItem(selected.categoryKey, selected.itemKey) : null;
+  const navItem = resolved?.item;
 
   const setPreset = (key) => {
     const today = new Date();
@@ -110,20 +109,12 @@ export default function Reports() {
     } catch { return false; }
   };
 
-  // Filtered data for selected month
-  // Exclude tasting/sample bottle wastage records — these are intentional, not losses
-  const monthWastage = wastage.filter(w =>
-    inRange(w.date) &&
-    !(w.reason || '').toLowerCase().includes('tasting') &&
-    !(w.reason || '').toLowerCase().includes('sample bottle')
-  );
+  // Filtered data for selected month — used by handleExport's movements/carbon cases
   const monthReceiving = receiving.filter(r => inRange(r.date_received));
   const monthDispatches = dispatches.filter(d => inRange(d.dispatch_date));
   const warehouseDispatches = monthDispatches.filter(d => d.notes?.startsWith('[3PL]'));
   const distilleryDispatches = monthDispatches.filter(d => !d.notes?.startsWith('[3PL]'));
   const monthTankMovements = tankMovements.filter(tm => inRange(tm.date) && tm.counterpart_tank === 'Auckland 3PL');
-
-  // rawMaterialsNetStock is now provided by the shared useRawMaterialsNetStock hook above
 
   // FinishedGood.quantity_bottles is already the live net quantity —
   // dispatches are deducted from it in real time when a dispatch is saved.
@@ -144,38 +135,6 @@ export default function Reports() {
   const totalWarehouseBottles = warehouseStock.reduce((s, w) => s + (w.quantity_bottles || 0), 0);
   const totalWarehouseLals = warehouseStock.reduce((s, w) => s + (w.total_lals || 0), 0);
   const totalEthanolLals = rawMaterialsNetStock.filter(m => m.type === 'ethanol').reduce((s, m) => s + (m.lals || 0), 0);
-
-  // COGS breakdown is now rendered by the CostOfGoodsReport component
-
-  // Combined wastage: use WastageRecord entity only (distillation dumps are already stored there)
-  const combinedWastage = monthWastage;
-
-  // Wastage stats
-  const totalWastedLals = combinedWastage.reduce((s, w) => s + (w.lals || 0), 0);
-  const totalWastedVol = combinedWastage.reduce((s, w) => s + (w.volume || 0), 0);
-
-  // Cost per LAL: look up cost from ethanol raw materials
-  const ethanolCostPerLal = rawMaterials.filter(m => m.type === 'ethanol' && m.cost_per_unit)
-    .reduce((avg, m, _, arr) => avg + m.cost_per_unit / arr.length, 0) || 3.5;
-
-  const wastageWithCost = combinedWastage.map(w => {
-    const costPerLal = ethanolCostPerLal;
-    const totalLoss = parseFloat(((w.lals || 0) * costPerLal).toFixed(2));
-    return { ...w, cost_per_lal: costPerLal, total_loss: totalLoss };
-  });
-
-  const totalWastageCost = wastageWithCost.reduce((s, w) => s + w.total_loss, 0);
-  const avgCostPerLalWasted = totalWastedLals > 0 ? (totalWastageCost / totalWastedLals).toFixed(2) : '0.00';
-
-  // Wastage by source for bar chart
-  const wastageBySource = ['distillation', 'bottling', 'tank', 'sns_distillation', 'other'].map(src => {
-    const label = src === 'sns_distillation' ? 'SNS Distillation' : src.charAt(0).toUpperCase() + src.slice(1);
-    return {
-      source: label,
-      lals: parseFloat(combinedWastage.filter(w => w.source === src).reduce((s, w) => s + (w.lals || 0), 0).toFixed(3)),
-      volume: parseFloat(combinedWastage.filter(w => w.source === src).reduce((s, w) => s + (w.volume || 0), 0).toFixed(2)),
-    };
-  }).filter(d => d.lals > 0 || d.volume > 0);
 
   // 6-month trend (always last 6 calendar months regardless of date range)
   const trendData = Array.from({ length: 6 }, (_, i) => {
@@ -226,7 +185,7 @@ export default function Reports() {
     setExporting(true);
     try {
       const label = `${startDate}_to_${endDate}`;
-      switch (activeTab) {
+      switch (navItem?.key) {
         case 'overview': {
           const headers = ['product_name','batch_number','bottle_size_ml','abv_percent','quantity_bottles','total_lals'];
           const rows = finishedGoodsWithStock.map(g => ({
@@ -258,11 +217,22 @@ export default function Reports() {
           break;
         }
         case 'wastage': {
-          const headers = ['date','batch_number','product_name','source','volume','abv','lals','reason'];
-          const rows = wastageWithCost.map(w => ({
+          // Mirrors WastageReport.jsx's own derivation (duplicated rather than
+          // reached into, same pattern the 'cogs' case below already uses) so
+          // this export never depends on that component having rendered.
+          const monthWastage = wastage.filter(w =>
+            inRange(w.date) &&
+            !(w.reason || '').toLowerCase().includes('tasting') &&
+            !(w.reason || '').toLowerCase().includes('sample bottle')
+          );
+          const ethanolCostPerLal = rawMaterials.filter(m => m.type === 'ethanol' && m.cost_per_unit)
+            .reduce((avg, m, _, arr) => avg + m.cost_per_unit / arr.length, 0) || 3.5;
+          const rows = monthWastage.map(w => ({
             date: w.date, batch_number: w.batch_number, product_name: w.product_name,
             source: w.source, volume: w.volume, abv: w.abv, lals: w.lals, reason: w.reason,
+            cost_per_lal: ethanolCostPerLal, total_loss: parseFloat(((w.lals || 0) * ethanolCostPerLal).toFixed(2)),
           }));
+          const headers = ['date','batch_number','product_name','source','volume','abv','lals','cost_per_lal','total_loss','reason'];
           exportCSV(`wastage_${label}.csv`, rows, headers);
           break;
         }
@@ -409,14 +379,8 @@ export default function Reports() {
           exportCSV(`iso_lifecycle_${label}.csv`, rows, ['scope', 'source', 'factor', 'quantity', 'co2e_kg', 'share_pct']);
           break;
         }
-        case 'sales':
-          toast.info('Use the Export CSV button within the Sales tab to export your current filters.');
-          break;
-        case 'forecast':
-          toast.info('Use the browser print function (Ctrl+P) to save the forecast as a PDF.');
-          break;
         default:
-          toast.info('Switch to a tab to export its data.');
+          toast.info('Open a report to export its data.');
       }
     } catch (err) {
       toast.error('Export failed: ' + err.message);
@@ -425,228 +389,196 @@ export default function Reports() {
     }
   };
 
-  const monthLabel = `${format(rangeStart, 'dd MMM yyyy')} – ${format(rangeEnd, 'dd MMM yyyy')}`;
-
-  const pagedReceiving = monthReceiving.slice((recvPage - 1) * recvPageSize, recvPage * recvPageSize);
-  const pagedDispatches = monthDispatches.slice((dispPage - 1) * dispPageSize, dispPage * dispPageSize);
-  const pagedWastage = wastageWithCost.slice((wastePage - 1) * wastePageSize, wastePage * wastePageSize);
-
   return (
     <div>
       <PageHeader title="Reports" subtitle="Operational audit, inventory snapshot, and wastage analysis">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap gap-1.5">
-            {[['thisMonth','This Month'],['lastMonth','Last Month'],['thisQuarter','This Quarter'],['thisYear','YTD'],['last12','Last 12 Months']].map(([key,label]) => (
-              <Button key={key} size="sm" variant="outline" onClick={() => setPreset(key)}>{label}</Button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-muted-foreground whitespace-nowrap">From</label>
-            <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-36 text-sm" />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-muted-foreground whitespace-nowrap">To</label>
-            <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-36 text-sm" />
-          </div>
-          <Button onClick={handleExport} disabled={exporting} className="gap-2">
-            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
-            {exporting ? 'Exporting…' : 'Export CSV'}
-          </Button>
-        </div>
+        <ReportsSearch onSelect={handleSelect} />
       </PageHeader>
 
-      <Tabs defaultValue="overview" className="space-y-6" onValueChange={setActiveTab}>
-        <TabsList>
-           <TabsTrigger value="overview">Inventory Snapshot</TabsTrigger>
-           <TabsTrigger value="sales">Sales</TabsTrigger>
-           <TabsTrigger value="cogs">Cost of Goods</TabsTrigger>
-           <TabsTrigger value="movements">Movements</TabsTrigger>
-           <TabsTrigger value="carbon">Carbon Footprint</TabsTrigger>
-           <TabsTrigger value="wastage">Wastage Analysis</TabsTrigger>
-           <TabsTrigger value="excise">Excise Return</TabsTrigger>
-          <TabsTrigger value="forecast">Forecast</TabsTrigger>
-          <TabsTrigger value="iso">ISO Lifecycle</TabsTrigger>
-          <TabsTrigger value="batch-trace">Batch Trace</TabsTrigger>
-           </TabsList>
-
-        {/* ── INVENTORY SNAPSHOT ── */}
-        <TabsContent value="overview" className="space-y-6">
-          <InventoryReport
-            rawMaterialsNetStock={rawMaterialsNetStock}
-            finishedGoodsWithStock={finishedGoodsWithStock}
-            warehouseStock={warehouseStock}
-            tanks={tanks}
-          />
-        </TabsContent>
-
-          {/* ── SALES ── */}
-          <TabsContent value="sales" className="space-y-6">
-            <SalesReport
-              dispatches={dispatches}
-              startDate={startDate}
-              endDate={endDate}
-            />
-          </TabsContent>
-
-          {/* ── COST OF GOODS ── */}
-          <TabsContent value="cogs" className="space-y-6">
-            <CostOfGoodsReport
-              rawMaterialsNetStock={rawMaterialsNetStock}
-              rawMaterials={rawMaterials}
-              finishedGoodsWithStock={finishedGoodsWithStock}
-              tanks={tanks}
-              recipes={recipes}
-              distillationRuns={distillationRuns}
-              bottlingRuns={bottlingRuns}
-              masterBatches={masterBatches}
-              startDate={startDate}
-              endDate={endDate}
-            />
-          </TabsContent>
-
-          {/* ── MOVEMENTS ── */}
-          <TabsContent value="movements" className="space-y-6">
-            <MovementsReport
-              receiving={receiving}
-              dispatches={dispatches}
-              distillationRuns={distillationRuns}
-              bottlingRuns={bottlingRuns}
-              tankMovements={tankMovements}
-              tanks={tanks}
-              wastage={wastage}
-              finishedGoods={finishedGoods}
-              warehouseStock={warehouseStock}
-              startDate={startDate}
-              endDate={endDate}
-            />
-          </TabsContent>
-
-        {/* ── CARBON FOOTPRINT ── */}
-        <TabsContent value="carbon" className="space-y-6">
-          <CarbonReport
-            receiving={receiving}
-            dispatches={dispatches}
-            warehouseStock={warehouseStock}
-            startDate={startDate}
-            endDate={endDate}
-          />
-          <CarbonOffsetsPanel
-            receiving={receiving}
-            dispatches={dispatches}
-            warehouseStock={warehouseStock}
-          />
-        </TabsContent>
-
-         {/* ── WASTAGE ── */}
-        <TabsContent value="wastage" className="space-y-6">
-          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">{monthLabel} — Wastage Analysis</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatCard label="Total Volume Wasted" value={totalWastedVol.toFixed(2)} sub="litres" icon={TrendingDown} color="text-destructive" bg="bg-red-50 border-red-200" />
-            <StatCard label="Total LALs Wasted" value={totalWastedLals.toFixed(3)} sub="litres abs. alcohol" icon={TrendingDown} color="text-destructive" bg="bg-red-50 border-red-200" />
-            <StatCard label="Avg Cost / LAL" value={`$${avgCostPerLalWasted}`} sub="of wasted spirit" icon={TrendingDown} color="text-amber-700" bg="bg-amber-50 border-amber-200" />
-            <StatCard label="Total Wastage Cost" value={`$${totalWastageCost.toFixed(2)}`} sub="estimated loss" icon={TrendingDown} color="text-amber-700" bg="bg-amber-50 border-amber-200" />
-          </div>
-
-          {wastageBySource.length > 0 && (
-            <Card className="p-4">
-              <h4 className="text-sm font-semibold mb-4">Wastage by Source — {monthLabel}</h4>
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={wastageBySource}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="source" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="volume" name="Volume (L)" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="lals" name="LALs" fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </Card>
+      {(navItem?.needsDateRange || navItem?.hasPageExport) && (
+        <div className="flex flex-wrap items-center gap-2 mb-6">
+          {navItem?.needsDateRange && (
+            <>
+              <div className="flex flex-wrap gap-1.5">
+                {[['thisMonth','This Month'],['lastMonth','Last Month'],['thisQuarter','This Quarter'],['thisYear','YTD'],['last12','Last 12 Months']].map(([key,label]) => (
+                  <Button key={key} size="sm" variant="outline" onClick={() => setPreset(key)}>{label}</Button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-muted-foreground whitespace-nowrap">From</label>
+                <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-36 text-sm" />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-muted-foreground whitespace-nowrap">To</label>
+                <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-36 text-sm" />
+              </div>
+            </>
           )}
+          {navItem?.hasPageExport && (
+            <Button onClick={handleExport} disabled={exporting} className="gap-2">
+              {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+              {exporting ? 'Exporting…' : 'Export CSV'}
+            </Button>
+          )}
+        </div>
+      )}
 
-          <Card className="p-4">
-            <h4 className="text-sm font-semibold mb-4">Wastage Ledger — {monthLabel}</h4>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Batch</TableHead>
-                    <TableHead>Source</TableHead>
-                    <TableHead>Volume (L)</TableHead>
-                    <TableHead>ABV %</TableHead>
-                     <TableHead>LALs</TableHead>
-                     <TableHead>Cost / LAL</TableHead>
-                     <TableHead>Total Loss</TableHead>
-                    <TableHead>Reason</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {wastageWithCost.length === 0 ? (
-                    <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">No wastage records this month</TableCell></TableRow>
-                  ) : pagedWastage.map(w => (
-                    <TableRow key={w.id}>
-                      <TableCell className="text-sm">{w.date ? format(parseISO(w.date), 'dd MMM yyyy') : '—'}</TableCell>
-                      <TableCell className="font-medium text-sm">{w.product_name}</TableCell>
-                      <TableCell className="font-mono text-xs">{w.batch_number}</TableCell>
-                      <TableCell className="text-sm capitalize">{w.source}</TableCell>
-                      <TableCell className="text-sm font-semibold">{w.volume?.toFixed(2) || '—'}</TableCell>
-                      <TableCell className="text-sm">{w.abv ? `${w.abv}%` : '—'}</TableCell>
-                      <TableCell className="text-sm">{w.lals?.toFixed(3) || '—'}</TableCell>
-                      <TableCell className="text-sm text-amber-700">${w.cost_per_lal?.toFixed(2)}</TableCell>
-                      <TableCell className="text-sm font-semibold text-destructive">${w.total_loss?.toFixed(2)}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{w.reason || '—'}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+      {/* Mobile reports menu trigger */}
+      <div className="lg:hidden mb-5">
+        <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+          <SheetTrigger asChild>
+            <Button variant="outline" className="w-full justify-between gap-2">
+              <span className="flex items-center gap-2 truncate">
+                <Menu className="w-4 h-4 shrink-0" /> {navItem ? navItem.label : 'Reports Menu'}
+              </span>
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="w-72 overflow-y-auto">
+            <SheetHeader><SheetTitle>Reports</SheetTitle></SheetHeader>
+            <div className="mt-4">
+              <ReportsNavSidebar
+                selected={selected}
+                onSelect={handleSelect}
+                onNavigate={() => setMobileNavOpen(false)}
+              />
             </div>
-            <Pagination total={wastageWithCost.length} page={wastePage} pageSize={wastePageSize} onPageChange={setWastePage} onPageSizeChange={(s) => { setWastePageSize(s); setWastePage(1); }} />
-          </Card>
-        </TabsContent>
-        {/* ── EXCISE RETURN ── */}
-        <TabsContent value="excise" className="space-y-6">
-          <ExciseReturn
-            finishedGoods={finishedGoods}
-            warehouseStock={warehouseStock}
-            tanks={tanks}
-            dispatches={dispatches}
-            distillationRuns={productionRunsForExcise}
-            bottlingRuns={bottlingRuns}
-            wastage={wastage}
-            selectedMonth={exciseMonth}
-            onMonthChange={setExciseMonth}
-          />
-        </TabsContent>
+          </SheetContent>
+        </Sheet>
+      </div>
 
-        <TabsContent value="forecast" className="space-y-5">
-          <ForecastReport
-            dispatches={dispatches}
-            rawMaterials={rawMaterials}
-            finishedGoods={finishedGoods}
-            recipes={recipes}
-            bottlingRuns={bottlingRuns}
-            distillationRuns={distillationRuns}
-          />
-        </TabsContent>
+      <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-8">
+        <div className="hidden lg:block">
+          <ReportsNavSidebar selected={selected} onSelect={handleSelect} />
+        </div>
 
-        {/* ── ISO LIFECYCLE ── */}
-        <TabsContent value="iso" className="space-y-6">
-          <IsoLifecycleReport
-            receiving={receiving}
-            dispatches={dispatches}
-            warehouseStock={warehouseStock}
-            startDate={startDate}
-            endDate={endDate}
-          />
-        </TabsContent>
+        <div className="min-w-0">
+          {!resolved ? (
+            <ReportsLanding onSelect={handleSelect} />
+          ) : (
+            <div>
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-4 flex-wrap">
+                <button onClick={() => setSelected(null)} className="hover:text-foreground transition-colors">Reports</button>
+                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/50" />
+                <span>{resolved.category.label}</span>
+                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/50" />
+                <span className="text-foreground font-medium">{resolved.item.label}</span>
+              </div>
 
-        {/* ── BATCH TRACE ── */}
-        <TabsContent value="batch-trace" className="space-y-6">
-          <BatchTraceReport />
-        </TabsContent>
-      </Tabs>
+              {navItem.key === 'overview' && (
+                <InventoryReport
+                  rawMaterialsNetStock={rawMaterialsNetStock}
+                  finishedGoodsWithStock={finishedGoodsWithStock}
+                  warehouseStock={warehouseStock}
+                  tanks={tanks}
+                />
+              )}
+
+              {navItem.key === 'sales' && (
+                <SalesReport
+                  dispatches={dispatches}
+                  startDate={startDate}
+                  endDate={endDate}
+                />
+              )}
+
+              {navItem.key === 'cogs' && (
+                <CostOfGoodsReport
+                  rawMaterialsNetStock={rawMaterialsNetStock}
+                  rawMaterials={rawMaterials}
+                  finishedGoodsWithStock={finishedGoodsWithStock}
+                  tanks={tanks}
+                  recipes={recipes}
+                  distillationRuns={distillationRuns}
+                  bottlingRuns={bottlingRuns}
+                  masterBatches={masterBatches}
+                  startDate={startDate}
+                  endDate={endDate}
+                />
+              )}
+
+              {navItem.key === 'movements' && (
+                <MovementsReport
+                  receiving={receiving}
+                  dispatches={dispatches}
+                  distillationRuns={distillationRuns}
+                  bottlingRuns={bottlingRuns}
+                  tankMovements={tankMovements}
+                  tanks={tanks}
+                  wastage={wastage}
+                  finishedGoods={finishedGoods}
+                  warehouseStock={warehouseStock}
+                  startDate={startDate}
+                  endDate={endDate}
+                />
+              )}
+
+              {navItem.key === 'carbon' && (
+                <div className="space-y-6">
+                  <CarbonReport
+                    receiving={receiving}
+                    dispatches={dispatches}
+                    warehouseStock={warehouseStock}
+                    startDate={startDate}
+                    endDate={endDate}
+                  />
+                  <CarbonOffsetsPanel
+                    receiving={receiving}
+                    dispatches={dispatches}
+                    warehouseStock={warehouseStock}
+                  />
+                </div>
+              )}
+
+              {navItem.key === 'wastage' && (
+                <WastageReport
+                  wastage={wastage}
+                  rawMaterials={rawMaterials}
+                  startDate={startDate}
+                  endDate={endDate}
+                />
+              )}
+
+              {navItem.key === 'excise' && (
+                <ExciseReturn
+                  finishedGoods={finishedGoods}
+                  warehouseStock={warehouseStock}
+                  tanks={tanks}
+                  dispatches={dispatches}
+                  distillationRuns={productionRunsForExcise}
+                  bottlingRuns={bottlingRuns}
+                  wastage={wastage}
+                  selectedMonth={exciseMonth}
+                  onMonthChange={setExciseMonth}
+                />
+              )}
+
+              {navItem.key === 'forecast' && (
+                <ForecastReport
+                  dispatches={dispatches}
+                  rawMaterials={rawMaterials}
+                  finishedGoods={finishedGoods}
+                  recipes={recipes}
+                  bottlingRuns={bottlingRuns}
+                  distillationRuns={distillationRuns}
+                />
+              )}
+
+              {navItem.key === 'iso' && (
+                <IsoLifecycleReport
+                  receiving={receiving}
+                  dispatches={dispatches}
+                  warehouseStock={warehouseStock}
+                  startDate={startDate}
+                  endDate={endDate}
+                />
+              )}
+
+              {navItem.key === 'batch-trace' && <BatchTraceReport />}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* CSV Copy Modal — fallback if download is blocked */}
       {csvModal && (
         <Dialog open={!!csvModal} onOpenChange={() => setCsvModal(null)}>
