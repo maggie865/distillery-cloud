@@ -25,7 +25,7 @@ import TransferTo3PLDialog from '@/components/dispatch/TransferTo3PLDialog.jsx';
 import DuplicateReviewDialog from '@/components/dispatch/DuplicateReviewDialog.jsx';
 import ExciseFlags from '@/components/dispatch/ExciseFlags.jsx';
 import DeliveryMap from '@/components/sales/DeliveryMap';
-import { buildBluffProductOptions, allocateBluffLineItems } from '@/lib/dispatchAllocation';
+import { buildBluffProductOptions, allocateBluffLineItems, resolve3PLWarehouseStockRow } from '@/lib/dispatchAllocation';
 import { useAuth } from '@/lib/AuthContext';
 import { deductFromPallet, restoreToPallet } from '@/lib/palletStock';
 
@@ -184,19 +184,23 @@ export default function DispatchHub() {
     const lals = dispatch.total_lals || 0;
     if (is3PL) {
       const loc = from === 'UK Bonded' ? 'UK Bonded' : 'Auckland 3PL';
-      // .find() returns a single row (or undefined), not an array — was
-      // being checked with .length/[0] as if it were one, which threw
-      // whenever no matching row existed (e.g. a freshly-approved Xero
-      // dispatch whose manually-typed product/batch doesn't exactly match
-      // any real warehouse_stock row) and crashed the whole save silently.
-      const existing = (await db.WarehouseStock.filter({ product_name: dispatch.product_name, batch_number: dispatch.batch_number }))
-        .find(w => (w.warehouse_location || 'Auckland 3PL') === loc);
+      // Matching on product_name + batch_number alone (as this used to) is
+      // ambiguous whenever that batch has more than one shipment row at
+      // this location, or exists here in more than one bottle size —
+      // routine, since every transfer creates its own row (see
+      // TransferTo3PLDialog) — and silently corrupted whichever row the
+      // old .find() happened to land on instead of this dispatch's actual
+      // size. resolve3PLWarehouseStockRow matches on size too and picks
+      // the same FIFO-oldest row a fresh allocation against this batch
+      // would offer.
+      const candidates = await db.WarehouseStock.filter({ product_name: dispatch.product_name, batch_number: dispatch.batch_number, bottle_size_ml: dispatch.bottle_size_ml });
+      const existing = resolve3PLWarehouseStockRow(candidates, { product_name: dispatch.product_name, batch_number: dispatch.batch_number, bottle_size_ml: dispatch.bottle_size_ml, location: loc });
       if (existing) {
         const newQty = Math.max(0, (existing.quantity_bottles || 0) - qty);
-        const newLals = parseFloat(((existing.total_lals || 0) - lals).toFixed(4));
+        const newLals = Math.max(0, parseFloat(((existing.total_lals || 0) - lals).toFixed(4)));
         await db.WarehouseStock.update(existing.id, { quantity_bottles: newQty, total_lals: newLals });
       } else {
-        toast.warning(`No matching 3PL stock found for ${dispatch.product_name} batch ${dispatch.batch_number} at ${loc} — dispatch saved, but no warehouse quantity was decremented.`);
+        toast.warning(`No matching 3PL stock found for ${dispatch.product_name} batch ${dispatch.batch_number} (${dispatch.bottle_size_ml}ml) at ${loc} — dispatch saved, but no warehouse quantity was decremented.`);
       }
     } else {
       const allFG = await db.FinishedGood.list('product_name', 5000);
@@ -386,8 +390,12 @@ export default function DispatchHub() {
     const is3PL = from === 'Auckland 3PL' || from === 'UK Bonded';
     if (is3PL) {
       const loc = from === 'UK Bonded' ? 'UK Bonded' : 'Auckland 3PL';
-      const existing = (await db.WarehouseStock.filter({ product_name: dispatch.product_name, batch_number: dispatch.batch_number }))
-        .find(w => (w.warehouse_location || 'Auckland 3PL') === loc);
+      // Same FIFO-oldest-row resolution as depleteStock, now also matching
+      // on bottle size — restoring into the same row deplete would target
+      // keeps a create-then-delete (or dispatch-then-return) net to zero
+      // on one row instead of touching two different shipments.
+      const candidates = await db.WarehouseStock.filter({ product_name: dispatch.product_name, batch_number: dispatch.batch_number, bottle_size_ml: dispatch.bottle_size_ml });
+      const existing = resolve3PLWarehouseStockRow(candidates, { product_name: dispatch.product_name, batch_number: dispatch.batch_number, bottle_size_ml: dispatch.bottle_size_ml, location: loc });
       if (existing) {
         await db.WarehouseStock.update(existing.id, { quantity_bottles: (existing.quantity_bottles || 0) + (dispatch.quantity_bottles || 0), total_lals: parseFloat(((existing.total_lals || 0) + (dispatch.total_lals || 0)).toFixed(4)) });
       } else {
