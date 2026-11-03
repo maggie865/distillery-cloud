@@ -80,6 +80,35 @@ export function build3PLProductOptions(warehouseStock, location) {
   }).filter(opt => opt.totalAvailable > 0);
 }
 
+// Resolves which single warehouse_stock row a product+batch+size dispatch
+// at a given 3PL location should deduct from or restore to, for callers that
+// only know a dispatch's product/batch/size/location — not which specific
+// shipment row it actually came from, since Dispatch rows never persist a
+// warehouse_stock_id back-reference. `warehouseStock.filter(...)` matching
+// on product_name/batch_number alone (as DispatchHub's depleteStock/
+// restoreStock used to) is ambiguous whenever a batch has more than one
+// shipment row at that location (routine — every transfer creates its own
+// row, see TransferTo3PLDialog) or exists there in more than one bottle
+// size; picking whichever happens to come back first silently corrupts
+// whichever row it didn't mean to touch. Applies the same FIFO-oldest-first
+// rule build3PLProductOptions already uses when offering these rows for a
+// new dispatch, so an existing dispatch's status change resolves to the
+// same row a fresh allocation against this batch would have picked.
+export function resolve3PLWarehouseStockRow(warehouseStock, { product_name, batch_number, bottle_size_ml, location }) {
+  const loc = location === 'UK Bonded' ? 'UK Bonded' : 'Auckland 3PL';
+  const matches = warehouseStock.filter(ws =>
+    ws.product_name === product_name &&
+    ws.batch_number === batch_number &&
+    Number(ws.bottle_size_ml) === Number(bottle_size_ml) &&
+    (ws.warehouse_location || 'Auckland 3PL') === loc
+  );
+  if (matches.length === 0) return null;
+  const sorted = [...matches].sort((a, b) =>
+    new Date(a.date_transferred_in || a.created_at) - new Date(b.date_transferred_in || b.created_at)
+  );
+  return sorted.find(ws => (ws.quantity_bottles || 0) > 0) || sorted[0];
+}
+
 // Allocates every line item in `lineItems` (each { productKey: "name||size",
 // quantity, batchId? }) against `bluffProductOptions`, FIFO across shared
 // availability unless a line pins a specific batchId (manual mode) — exact
