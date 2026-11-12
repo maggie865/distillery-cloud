@@ -155,3 +155,29 @@ export function allocateBluffLineItems(lineItems, bluffProductOptions, { distanc
   }
   return allAllocations;
 }
+
+// The explicit-choice counterpart to allocateBluffLineItems: used when the
+// person splitting a dispatch picks which batches and how much from each
+// themselves, instead of FIFO deciding for them. Takes `rows` (each
+// { batchId, quantity }) against one already-resolved product option and
+// returns the same [{ batch, take, lals, weightKg, co2e }] shape as the
+// FIFO/pinned-batch allocator, so every downstream consumer (row creation,
+// deplete/restore) works unchanged either way. Validates each row against
+// its own batch's availability only — rows are expected to reference
+// distinct batches (the picker UI prevents picking the same batch twice),
+// so there's no need for allocateBluffLineItems' running batchAvailMap.
+export function allocateManualSplit(effectiveOption, rows, { distanceKm = 0, transportMethod } = {}) {
+  const allocations = [];
+  for (const row of rows) {
+    const batch = effectiveOption.batches.find(b => b.id === row.batchId);
+    if (!batch) throw new Error('Batch not found');
+    const take = parseInt(row.quantity) || 0;
+    if (take <= 0) continue;
+    if (take > batch.available) throw new Error(`Only ${batch.available} available in batch ${batch.batch_number}`);
+    const bottleSize = batch.bottle_size_ml || 700;
+    const lals = ((take * bottleSize) / 1000) * (batch.abv_percent || 0) / 100;
+    const weightKg = calcWeightKg(bottleSize, take);
+    allocations.push({ batch, take, lals, weightKg, co2e: calcCO2e(distanceKm, weightKg, transportMethod) });
+  }
+  return allocations;
+}

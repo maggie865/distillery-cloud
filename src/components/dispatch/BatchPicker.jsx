@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, X, Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { buildBluffProductOptions, build3PLProductOptions, allocateBluffLineItems } from '@/lib/dispatchAllocation';
+import { buildBluffProductOptions, build3PLProductOptions, allocateBluffLineItems, allocateManualSplit } from '@/lib/dispatchAllocation';
 
 // Product/batch picker for approving a dispatch row in DispatchHub's Edit
 // dialog — built on the same allocator DispatchForm uses at creation time
@@ -24,11 +25,14 @@ import { buildBluffProductOptions, build3PLProductOptions, allocateBluffLineItem
 // shows as a summary instead of re-allocating on open — silently changing an
 // already-committed allocation just because current stock has since moved
 // would be wrong; reassigning is an explicit action.
-export default function BatchPicker({ finishedGoods = [], warehouseStock = [], dispatchedFrom = 'Bluff', palletId = '', productName, bottleSizeMl, batchNumber, quantityBottles, distanceKm = 0, transportMethod, onAllocate }) {
+export default function BatchPicker({ finishedGoods = [], warehouseStock = [], dispatchedFrom = 'Bluff', palletId = '', productName, bottleSizeMl, batchNumber, quantityBottles, distanceKm = 0, transportMethod, onAllocate, onSplit, onClearSplit, splitExtraCount = 0 }) {
   const [manualProductId, setManualProductId] = useState('');
   const [allocationMode, setAllocationMode] = useState('fifo');
   const [manualBatchId, setManualBatchId] = useState('');
   const [reassigning, setReassigning] = useState(false);
+  const [splitRows, setSplitRows] = useState([]);
+  const [stagingBatchId, setStagingBatchId] = useState('');
+  const [stagingQty, setStagingQty] = useState('');
 
   const { data: products = [] } = useQuery({
     queryKey: ['products'],
@@ -162,6 +166,38 @@ export default function BatchPicker({ finishedGoods = [], warehouseStock = [], d
     }
   };
 
+  const splitTotal = splitRows.reduce((s, r) => s + (parseInt(r.quantity) || 0), 0);
+
+  const addSplitRow = () => {
+    const qty = parseInt(stagingQty) || 0;
+    if (!stagingBatchId || qty <= 0) return;
+    setSplitRows(prev => [...prev, { batchId: stagingBatchId, quantity: qty }]);
+    setStagingBatchId('');
+    setStagingQty('');
+  };
+
+  const removeSplitRow = (batchId) => setSplitRows(prev => prev.filter(r => r.batchId !== batchId));
+
+  const applySplit = () => {
+    if (!effectiveOption || !onSplit) return;
+    try {
+      const allocations = allocateManualSplit(effectiveOption, splitRows, { distanceKm, transportMethod });
+      const shaped = allocations.map(a => ({
+        product_name: effectiveOption.product_name,
+        bottle_size_ml: a.batch.bottle_size_ml || effectiveOption.bottle_size_ml || null,
+        batch_number: a.batch.batch_number,
+        quantity_bottles: a.take,
+        total_lals: parseFloat(a.lals.toFixed(4)),
+        parcel_weight_kg: a.weightKg,
+        co2e_kg: a.co2e,
+      }));
+      onSplit(shaped);
+      setSplitRows([]);
+    } catch (e) {
+      toast.error(e.message || 'Failed to apply split');
+    }
+  };
+
   // Auto-run FIFO allocation as soon as a matched/chosen product with stock
   // is known — approving an already-mapped Xero row shouldn't need an extra
   // manual step in the common case. Only while the picker is actually shown
@@ -177,9 +213,17 @@ export default function BatchPicker({ finishedGoods = [], warehouseStock = [], d
       <div className="col-span-2 flex items-center justify-between gap-3 rounded-lg border border-border p-3">
         <div className="min-w-0">
           <p className="text-sm font-medium truncate">{productName}{bottleSizeMl ? ` (${bottleSizeMl}ml)` : ''}</p>
-          <p className="text-xs text-muted-foreground">Batch {batchNumber}</p>
+          <p className="text-xs text-muted-foreground">
+            Batch {batchNumber}
+            {splitExtraCount > 0 && ` + ${splitExtraCount} more batch${splitExtraCount > 1 ? 'es' : ''} (split — will create ${splitExtraCount} extra dispatch row${splitExtraCount > 1 ? 's' : ''} on save)`}
+          </p>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={() => setReassigning(true)}>Reassign</Button>
+        <div className="flex gap-2 shrink-0">
+          {splitExtraCount > 0 && (
+            <Button type="button" variant="outline" size="sm" onClick={() => { onClearSplit?.(); setReassigning(true); }}>Clear split</Button>
+          )}
+          <Button type="button" variant="outline" size="sm" onClick={() => setReassigning(true)}>Reassign</Button>
+        </div>
       </div>
     );
   }
@@ -203,7 +247,14 @@ export default function BatchPicker({ finishedGoods = [], warehouseStock = [], d
           <p className="text-xs text-destructive">No stock available for {manualProduct.name}{manualProduct.bottle_size_ml ? ` (${manualProduct.bottle_size_ml}ml)` : ''} {noStockReason}.</p>
         )}
         {manualProduct && effectiveOption && (
-          <BatchSelector effectiveOption={effectiveOption} allocationMode={allocationMode} setAllocationMode={setAllocationMode} manualBatchId={manualBatchId} setManualBatchId={setManualBatchId} onPick={allocate} />
+          <BatchSelector
+            effectiveOption={effectiveOption} allocationMode={allocationMode} setAllocationMode={setAllocationMode}
+            manualBatchId={manualBatchId} setManualBatchId={setManualBatchId} onPick={allocate}
+            onSplit={onSplit} quantityBottles={quantityBottles}
+            splitRows={splitRows} stagingBatchId={stagingBatchId} setStagingBatchId={setStagingBatchId}
+            stagingQty={stagingQty} setStagingQty={setStagingQty} splitTotal={splitTotal}
+            addSplitRow={addSplitRow} removeSplitRow={removeSplitRow} applySplit={applySplit}
+          />
         )}
       </div>
     );
@@ -220,17 +271,33 @@ export default function BatchPicker({ finishedGoods = [], warehouseStock = [], d
   return (
     <div className="col-span-2 space-y-2">
       <Label>Product — {productName}{bottleSizeMl ? ` (${bottleSizeMl}ml)` : ''}</Label>
-      <BatchSelector effectiveOption={effectiveOption} allocationMode={allocationMode} setAllocationMode={setAllocationMode} manualBatchId={manualBatchId} setManualBatchId={setManualBatchId} onPick={allocate} />
+      <BatchSelector
+        effectiveOption={effectiveOption} allocationMode={allocationMode} setAllocationMode={setAllocationMode}
+        manualBatchId={manualBatchId} setManualBatchId={setManualBatchId} onPick={allocate}
+        onSplit={onSplit} quantityBottles={quantityBottles}
+        splitRows={splitRows} stagingBatchId={stagingBatchId} setStagingBatchId={setStagingBatchId}
+        stagingQty={stagingQty} setStagingQty={setStagingQty} splitTotal={splitTotal}
+        addSplitRow={addSplitRow} removeSplitRow={removeSplitRow} applySplit={applySplit}
+      />
     </div>
   );
 }
 
-function BatchSelector({ effectiveOption, allocationMode, setAllocationMode, manualBatchId, setManualBatchId, onPick }) {
+function BatchSelector({
+  effectiveOption, allocationMode, setAllocationMode, manualBatchId, setManualBatchId, onPick,
+  onSplit, quantityBottles, splitRows, stagingBatchId, setStagingBatchId, stagingQty, setStagingQty,
+  splitTotal, addSplitRow, removeSplitRow, applySplit,
+}) {
+  const usedBatchIds = new Set(splitRows.map(r => r.batchId));
+  const availableForStaging = effectiveOption.batches.filter(b => !usedBatchIds.has(b.id));
   return (
     <div className="space-y-2">
       <div className="flex gap-1 rounded-md bg-muted p-1">
         <button type="button" className={`flex-1 text-xs font-medium py-1 rounded ${allocationMode === 'fifo' ? 'bg-background shadow-sm' : 'text-muted-foreground'}`} onClick={() => setAllocationMode('fifo')}>FIFO (auto)</button>
         <button type="button" className={`flex-1 text-xs font-medium py-1 rounded ${allocationMode === 'manual' ? 'bg-background shadow-sm' : 'text-muted-foreground'}`} onClick={() => setAllocationMode('manual')}>Choose batch</button>
+        {onSplit && (
+          <button type="button" className={`flex-1 text-xs font-medium py-1 rounded ${allocationMode === 'split' ? 'bg-background shadow-sm' : 'text-muted-foreground'}`} onClick={() => setAllocationMode('split')}>Split across batches</button>
+        )}
       </div>
       {allocationMode === 'manual' && (
         <Select value={manualBatchId} onValueChange={v => { setManualBatchId(v); onPick(v); }}>
@@ -241,6 +308,55 @@ function BatchSelector({ effectiveOption, allocationMode, setAllocationMode, man
             ))}
           </SelectContent>
         </Select>
+      )}
+      {allocationMode === 'split' && (
+        <div className="space-y-2">
+          {splitRows.length > 0 && (
+            <div className="space-y-1.5">
+              {splitRows.map(row => {
+                const batch = effectiveOption.batches.find(b => b.id === row.batchId);
+                return (
+                  <div key={row.batchId} className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5">
+                    <div className="flex-1 min-w-0 text-xs">
+                      <span className="font-medium">Batch {batch?.batch_number}</span>
+                      <span className="text-muted-foreground"> — {batch?.available} available</span>
+                    </div>
+                    <span className="text-sm font-semibold">{row.quantity}</span>
+                    <button type="button" onClick={() => removeSplitRow(row.batchId)} className="text-muted-foreground hover:text-destructive">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <Select value={stagingBatchId} onValueChange={setStagingBatchId}>
+              <SelectTrigger className="flex-1"><SelectValue placeholder="Add batch…" /></SelectTrigger>
+              <SelectContent>
+                {availableForStaging.map(b => (
+                  <SelectItem key={b.id} value={b.id}>Batch {b.batch_number} — {b.available} btls</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              type="number" min="1" placeholder="Qty" value={stagingQty}
+              onChange={e => setStagingQty(e.target.value)}
+              className="w-20"
+            />
+            <Button type="button" variant="outline" size="icon" onClick={addSplitRow} disabled={!stagingBatchId || !(parseInt(stagingQty) > 0)}>
+              <Plus className="w-4 h-4" />
+            </Button>
+          </div>
+          <div className="flex items-center justify-between">
+            <p className={`text-xs font-medium ${splitTotal === quantityBottles ? 'text-emerald-600' : 'text-amber-600'}`}>
+              {splitTotal} of {quantityBottles} bottles allocated
+            </p>
+            <Button type="button" size="sm" onClick={applySplit} disabled={splitTotal !== quantityBottles || splitRows.length < 2}>
+              Apply Split
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );
