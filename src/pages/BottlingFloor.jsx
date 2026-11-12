@@ -20,7 +20,7 @@ import BottlingRunTracker from '@/components/bottling/BottlingRunTracker';
 import Pagination from '@/components/ui/Pagination';
 import PreUseChecksTab from '@/components/maintenance/PreUseChecksTab';
 import { isBoxOrCase, findPackagingMaterial, checkPackagingStock } from '@/lib/packagingStock';
-import { reactivatePalletIfEmptied } from '@/lib/palletStock';
+import { reactivatePalletIfEmptied, getOrCreateSamplesPallet, restoreToPallet } from '@/lib/palletStock';
 import AddRunToPalletDialog from '@/components/pallets/AddRunToPalletDialog';
 import ChoosePalletDialog from '@/components/pallets/ChoosePalletDialog';
 import ScanPalletDialog from '@/components/pallets/ScanPalletDialog';
@@ -431,6 +431,19 @@ export default function BottlingFloor() {
         }
 
         // Tasting/sample bottles are tracked as finished goods stock — not wastage
+
+        // Stack them onto the dedicated Samples pallet so they stay
+        // trackable and dispatchable as their own pool, same best-effort
+        // reconciliation as stacking regular output onto the current pallet
+        // below — never blocks the real stock update above.
+        const samplesPalletId = await getOrCreateSamplesPallet();
+        await restoreToPallet(samplesPalletId, {
+          product_name: tastingName,
+          batch_number: activeRun.batch_code,
+          bottle_size_ml: activeRun.bottle_size_ml,
+          quantity_bottles: tastingBottles,
+          total_lals: parseFloat(tastingLals.toFixed(4)),
+        });
       }
 
       // 5. Deduct packaging materials from RawMaterial inventory using the recipe
@@ -671,6 +684,30 @@ export default function BottlingFloor() {
               quantity_bottles: newTastingQty,
               total_lals: parseFloat(newTastingLals.toFixed(4)),
             });
+          }
+        }
+      }
+
+      // 3b. Take this run's tasting bottles off the Samples pallet too —
+      // same clamped match as the main pallet reversal below, since
+      // completeRunMutation stacks them there automatically.
+      if (tastingBottlesProduced > 0) {
+        const tastingName = `${run.product_name} — Tasting`;
+        const samplesPalletId = await getOrCreateSamplesPallet();
+        const samplesItems = await db.PalletItem.filter({ pallet_id: samplesPalletId });
+        const samplesItem = samplesItems.find(it =>
+          it.product_name === tastingName &&
+          (it.batch_number || null) === (run.batch_number || null) &&
+          Number(it.bottle_size_ml) === Number(run.bottle_size_ml)
+        );
+        if (samplesItem) {
+          const itemLalsPerBottle = (samplesItem.quantity_bottles || 0) > 0 && samplesItem.total_lals ? samplesItem.total_lals / samplesItem.quantity_bottles : 0;
+          const newQty = Math.max(0, (samplesItem.quantity_bottles || 0) - tastingBottlesProduced);
+          const newLals = Math.max(0, (samplesItem.total_lals || 0) - tastingBottlesProduced * itemLalsPerBottle);
+          if (newQty === 0) {
+            await db.PalletItem.delete(samplesItem.id);
+          } else {
+            await db.PalletItem.update(samplesItem.id, { quantity_bottles: newQty, total_lals: parseFloat(newLals.toFixed(4)) });
           }
         }
       }
@@ -1252,7 +1289,7 @@ export default function BottlingFloor() {
                 <li>Return <strong>{deletingRun?.input_volume?.toFixed(1)}L</strong> of spirit back to the source tank</li>
                 <li>Remove <strong>{deletingRun ? (deletingRun.bottles_produced || 0) - deleteShortfall : 0}</strong> bottles from finished goods stock{deleteShortfall > 0 ? ' (all that remains)' : ''}</li>
                 {deletingRun?.tasting_bottles_produced > 0 && (
-                  <li>Remove <strong>{deletingRun.tasting_bottles_produced}</strong> bottles from tasting stock</li>
+                  <li>Remove <strong>{deletingRun.tasting_bottles_produced}</strong> bottles from tasting stock, and off the Samples pallet</li>
                 )}
                 <li>Return any packaging materials this run used</li>
                 <li>Remove its bottles from whichever pallet it was stacked on</li>
