@@ -1,5 +1,32 @@
 import { base44 } from '@/api/base44Client';
 
+// A single, fixed pallet that every bottling run's tasting/sample bottles
+// automatically stack onto, so samples stay trackable and dispatchable as
+// their own pool instead of disappearing into whichever pallet regular
+// production happens to be stacking onto that day. Found by its fixed code
+// rather than an id stored anywhere, since nothing else needs to reference
+// it — callers just want "the samples pallet", created (and flagged
+// available for dispatch, same as any other sellable pallet) on first use.
+const SAMPLES_PALLET_CODE = 'SAMPLES';
+
+export async function getOrCreateSamplesPallet() {
+  const existing = await base44.entities.Pallet.filter({ pallet_code: SAMPLES_PALLET_CODE });
+  if (existing.length > 0) {
+    const pallet = existing[0];
+    if (pallet.status === 'archived') {
+      await base44.entities.Pallet.update(pallet.id, { status: 'active' });
+    }
+    return pallet.id;
+  }
+  const created = await base44.entities.Pallet.create({
+    pallet_code: SAMPLES_PALLET_CODE,
+    location: 'Distillery',
+    status: 'active',
+    is_active_dispatch_pallet: true,
+  });
+  return created.id;
+}
+
 // A pallet is a manifest over existing FinishedGood/WarehouseStock, not the
 // source of truth for stock levels — so reconciling it when a dispatch's
 // stock is deducted/restored is always best-effort and must never throw or
