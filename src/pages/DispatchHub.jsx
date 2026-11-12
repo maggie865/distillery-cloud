@@ -69,6 +69,12 @@ export default function DispatchHub() {
   const editFormRef = useRef({});
   // Keep ref in sync with state so Save button always uses latest values
   useEffect(() => { editFormRef.current = editForm; }, [editForm]);
+  // Extra batches a manual split (BatchPicker's "Split across batches" mode)
+  // assigned beyond the first — editForm/editFormRef only ever represents
+  // one batch_number, so these become additional Dispatch rows on save.
+  const [pendingSplitRows, setPendingSplitRows] = useState([]);
+  const splitRowsRef = useRef([]);
+  useEffect(() => { splitRowsRef.current = pendingSplitRows; }, [pendingSplitRows]);
   const [editCalcingDistance, setEditCalcingDistance] = useState(false);
   const [returningDispatch, setReturningDispatch] = useState(null);
   const [deletingDispatch, setDeletingDispatch] = useState(null);
@@ -145,6 +151,7 @@ export default function DispatchHub() {
   // three need to seed editForm from the same dispatch row the same way.
   const openEditDialog = (d) => {
     setEditingDispatch(d);
+    setPendingSplitRows([]);
     setEditForm({
       status: d.status, notes: d.notes || '', dispatch_date: d.dispatch_date, product_name: d.product_name || '',
       batch_number: d.batch_number || '', quantity_bottles: d.quantity_bottles || '', bottle_size_ml: d.bottle_size_ml || '',
@@ -281,7 +288,7 @@ export default function DispatchHub() {
   };
 
   const editMutation = useMutation({
-    mutationFn: async (data) => {
+    mutationFn: async ({ data, splits = [] }) => {
       let co2e = data.co2e_kg || editingDispatch.co2e_kg || 0;
       const distance = data.transport_distance_km || editingDispatch.transport_distance_km || 0;
       const weight = data.parcel_weight_kg || editingDispatch.parcel_weight_kg || 0;
@@ -342,8 +349,23 @@ export default function DispatchHub() {
         duty_free: flagPayload.duty_free,
         is_export: flagPayload.is_export,
       });
+
+      // A manual split (BatchPicker's "Split across batches" mode) assigned
+      // more batches than editForm/finalPayload can represent — the main
+      // row above already got the first batch's portion, so each remaining
+      // split row becomes its own new Dispatch row, carrying over everything
+      // the edit form doesn't expose (customer/order/sales_channel/etc. via
+      // the merged spread) same as allocateBluffBatchForDispatch's own
+      // rest-of-allocation loop above.
+      for (const split of splits) {
+        const { id, created_at, ...rowRest } = merged;
+        const splitRow = { ...rowRest, ...flagPayload, ...split };
+        await db.Dispatch.create(splitRow);
+        if (willDeduct) await depleteStock(splitRow);
+      }
     },
     onSuccess: () => {
+      setPendingSplitRows([]);
       queryClient.invalidateQueries({ queryKey: ['dispatches'] });
       queryClient.invalidateQueries({ queryKey: ['dispatches-all'] });
       queryClient.invalidateQueries({ queryKey: ['finishedGoods'] });
@@ -845,6 +867,13 @@ export default function DispatchHub() {
                 distanceKm={parseFloat(editForm.transport_distance_km) || 0}
                 transportMethod={editForm.transport_method}
                 onAllocate={(result) => setEditForm(f => ({ ...f, ...result }))}
+                onSplit={(rows) => {
+                  const [first, ...rest] = rows;
+                  setEditForm(f => ({ ...f, ...first }));
+                  setPendingSplitRows(rest);
+                }}
+                onClearSplit={() => setPendingSplitRows([])}
+                splitExtraCount={pendingSplitRows.length}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -895,7 +924,7 @@ export default function DispatchHub() {
             </div>
             <div><Label>Notes</Label><Input value={editForm.notes || ''} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} className="mt-1" /></div>
             <ExciseFlags form={editForm} setForm={setEditForm} dispatchedFrom={editForm.dispatched_from || 'Bluff'} />
-            <Button onClick={() => editMutation.mutate(editFormRef.current)} disabled={editMutation.isPending} className="w-full">{editMutation.isPending ? 'Saving…' : 'Save Changes'}</Button>
+            <Button onClick={() => editMutation.mutate({ data: editFormRef.current, splits: splitRowsRef.current })} disabled={editMutation.isPending} className="w-full">{editMutation.isPending ? 'Saving…' : 'Save Changes'}</Button>
           </div>
         </DialogContent>
       </Dialog>
