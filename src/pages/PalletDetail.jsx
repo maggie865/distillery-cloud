@@ -8,7 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Switch } from '@/components/ui/switch';
-import { ArrowLeft, Plus, Printer, PackageMinus, Archive, ArchiveRestore, Wine, Droplets, Truck } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ArrowLeft, Plus, Printer, PackageMinus, Archive, ArchiveRestore, Wine, Droplets, Truck, Pencil, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
@@ -27,6 +31,9 @@ export default function PalletDetail() {
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const [addingItem, setAddingItem] = useState(false);
   const [takingOffItem, setTakingOffItem] = useState(null);
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const { data: pallets = [], isLoading } = useQuery({
     queryKey: ['pallets'],
@@ -61,6 +68,38 @@ export default function PalletDetail() {
       toast.success(active ? 'Now selectable as a dispatch source' : 'No longer shown as a dispatch source');
     },
     onError: (e) => toast.error('Failed: ' + e.message),
+  });
+
+  // pallet_code is the route key (/pallets/:palletCode) and what scan-to-match
+  // flows (BottlingFloor, TransferTo3PLDialog) compare a typed/scanned code
+  // against — every other reference to a pallet already goes through
+  // pallet_id, so renaming only ever touches this one column.
+  const renameMutation = useMutation({
+    mutationFn: async (newCode) => {
+      const trimmed = newCode.trim();
+      if (!trimmed) throw new Error('Enter a pallet code');
+      const collision = pallets.find(p => p.id !== pallet.id && p.pallet_code.toLowerCase() === trimmed.toLowerCase());
+      if (collision) throw new Error(`Pallet code "${trimmed}" is already in use`);
+      await base44.entities.Pallet.update(pallet.id, { pallet_code: trimmed });
+      return trimmed;
+    },
+    onSuccess: (newCode) => {
+      qc.invalidateQueries({ queryKey: ['pallets'] });
+      setRenaming(false);
+      toast.success('Pallet renamed');
+      navigate(`/pallets/${newCode}`, { replace: true });
+    },
+    onError: (e) => toast.error(e.message || 'Failed to rename pallet'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => base44.entities.Pallet.delete(pallet.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pallets'] });
+      toast.success(`${pallet.pallet_code} deleted`);
+      navigate('/pallets');
+    },
+    onError: (e) => toast.error('Failed to delete pallet: ' + e.message),
   });
 
   if (isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -100,6 +139,18 @@ export default function PalletDetail() {
           ) : null}
           <Button variant="outline" onClick={() => printPalletLabel(pallet)} className="gap-1.5">
             <Printer className="w-4 h-4" /> Print Label
+          </Button>
+          <Button variant="outline" onClick={() => { setRenameValue(pallet.pallet_code); setRenaming(true); }} className="gap-1.5">
+            <Pencil className="w-4 h-4" /> Rename
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setDeleting(true)}
+            disabled={groupedItems.length > 0}
+            title={groupedItems.length > 0 ? 'Take everything off this pallet before deleting it' : undefined}
+            className="gap-1.5 text-destructive hover:text-destructive"
+          >
+            <Trash2 className="w-4 h-4" /> Delete
           </Button>
           {pallet.status !== 'active' && (
             <Button
@@ -228,6 +279,51 @@ export default function PalletDetail() {
         item={takingOffItem}
         currentPalletId={pallet.id}
       />
+
+      <Dialog open={renaming} onOpenChange={setRenaming}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-display">Rename Pallet</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 mt-2">
+            <Label>Pallet code</Label>
+            <Input
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && renameMutation.mutate(renameValue)}
+              className="font-mono"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenaming(false)}>Cancel</Button>
+            <Button onClick={() => renameMutation.mutate(renameValue)} disabled={renameMutation.isPending}>
+              {renameMutation.isPending ? 'Saving…' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={deleting} onOpenChange={setDeleting}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {pallet.pallet_code}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This pallet is empty, so there's no stock to reverse — this just removes the pallet record itself. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
