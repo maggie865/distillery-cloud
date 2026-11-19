@@ -251,7 +251,7 @@ export default function DispatchHub() {
       // batches covered the rest. Block the status change instead: they
       // need to open the batch picker (Reassign → Split across batches) and
       // explicitly choose the split before this can be marked Dispatched.
-      throw new Error(`No single batch has all ${dispatch.quantity_bottles} bottles of ${dispatch.product_name} — open the batch picker (Reassign) and use "Split across batches" to choose where the rest comes from before marking this Dispatched.`);
+      throw new Error(`No single batch has all ${dispatch.quantity_bottles} bottles of ${dispatch.product_name} — use "Split across batches" in the batch picker above to choose where the rest comes from before marking this Dispatched.`);
     }
 
     const depleteBatch = async (batch, take, lals) => {
