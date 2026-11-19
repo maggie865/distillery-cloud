@@ -252,6 +252,10 @@ export default function SNSDistillation() {
       toast.error('Please fill in all required fields');
       return;
     }
+    if (!editingId && parseFloat(form.hearts_volume) > 0 && !form.destination_tank_ids.some(Boolean)) {
+      toast.error('Select at least one destination tank for the hearts — otherwise they have nowhere to go');
+      return;
+    }
     if (submitting) return; // double-tap/double-click guard — this isn't wrapped in useMutation's own isPending
 
     setSubmitting(true);
@@ -294,7 +298,7 @@ export default function SNSDistillation() {
       } else {
         const finalPayload = {
           ...payload,
-          destination_tank_ids: form.destination_tank_ids,
+          destination_tank_ids: form.destination_tank_ids.filter(Boolean),
         };
 
         const createdRun = await db.SNSRun.create(finalPayload);
@@ -322,10 +326,9 @@ export default function SNSDistillation() {
         }
 
         // Distribute hearts across destination tanks with overflow
-        if (form.destination_tank_ids && form.destination_tank_ids.length > 0) {
-          let remainingVolume = parseFloat(form.hearts_volume);
-
-          for (const tankId of form.destination_tank_ids) {
+        let remainingVolume = parseFloat(form.hearts_volume);
+        if (finalPayload.destination_tank_ids.length > 0) {
+          for (const tankId of finalPayload.destination_tank_ids) {
             if (remainingVolume <= 0) break;
 
             const destTank = tanks.find(t => t.id === tankId);
@@ -359,7 +362,11 @@ export default function SNSDistillation() {
           });
         }
 
-        toast.success('SNS run recorded and hearts distributed');
+        if (remainingVolume > 0.01) {
+          toast.warning(`SNS run recorded, but ${remainingVolume.toFixed(2)}L of hearts couldn't fit in the selected destination tank(s) (full or too small) — that volume was not credited anywhere. Add more tank capacity and adjust manually if needed.`);
+        } else {
+          toast.success('SNS run recorded and hearts distributed');
+        }
       }
 
       queryClient.invalidateQueries({ queryKey: ['snsRuns'] });
