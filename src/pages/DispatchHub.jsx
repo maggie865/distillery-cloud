@@ -243,6 +243,16 @@ export default function DispatchHub() {
       { distanceKm: dispatch.transport_distance_km || 0, transportMethod: dispatch.transport_method }
     );
     if (!first) throw new Error(`No stock available for ${dispatch.product_name}`);
+    if (rest.length > 0) {
+      // No single batch covers the full quantity. This used to silently
+      // keep only `first.take` on this row and spin the remainder off into
+      // brand-new dispatch rows forced straight to 'dispatched' — shrinking
+      // the quantity the person asked for without them choosing which
+      // batches covered the rest. Block the status change instead: they
+      // need to open the batch picker (Reassign → Split across batches) and
+      // explicitly choose the split before this can be marked Dispatched.
+      throw new Error(`No single batch has all ${dispatch.quantity_bottles} bottles of ${dispatch.product_name} — open the batch picker (Reassign) and use "Split across batches" to choose where the rest comes from before marking this Dispatched.`);
+    }
 
     const depleteBatch = async (batch, take, lals) => {
       const newQty = (batch.quantity_bottles || 0) - take;
@@ -255,19 +265,6 @@ export default function DispatchHub() {
     };
 
     await depleteBatch(first.batch, first.take, first.lals);
-    for (const a of rest) {
-      const { id, created_at, ...rowRest } = dispatch;
-      await db.Dispatch.create({
-        ...rowRest,
-        batch_number: a.batch.batch_number,
-        quantity_bottles: a.take,
-        total_lals: parseFloat(a.lals.toFixed(4)),
-        parcel_weight_kg: a.weightKg,
-        co2e_kg: a.co2e,
-        status: 'dispatched',
-      });
-      await depleteBatch(a.batch, a.take, a.lals);
-    }
 
     return {
       batch_number: first.batch.batch_number,
@@ -379,7 +376,7 @@ export default function DispatchHub() {
       setEditingDispatch(null);
       toast.success('Dispatch updated');
     },
-    onError: () => toast.error('Failed to save changes'),
+    onError: (err) => toast.error(err.message || 'Failed to save changes'),
   });
 
   const calculateEditDistance = async (address) => {
