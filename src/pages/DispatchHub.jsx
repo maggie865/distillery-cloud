@@ -351,11 +351,17 @@ export default function DispatchHub() {
       // more batches than editForm/finalPayload can represent — the main
       // row above already got the first batch's portion, so each remaining
       // split row becomes its own new Dispatch row, carrying over everything
-      // the edit form doesn't expose (customer/order/sales_channel/etc. via
-      // the merged spread) same as allocateBluffBatchForDispatch's own
-      // rest-of-allocation loop above.
+      // the edit form doesn't expose (customer/order/sales_channel/etc.).
+      // Built from editingDispatch + cleanData (NOT the raw `merged`) —
+      // cleanData already dropped every blanked-out form field so the main
+      // row's update doesn't try to cast '' into a numeric/date/uuid column
+      // and silently keeps that column's old value instead; `merged` skips
+      // that cleaning, so a single blank field (e.g. Parcel Weight) made
+      // db.Dispatch.create() below throw and the whole save fail the
+      // moment a split was involved.
+      const mergedClean = { ...editingDispatch, ...cleanData };
       for (const split of splits) {
-        const { id, created_at, ...rowRest } = merged;
+        const { id, created_at, ...rowRest } = mergedClean;
         const splitRow = { ...rowRest, ...flagPayload, ...split };
         await db.Dispatch.create(splitRow);
         if (willDeduct) await depleteStock(splitRow);
