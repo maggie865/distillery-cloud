@@ -26,18 +26,13 @@ import { buildBluffProductOptions, build3PLProductOptions, allocateBluffLineItem
 // already-committed allocation just because current stock has since moved
 // would be wrong; reassigning is an explicit action.
 export default function BatchPicker({ finishedGoods = [], warehouseStock = [], dispatchedFrom = 'Bluff', palletId = '', productName, bottleSizeMl, batchNumber, quantityBottles, distanceKm = 0, transportMethod, onAllocate, onSplit, onClearSplit, splitExtraCount = 0 }) {
-  const [manualProductId, setManualProductId] = useState('');
+  const [manualOptionKey, setManualOptionKey] = useState('');
   const [allocationMode, setAllocationMode] = useState('fifo');
   const [manualBatchId, setManualBatchId] = useState('');
   const [reassigning, setReassigning] = useState(false);
   const [splitRows, setSplitRows] = useState([]);
   const [stagingBatchId, setStagingBatchId] = useState('');
   const [stagingQty, setStagingQty] = useState('');
-
-  const { data: products = [] } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => base44.entities.Product.list('sort_order', 1000),
-  });
 
   const isBluff = dispatchedFrom === 'Bluff';
 
@@ -123,9 +118,18 @@ export default function BatchPicker({ finishedGoods = [], warehouseStock = [], d
     return candidates.length === 1 ? candidates[0] : null;
   }, [productOptions, productName, bottleSizeMl]);
 
-  const manualProduct = products.find(p => p.id === manualProductId);
-  const effectiveOption = matchedOption
-    || (manualProduct ? productOptions.find(o => stripSizeSuffix(o.product_name) === stripSizeSuffix(manualProduct.name) && Number(o.bottle_size_ml) === Number(manualProduct.bottle_size_ml)) : null);
+  // Picking directly from productOptions (not the Settings → Products
+  // catalog) for the manual fallback below means this never depends on a
+  // catalog entry existing for the real product_name/bottle_size_ml a
+  // dispatch actually needs — which matters for stock that's deliberately
+  // not a catalog product, like the Samples pallet's "<Product> — Tasting"
+  // buckets (see getOrCreateSamplesPallet): there's no "X — Tasting"
+  // Product row to pick, and even picking the plain "X" catalog product
+  // wouldn't stripSizeSuffix-match a "X — Tasting" stock name anyway, so
+  // the old catalog-based picker could never reach that stock no matter
+  // what the person chose.
+  const manualOption = productOptions.find(o => `${o.product_name}||${o.bottle_size_ml}` === manualOptionKey) || null;
+  const effectiveOption = matchedOption || manualOption;
 
   const showPicker = reassigning || !batchNumber;
   const selectedPallet = isBluff && palletId ? pallets.find(p => p.id === palletId) : null;
@@ -247,19 +251,20 @@ export default function BatchPicker({ finishedGoods = [], warehouseStock = [], d
         <p className="text-xs text-amber-800 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> &ldquo;{productName}&rdquo; doesn&apos;t match a known product — choose which one this dispatch is really for.</p>
         <div>
           <Label>Product</Label>
-          <Select value={manualProductId} onValueChange={v => { setManualProductId(v); setManualBatchId(''); }}>
+          <Select value={manualOptionKey} onValueChange={v => { setManualOptionKey(v); setManualBatchId(''); }}>
             <SelectTrigger className="mt-1 bg-background"><SelectValue placeholder="Choose a product" /></SelectTrigger>
             <SelectContent>
-              {products.filter(p => p.active !== false).map(p => (
-                <SelectItem key={p.id} value={p.id}>{p.name}{p.bottle_size_ml ? ` (${p.bottle_size_ml}ml)` : ''}</SelectItem>
+              {productOptions.length === 0 ? (
+                <div className="px-2 py-3 text-xs text-muted-foreground text-center">No stock available {noStockReason}</div>
+              ) : productOptions.map(o => (
+                <SelectItem key={`${o.product_name}||${o.bottle_size_ml}`} value={`${o.product_name}||${o.bottle_size_ml}`}>
+                  {o.product_name}{o.bottle_size_ml ? ` (${o.bottle_size_ml}ml)` : ''} — {o.totalAvailable} available
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
-        {manualProduct && !effectiveOption && (
-          <p className="text-xs text-destructive">No stock available for {manualProduct.name}{manualProduct.bottle_size_ml ? ` (${manualProduct.bottle_size_ml}ml)` : ''} {noStockReason}.</p>
-        )}
-        {manualProduct && effectiveOption && (
+        {effectiveOption && (
           <BatchSelector
             effectiveOption={effectiveOption} allocationMode={allocationMode} setAllocationMode={setAllocationMode}
             manualBatchId={manualBatchId} setManualBatchId={setManualBatchId} onPick={allocate}
