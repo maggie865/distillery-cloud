@@ -267,6 +267,13 @@ export default function Distillation() {
   const autoDumpedLALs = inputLALs > 0 ? Math.max(0, inputLALs - calcOutputLALs) : 0;
   const dumpedVolume = parseFloat(form.dumped_volume) || 0;
   const dumped_abv = autoDumpedLALs > 0 && dumpedVolume > 0 ? (autoDumpedLALs / dumpedVolume) * 100 : 0;
+  // The cuts (heads+hearts+tails) can never legitimately contain more
+  // alcohol than went into the still — if they do, autoDumpedLALs clamps
+  // to 0 above and silently hides it instead of flagging the impossible
+  // result. Almost always means an ABV reading taken hot off the still
+  // without correcting to 20°C (reads artificially high), or a volume
+  // typo, rather than a real yield.
+  const lalsOverInput = inputLALs > 0 ? Math.max(0, calcOutputLALs - inputLALs) : 0;
 
   const numericFields = ['input_volume','input_abv','atmospheric_pressure','still_temp',
     'heads_volume','heads_abv','hearts_volume','hearts_abv',
@@ -803,10 +810,16 @@ export default function Distillation() {
       return;
     }
     setBatchError(false);
+    const warnLalsOverInput = lalsOverInput > 0.001;
+    const onSaveSuccess = () => {
+      if (warnLalsOverInput) {
+        toast.warning(`Saved, but heads + hearts + tails add up to ${lalsOverInput.toFixed(2)} more LALs than went into the still (${((calcOutputLALs / inputLALs) * 100).toFixed(1)}% yield) — that's not physically possible. Worth double-checking your cut ABV readings (hot hydrometer readings read high) before this run's numbers get relied on elsewhere.`);
+      }
+    };
     if (editing) {
-      updateMutation.mutate(form);
+      updateMutation.mutate(form, { onSuccess: onSaveSuccess });
     } else {
-      createMutation.mutate(form);
+      createMutation.mutate(form, { onSuccess: onSaveSuccess });
     }
   };
 
@@ -1198,8 +1211,8 @@ export default function Distillation() {
 
             {/* Mass Balance Summary */}
             {inputLALs > 0 && calcOutputLALs > 0 && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Mass Balance</p>
+              <div className={`rounded-lg border p-4 space-y-2 ${lalsOverInput > 0.001 ? 'border-destructive/40 bg-destructive/5' : 'border-amber-200 bg-amber-50'}`}>
+                <p className={`text-xs font-semibold uppercase tracking-wider ${lalsOverInput > 0.001 ? 'text-destructive' : 'text-amber-700'}`}>Mass Balance</p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                   <div className="flex justify-between"><span className="text-muted-foreground">Input LALs</span><span className="font-semibold">{inputLALs.toFixed(3)}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Heads LALs</span><span>{headsLALs.toFixed(3)}</span></div>
@@ -1212,6 +1225,14 @@ export default function Distillation() {
                     {autoDumpedLALs.toFixed(3)}
                   </span>
                 </div>
+                {lalsOverInput > 0.001 && (
+                  <div className="border-t border-destructive/20 pt-2 flex items-start gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-destructive flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-destructive">
+                      Heads + Hearts + Tails contain {lalsOverInput.toFixed(3)} more LALs than went into the still ({calcOutputLALs.toFixed(3)} out of {inputLALs.toFixed(3)} in — {((calcOutputLALs / inputLALs) * 100).toFixed(1)}% yield). That's not physically possible — double-check your cut ABV readings (a hydrometer read hot, straight off the still, reads artificially high — let it cool to 20°C or apply a temperature correction) and the input volume/ABV before saving.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1262,6 +1283,9 @@ export default function Distillation() {
                     e.preventDefault();
                     updateMutation.mutate(form, {
                       onSuccess: () => {
+                        if (lalsOverInput > 0.001) {
+                          toast.warning(`Heads + hearts + tails add up to ${lalsOverInput.toFixed(2)} more LALs than went into the still (${((calcOutputLALs / inputLALs) * 100).toFixed(1)}% yield) — not physically possible. Double-check your cut ABV readings before moving hearts to a tank.`);
+                        }
                         setRunToComplete({ ...editing, ...buildPayload(form) });
                         setCompleteDialogOpen(true);
                       }
