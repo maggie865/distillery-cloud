@@ -150,7 +150,20 @@ export default function BatchPicker({ finishedGoods = [], warehouseStock = [], d
       );
       if (!first) return;
       if (rest.length > 0) {
-        toast.warning(`Only ${first.take} of ${quantityBottles} bottles available in batch ${first.batch.batch_number} — quantity adjusted. Create a separate dispatch for the remainder.`);
+        // FIFO naturally needed more than one batch to cover the full
+        // quantity — silently keeping only `first` would shrink the
+        // dispatch's quantity behind the person's back. Hand the full
+        // FIFO split (first + rest) to Split mode instead, pre-filled and
+        // already summing to the original quantity, so the quantity never
+        // changes and they just confirm (or adjust) which batches cover it.
+        if (onSplit) {
+          setSplitRows([first, ...rest].map(a => ({ batchId: a.batch.id, quantity: a.take })));
+          setAllocationMode('split');
+          toast.warning(`No single batch has all ${quantityBottles} bottles of ${effectiveOption.product_name} — split across ${1 + rest.length} batches below (review and Apply, or adjust the split yourself).`);
+        } else {
+          toast.error(`No single batch has all ${quantityBottles} bottles available — choose a smaller quantity or a different batch.`);
+        }
+        return;
       }
       onAllocate({
         product_name: effectiveOption.product_name,
