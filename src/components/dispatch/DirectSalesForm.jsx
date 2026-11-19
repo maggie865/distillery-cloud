@@ -83,9 +83,15 @@ export default function DirectSalesForm({ open, onClose, finishedGoods = [], all
     [pallets]
   );
 
+  // Tasting/sample stock is excluded from the regular (no-pallet) picker so
+  // front-of-house staff can't accidentally ring up free sample bottles as
+  // a paid sale — but it's the ONLY thing that lives on the Samples pallet
+  // (see getOrCreateSamplesPallet), so explicitly choosing that pallet (or
+  // any pallet) as the source is itself the deliberate choice to dispatch
+  // exactly what's on it, tasting stock included.
   const sellableGoods = useMemo(
-    () => finishedGoods.filter(fg => !fg.product_name?.includes('Tasting')),
-    [finishedGoods]
+    () => finishedGoods.filter(fg => palletId || !fg.product_name?.includes('Tasting')),
+    [finishedGoods, palletId]
   );
 
   const rawProductOptions = useMemo(() => {
