@@ -562,6 +562,13 @@ export default function BottlingFloor() {
         } catch (err) {
           toast.warning('Stock saved, but could not attach it to the current pallet: ' + err.message);
         }
+      } else if (totalBottles > 0) {
+        // No pallet was selected on this device/browser — "current pallet"
+        // is sticky per-browser (see CURRENT_PALLET_KEY), so another
+        // device/session choosing one doesn't carry over here. The stock
+        // itself is already saved correctly above; without this warning,
+        // output silently lands nowhere on any pallet with no trace of why.
+        toast.warning(`${totalBottles} bottles saved to stock, but no pallet is selected on this device — they haven't been added to any pallet. Use "Add to Pallet" on this run to attach them.`);
       }
     },
     onSuccess: () => {
