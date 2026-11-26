@@ -203,9 +203,18 @@ export default function DispatchHub() {
       const candidates = await db.WarehouseStock.filter({ product_name: dispatch.product_name, batch_number: dispatch.batch_number, bottle_size_ml: dispatch.bottle_size_ml });
       const existing = resolve3PLWarehouseStockRow(candidates, { product_name: dispatch.product_name, batch_number: dispatch.batch_number, bottle_size_ml: dispatch.bottle_size_ml, location: loc });
       if (existing) {
+        // Clamped to 0 rather than going negative, same as the Bluff branch
+        // below — but clamping silently absorbs an overdraft with no trace
+        // of it ever happening. Surface it: it means more has been
+        // dispatched from this batch/size than this warehouse ever actually
+        // held, which should never be possible and is worth investigating.
+        const shortfall = qty - (existing.quantity_bottles || 0);
         const newQty = Math.max(0, (existing.quantity_bottles || 0) - qty);
         const newLals = Math.max(0, parseFloat(((existing.total_lals || 0) - lals).toFixed(4)));
         await db.WarehouseStock.update(existing.id, { quantity_bottles: newQty, total_lals: newLals });
+        if (shortfall > 0) {
+          toast.warning(`Dispatched ${qty} of ${dispatch.product_name} batch ${dispatch.batch_number} (${dispatch.bottle_size_ml}ml), but only ${existing.quantity_bottles || 0} was recorded at ${loc} — ${shortfall} more than that warehouse actually had on record. Worth investigating this batch's stock history.`);
+        }
       } else {
         toast.warning(`No matching 3PL stock found for ${dispatch.product_name} batch ${dispatch.batch_number} (${dispatch.bottle_size_ml}ml) at ${loc} — dispatch saved, but no warehouse quantity was decremented.`);
       }
@@ -213,10 +222,20 @@ export default function DispatchHub() {
       const allFG = await db.FinishedGood.list('product_name', 5000);
       const fg = allFG.find(g => g.product_name === dispatch.product_name && g.batch_number === dispatch.batch_number && Number(g.bottle_size_ml) === Number(dispatch.bottle_size_ml));
       if (fg) {
+        // Same overdraft concern as the 3PL branch above — this used to
+        // clamp to 0 (via delete) with no floor check and no warning,
+        // which is exactly how a batch can end up with more dispatched
+        // against it than was ever bottled with nothing flagging it.
+        const shortfall = qty - (fg.quantity_bottles || 0);
         const newQty = (fg.quantity_bottles || 0) - qty;
         const newLals = parseFloat(((fg.total_lals || 0) - lals).toFixed(4));
         if (newQty <= 0) await db.FinishedGood.delete(fg.id);
         else await db.FinishedGood.update(fg.id, { quantity_bottles: newQty, total_lals: newLals });
+        if (shortfall > 0) {
+          toast.warning(`Dispatched ${qty} of ${dispatch.product_name} batch ${dispatch.batch_number} (${dispatch.bottle_size_ml}ml), but only ${fg.quantity_bottles || 0} was in stock — ${shortfall} more than this batch/size actually had on hand. Worth investigating this batch's stock history.`);
+        }
+      } else if (qty > 0) {
+        toast.warning(`No stock on hand for ${dispatch.product_name} batch ${dispatch.batch_number} (${dispatch.bottle_size_ml}ml) — dispatch saved, but nothing was decremented. This batch/size may already be fully depleted.`);
       }
     }
     if (dispatch.pallet_id) {
