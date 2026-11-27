@@ -239,7 +239,10 @@ export default function DispatchHub() {
       }
     }
     if (dispatch.pallet_id) {
-      await deductFromPallet(dispatch.pallet_id, { product_name: dispatch.product_name, batch_number: dispatch.batch_number, bottle_size_ml: dispatch.bottle_size_ml, quantity_bottles: qty });
+      const palletResult = await deductFromPallet(dispatch.pallet_id, { product_name: dispatch.product_name, batch_number: dispatch.batch_number, bottle_size_ml: dispatch.bottle_size_ml, quantity_bottles: qty });
+      if (!palletResult.ok) {
+        toast.warning(`Dispatched ${qty} bottles, but the pallet didn't have that many of ${dispatch.product_name} recorded on it — its contents may be off, worth checking.`);
+      }
     }
   };
 
@@ -279,7 +282,10 @@ export default function DispatchHub() {
       if (newQty <= 0) await db.FinishedGood.delete(batch.id);
       else await db.FinishedGood.update(batch.id, { quantity_bottles: newQty, total_lals: parseFloat(newLals.toFixed(4)) });
       if (dispatch.pallet_id) {
-        await deductFromPallet(dispatch.pallet_id, { product_name: batch.product_name, batch_number: batch.batch_number, bottle_size_ml: batch.bottle_size_ml, quantity_bottles: take });
+        const palletResult = await deductFromPallet(dispatch.pallet_id, { product_name: batch.product_name, batch_number: batch.batch_number, bottle_size_ml: batch.bottle_size_ml, quantity_bottles: take });
+        if (!palletResult.ok) {
+          toast.warning(`Dispatched ${take} bottles, but the pallet didn't have that many of ${batch.product_name} recorded on it — its contents may be off, worth checking.`);
+        }
       }
     };
 
