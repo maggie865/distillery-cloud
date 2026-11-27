@@ -38,31 +38,52 @@ const findMatchingItem = (items, { product_name, batch_number, bottle_size_ml })
     Number(it.bottle_size_ml) === Number(bottle_size_ml)
   );
 
+const findMatchingItems = (items, { product_name, batch_number, bottle_size_ml }) =>
+  items.filter(it =>
+    it.product_name === product_name &&
+    (it.batch_number || null) === (batch_number || null) &&
+    Number(it.bottle_size_ml) === Number(bottle_size_ml)
+  );
+
 // Called when a dispatch tied to a pallet actually deducts stock (entering
 // dispatched/delivered) — takes the dispatched quantity off that pallet's
-// matching line item. Returns { ok } so callers that want to surface a
-// mismatch (e.g. the create form) can; callers that don't (edit/return/
-// delete transitions) can ignore it.
+// matching line item(s). A pallet can hold SEVERAL rows for the same
+// product/batch/size — one per add event (a bottling run, a later top-up,
+// a manual correction) — so this depletes oldest-row-first across all of
+// them, the same pattern TakeOffPalletDialog already uses, instead of only
+// ever touching whichever single row happened to match first: that left
+// every other matching row untouched, understating how much was actually
+// taken off and leaving the pallet showing leftover stock a dispatch was
+// supposed to clear out entirely. Returns { ok } so callers that want to
+// surface a mismatch (e.g. the create form) can; callers that don't
+// (edit/return/delete transitions) can ignore it.
 export async function deductFromPallet(palletId, { product_name, batch_number, bottle_size_ml, quantity_bottles }) {
   if (!palletId || !(quantity_bottles > 0)) return { ok: true };
   try {
     const items = await base44.entities.PalletItem.filter({ pallet_id: palletId });
-    const item = findMatchingItem(items, { product_name, batch_number, bottle_size_ml });
-    if (!item) return { ok: false, reason: 'not_found' };
+    const matches = findMatchingItems(items, { product_name, batch_number, bottle_size_ml });
+    if (matches.length === 0) return { ok: false, reason: 'not_found' };
 
-    const take = Math.min(quantity_bottles, item.quantity_bottles || 0);
-    const lalsPerBottle = (item.quantity_bottles || 0) > 0 && item.total_lals ? item.total_lals / item.quantity_bottles : 0;
-    const newQty = (item.quantity_bottles || 0) - take;
-    if (newQty <= 0) {
-      await base44.entities.PalletItem.delete(item.id);
-      await markPalletEmptiedIfBare(palletId);
-    } else {
-      await base44.entities.PalletItem.update(item.id, {
-        quantity_bottles: newQty,
-        total_lals: parseFloat(Math.max(0, (item.total_lals || 0) - take * lalsPerBottle).toFixed(4)),
-      });
+    const sorted = [...matches].sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+    let remaining = quantity_bottles;
+    for (const item of sorted) {
+      if (remaining <= 0) break;
+      const take = Math.min(remaining, item.quantity_bottles || 0);
+      if (take <= 0) continue;
+      const lalsPerBottle = (item.quantity_bottles || 0) > 0 && item.total_lals ? item.total_lals / item.quantity_bottles : 0;
+      const newQty = (item.quantity_bottles || 0) - take;
+      if (newQty <= 0) {
+        await base44.entities.PalletItem.delete(item.id);
+      } else {
+        await base44.entities.PalletItem.update(item.id, {
+          quantity_bottles: newQty,
+          total_lals: parseFloat(Math.max(0, (item.total_lals || 0) - take * lalsPerBottle).toFixed(4)),
+        });
+      }
+      remaining -= take;
     }
-    return { ok: take >= quantity_bottles };
+    await markPalletEmptiedIfBare(palletId);
+    return { ok: remaining <= 0 };
   } catch {
     return { ok: false, reason: 'error' };
   }
